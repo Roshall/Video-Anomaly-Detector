@@ -1,0 +1,3 @@
+*.onnx
+*.jp*g
+3rdparty/*
