@@ -1,12 +1,5 @@
 ﻿#include "Server.h"
 
-
-#ifdef WIN32
-#pragma comment(lib, "ws2_32.lib")
-#include <WinSock2.h>
-#include <WS2tcpip.h>
-#endif
-
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/buffer.h>
@@ -25,75 +18,42 @@ using namespace AVSAnalyzer;
 #define RECV_BUF_MAX_SIZE 1024*8
 
 
-Server::Server() {
-#ifdef WIN32
-    WSADATA wdSockMsg;
-    int s = WSAStartup(MAKEWORD(2, 2), &wdSockMsg);
+void HTTPServerStart(Scheduler &scheduler) {
+    scheduler.setState(true);
 
-    if (0 != s)
-    {
-        switch (s)
-        {
-        case WSASYSNOTREADY: printf("重启电脑，或者检查网络库");   break;
-        case WSAVERNOTSUPPORTED: printf("请更新网络库");  break;
-        case WSAEINPROGRESS: printf("请重新启动");  break;
-        case WSAEPROCLIM:  printf("请关闭不必要的软件，以确保有足够的网络资源"); break;
-        }
-    }
+    std::thread([&]() {
 
-    if (2 != HIBYTE(wdSockMsg.wVersion) || 2 != LOBYTE(wdSockMsg.wVersion))
-    {
-        LOGE("网络库版本错误");
-        return;
-    }
-#endif
-
-}
-Server::~Server() {
-    LOGE("");
-#ifdef WIN32
-    WSACleanup();
-#endif
-
-}
-
-void Server::start(void* arg) {
-    Scheduler* scheduler = (Scheduler*)arg;
-    scheduler->setState(true);
-
-    std::thread([](Scheduler *scheduler) {
-
-        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler->getConfig()->analyzerPort);
+        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler.getConfig()->analyzerPort);
         
         event_config* evt_config = event_config_new();
-        struct event_base* base = event_base_new_with_config(evt_config);
-        struct evhttp* http = evhttp_new(base);
+        event_base* base = event_base_new_with_config(evt_config);
+        evhttp* http = evhttp_new(base);
         evhttp_set_default_content_type(http, "text/html; charset=utf-8");
 
         evhttp_set_timeout(http, 0);
         // 设置路由
         evhttp_set_cb(http, "/", api_index, nullptr);
-        evhttp_set_cb(http, "/api/health", api_health, scheduler);
-        evhttp_set_cb(http, "/api/controls", api_controls, scheduler);
-        evhttp_set_cb(http, "/api/control", api_control, scheduler);
-        evhttp_set_cb(http, "/api/control/add", api_control_add, scheduler);
-        evhttp_set_cb(http, "/api/control/cancel", api_control_cancel, scheduler);
+        evhttp_set_cb(http, "/api/health", api_health, nullptr);
+        evhttp_set_cb(http, "/api/controls", api_controls, &scheduler);
+        evhttp_set_cb(http, "/api/control", api_control, &scheduler);
+        evhttp_set_cb(http, "/api/control/add", api_control_add, &scheduler);
+        evhttp_set_cb(http, "/api/control/cancel", api_control_cancel, &scheduler);
 
         evhttp_bind_socket(http, "0.0.0.0",
-            scheduler->getConfig()->analyzerPort);
+            scheduler.getConfig()->analyzerPort);
         event_base_dispatch(base);
 
         event_base_free(base);
         evhttp_free(http);
         event_config_free(evt_config);
 
-        scheduler->setState(false);
+        scheduler.setState(false);
 
-    }, scheduler).detach();
+    }).detach();
 
 }
 
-void api_index(struct evhttp_request* req, void* arg) {
+void api_index(evhttp_request* req, void* arg) {
    
     Json::Value result_urls;
     result_urls["/api"] = "this api version 1.0";
@@ -108,13 +68,13 @@ void api_index(struct evhttp_request* req, void* arg) {
     Json::Value result;
     result["urls"] = result_urls;
 
-    struct evbuffer* buff = evbuffer_new();
+    evbuffer* buff = evbuffer_new();
     evbuffer_add_printf(buff, "%s", result.toStyledString().c_str());
     evhttp_send_reply(req, HTTP_OK, nullptr, buff);
     evbuffer_free(buff);
 
 }
-void api_health(struct evhttp_request* req, void* arg) {
+void api_health(evhttp_request* req, void* arg) {
     int result_code = 0;
     std::string result_msg = "error";
 
@@ -127,16 +87,16 @@ void api_health(struct evhttp_request* req, void* arg) {
     result["msg"] = result_msg;
     result["code"] = result_code;
 
-    struct evbuffer* buff = evbuffer_new();
+    evbuffer* buff = evbuffer_new();
     evbuffer_add_printf(buff, "%s", result.toStyledString().c_str());
     evhttp_send_reply(req, HTTP_OK, nullptr, buff);
     evbuffer_free(buff);
 
 }
-void api_controls(struct evhttp_request* req, void* arg) {
+void api_controls(evhttp_request* req, void* arg) {
     
 
-    Scheduler* scheduler = (Scheduler*)arg;
+    auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
     parse_post(req, buf);
 
@@ -145,8 +105,6 @@ void api_controls(struct evhttp_request* req, void* arg) {
     Json::Value root;
     JSONCPP_STRING errs;
 
-    Json::Value result_data;
-    Json::Value result_data_item;
     int result_code = 0;
     std::string result_msg = "error";
     Json::Value result;
@@ -154,24 +112,25 @@ void api_controls(struct evhttp_request* req, void* arg) {
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
 
         std::vector<Control*> controls;
-        int len = scheduler->apiControls(controls);
 
-        if (len > 0) {
+        if (int len = scheduler->apiControls(controls); len > 0) {
+            Json::Value result_data_item;
+            Json::Value result_data;
             int64_t curTimestamp = getCurTimestamp();
             int64_t startTimestamp = 0;
-            for (int i = 0; i < controls.size(); i++)
+            for (auto control : controls)
             {
-                startTimestamp = controls[i]->startTimestamp;
+                startTimestamp = control->startTimestamp;
 
-                result_data_item["code"] = controls[i]->code.data();
-                result_data_item["streamUrl"] = controls[i]->streamUrl.data();
-                result_data_item["pushStream"] = controls[i]->pushStream;
-                result_data_item["pushStreamUrl"] = controls[i]->pushStreamUrl.data();
-                result_data_item["algorithmCode"] = controls[i]->algorithmCode.data();
-                result_data_item["objectCode"] = controls[i]->objectCode.data();
-                result_data_item["recognitionRegion"] = controls[i]->recognitionRegion.data();
+                result_data_item["code"] = control->code.data();
+                result_data_item["streamUrl"] = control->streamUrl.data();
+                result_data_item["pushStream"] = control->pushStream;
+                result_data_item["pushStreamUrl"] = control->pushStreamUrl.data();
+                result_data_item["algorithmCode"] = control->algorithmCode.data();
+                result_data_item["objectCode"] = control->objectCode.data();
+                result_data_item["recognitionRegion"] = control->recognitionRegion.data();
 
-                result_data_item["checkFps"] = controls[i]->checkFps;
+                result_data_item["checkFps"] = control->checkFps;
                 result_data_item["startTimestamp"] = startTimestamp;
                 result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
 
@@ -197,15 +156,15 @@ void api_controls(struct evhttp_request* req, void* arg) {
     //LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(), result.toStyledString().data());
 
 
-    struct evbuffer* buff = evbuffer_new();
+    evbuffer* buff = evbuffer_new();
     evbuffer_add_printf(buff, "%s", result.toStyledString().c_str());
     evhttp_send_reply(req, HTTP_OK, nullptr, buff);
     evbuffer_free(buff);
 
 }
-void api_control(struct evhttp_request* req, void* arg) {
+void api_control(evhttp_request* req, void* arg) {
 
-    Scheduler* scheduler = (Scheduler*)arg;
+    auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
     parse_post(req, buf);
 
@@ -221,7 +180,7 @@ void api_control(struct evhttp_request* req, void* arg) {
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
 
-        Control* control = NULL;
+        Control* control = nullptr;
         if (root["code"].isString()) {
             std::string code = root["code"].asCString();
             control = scheduler->apiControl(code);
@@ -251,19 +210,19 @@ void api_control(struct evhttp_request* req, void* arg) {
     LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(), result.toStyledString().data());
 
 
-    struct evbuffer* buff = evbuffer_new();
+    evbuffer* buff = evbuffer_new();
     evbuffer_add_printf(buff, "%s", result.toStyledString().c_str());
     evhttp_send_reply(req, HTTP_OK, nullptr, buff);
     evbuffer_free(buff);
 
 }
-void api_control_add(struct evhttp_request* req, void* arg) {
+void api_control_add(evhttp_request* req, void* arg) {
 
-    Scheduler* scheduler = (Scheduler*)arg;
+    const auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
     parse_post(req, buf);
 
-    Json::CharReaderBuilder builder;
+    const Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
     Json::Value root;
     JSONCPP_STRING errs;
@@ -273,23 +232,25 @@ void api_control_add(struct evhttp_request* req, void* arg) {
 
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
-
-        Control control;
-
-        control.code = root["code"].asCString();
-        control.streamUrl = root["streamUrl"].asString();
-        control.pushStream = root["pushStream"].asBool();
-        control.pushStreamUrl = root["pushStreamUrl"].asString();
-        control.algorithmCode = root["algorithmCode"].asString();
-        control.objects = root["objects"].asString();
-        control.objects_v1 = split(control.objects, ",");
-        control.objects_v1_len = control.objects_v1.size();
-        control.objectCode = root["objectCode"].asString();
-        control.recognitionRegion = root["recognitionRegion"].asString();
+        const auto objects_str = root["objects"].asString();
+        const auto objects_v = split(objects_str, ",");
+        Control control{
+            root["code"].asCString(),
+        root["streamUrl"].asString(),
+        root["pushStream"].asBool(),
+        root["pushStreamUrl"].asString(),
+        root["algorithmCode"].asString(),
+        objects_str,
+        objects_v,
+        static_cast<int>(objects_v.size()),
+        root["objectCode"].asString(),
+        root["recognitionRegion"].asString(),
+        };
 
         if (root["minInterval"].isString()) {
             control.minInterval = stoi(root["minInterval"].asString()) * 1000;//客户端传递过的该参数单位是秒
         }
+        // TODO: put minimum interval of Alarm into json
         //强制设置报警时间最大不能超过3分钟=180000毫秒
         if (control.minInterval > 180000) {
             control.minInterval = 180000;
@@ -297,7 +258,7 @@ void api_control_add(struct evhttp_request* req, void* arg) {
 
 
         if (control.validateAdd(result_msg)) {
-            scheduler->apiControlAdd(&control, result_code, result_msg);
+            scheduler->ControlAdd(&control, result_code, result_msg);
         }
     }
     else {
@@ -318,10 +279,8 @@ void api_control_add(struct evhttp_request* req, void* arg) {
 
 }
 
-void api_control_cancel(struct evhttp_request* req, void* arg) {
-
-
-    Scheduler* scheduler = (Scheduler*)arg;
+void api_control_cancel(evhttp_request* req, void* arg) {
+    auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
     parse_post(req, buf);
 
