@@ -41,6 +41,21 @@ else()
     message(FATAL_ERROR "jsoncpp not found")
 endif()
 
+# Find lock free queues
+find_package(readerwriterqueue CONFIG REQUIRED)
+if(readerwriterqueue_FOUND)
+    message(STATUS "readerwriterqueue found")
+else()
+    message(FATAL_ERROR "readerwriterqueue not found")
+endif()
+
+find_package(concurrentqueue CONFIG REQUIRED)
+if(concurrentqueue_FOUND)
+    message(STATUS "readerwriterqueue found")
+else()
+    message(FATAL_ERROR "readerwriterqueue not found")
+endif()
+
 # Find FFmpeg and curl using pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
@@ -92,6 +107,8 @@ target_link_libraries(Analyzer PRIVATE
         PkgConfig::FFMPEG
         PkgConfig::CURL
         onnxruntime
+        readerwriterqueue::readerwriterqueue
+        concurrentqueue::concurrentqueue
 )
 
 # Include directories (if needed beyond what find_package provides)
