@@ -23,7 +23,7 @@ void HTTPServerStart(Scheduler &scheduler) {
 
     std::thread([&]() {
 
-        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler.getConfig()->analyzerPort);
+        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler.getConfig()->analyzer_port);
         
         event_config* evt_config = event_config_new();
         event_base* base = event_base_new_with_config(evt_config);
@@ -40,7 +40,7 @@ void HTTPServerStart(Scheduler &scheduler) {
         evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
 
         evhttp_bind_socket(http, "0.0.0.0",
-            scheduler.getConfig()->analyzerPort);
+            scheduler.getConfig()->analyzer_port);
         event_base_dispatch(base);
 
         event_base_free(base);

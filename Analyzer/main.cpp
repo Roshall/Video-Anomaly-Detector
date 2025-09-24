@@ -45,7 +45,7 @@ int main(int argc, char** argv)
 	}
 
 	Config config(file);
-	if (!config.mState) {
+	if (!config.state) {
 		LOGE("failed to read config file: %s\n", file);
 		return -1;
 	}

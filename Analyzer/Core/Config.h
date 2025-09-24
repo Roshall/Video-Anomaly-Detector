@@ -5,30 +5,28 @@
 #include <vector>
 
 namespace AVSAnalyzer {
-	class Config
+	struct Config
 	{
-	public:
-		Config(const char* file);
-		~Config();
-	public:
 
-		bool mState = false;
-		void show();
-	public:
-		const char* file = NULL;
+		explicit Config(const char* file);
+		~Config() = default;
+
+
+		bool state = false;
+		void Show();
 
 		std::string host{};//主机IP地址 192.168.1.4
-		std::string adminHost{};//后台管理服务地址 http://192.168.1.4:9001
-		int adminPort;// 后台管理服务端口 9001
-		int analyzerPort;// 分析服务端口 9002
-		int mediaHttpPort;// 80
-		int mediaRtspPort;// 554
+		std::string admin_host{};//后台管理服务地址 http://192.168.1.4:9001
+		int admin_port;// 后台管理服务端口 9001
+		int analyzer_port;// 分析服务端口 9002
+		int media_http_port;// 80
+		int media_rtsp_port;// 554
 
-		std::string uploadDir{};
-		std::string modelDir{};
-		//std::string videoFileNameFormat{};//%Y%m%d%H%M%S
+		std::string upload_dir{};
+		std::string model_dir{};
+		//std::string video_file_name_format{};//%Y%m%d%H%M%S
 
-		std::string algorithmApiUrl{};//算法api服务器url
+		std::string algorithm_api_url{};//算法api服务器url
 
 	};
 }

@@ -34,7 +34,7 @@ namespace AVSAnalyzer {
 
         //初始化on-yolo8 80分类模型
         LOGI("初始化on-yolo8 80分类模型");
-        std::string modelPath = mConfig->modelDir + "/yolov8n.onnx";
+        std::string modelPath = mConfig->model_dir + "/yolov8n.onnx";
         std::vector<std::string> classNames = {
             "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
             "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",

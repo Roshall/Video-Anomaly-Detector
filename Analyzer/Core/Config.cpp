@@ -6,9 +6,10 @@
 #include "Utils/Log.h"
 #include "Version.h"
 
+using namespace std::string_literals;
+
 namespace AVSAnalyzer {
-    Config::Config(const char* file) :
-        file(file)
+    Config::Config(const char* file)
     {
 
         std::ifstream ifs(file, std::ios::binary);
@@ -17,63 +18,53 @@ namespace AVSAnalyzer {
             LOGE("open %s error", file);
             return;
         }
-        else {
-            Json::CharReaderBuilder builder;
-            builder["collectComments"] = true;
-            JSONCPP_STRING errs;
-            Json::Value root;
+        Json::CharReaderBuilder builder;
+        builder["collectComments"] = true;
+        JSONCPP_STRING errs;
+        Json::Value root;
 
-            if (parseFromStream(builder, ifs, &root, &errs)) {
-                this->host = root["host"].asString();
-                this->adminPort = root["adminPort"].asInt();
-                this->adminHost = "http://" + this->host + ":" + std::to_string(this->adminPort);
-                this->analyzerPort = root["analyzerPort"].asInt();
-                this->mediaHttpPort = root["mediaHttpPort"].asInt();
-                this->mediaRtspPort = root["mediaRtspPort"].asInt();
+        if (parseFromStream(builder, ifs, &root, &errs)) {
+            host = root["host"].asString();
+            admin_port = root["adminPort"].asInt();
+            admin_host = "http://"s + this->host + ":"s + std::to_string(this->admin_port);
+            analyzer_port = root["analyzerPort"].asInt();
+            media_http_port = root["mediaHttpPort"].asInt();
+            media_rtsp_port = root["mediaRtspPort"].asInt();
 
-                this->uploadDir = root["uploadDir"].asString();
-                this->modelDir = root["modelDir"].asString();
+            upload_dir = root["uploadDir"].asString();
+            model_dir = root["modelDir"].asString();
 
-                this->algorithmApiUrl = root["algorithmApiUrl"].asString();
-                std::filesystem::path path(uploadDir);
-                try {
-                    if (!std::filesystem::exists(path)) {
-                        std::filesystem::create_directory(path);
-                    }
-
-                    mState = true;
-                }
-                catch (std::filesystem::filesystem_error& e) {
-                    std::cout << e.what() << std::endl;
+            algorithm_api_url = root["algorithmApiUrl"].asString();
+            std::filesystem::path path(upload_dir);
+            try {
+                if (!std::filesystem::exists(path)) {
+                    std::filesystem::create_directory(path);
                 }
 
-              
+                state = true;
             }
-            else {
-                LOGE("parse %s error", file);
+            catch (std::filesystem::filesystem_error& e) {
+                std::cout << e.what() << std::endl;
             }
-            ifs.close();
+
+
         }
+        else {
+            LOGE("parse %s error", file);
+        }
+        ifs.close();
     }
 
-    Config::~Config()
-    {
-
-    }
-
-    void Config::show() {
-
-        printf("config.file=%s\n", file);
+    void Config::Show() {
         printf("config.host=%s\n", host.data());
-        printf("config.adminPort=%d\n", adminPort);
-        printf("config.analyzerPort=%d\n", analyzerPort);
-        printf("config.mediaHttpPort=%d\n", mediaHttpPort);
-        printf("config.mediaRtspPort=%d\n", mediaRtspPort);
+        printf("config.adminPort=%d\n", admin_port);
+        printf("config.analyzerPort=%d\n", analyzer_port);
+        printf("config.mediaHttpPort=%d\n", media_http_port);
+        printf("config.mediaRtspPort=%d\n", media_rtsp_port);
 
-        printf("config.uploadDir=%s\n", uploadDir.data());
-        printf("config.modelDir=%s\n", modelDir.data());
-
-        printf("config.algorithmApiUrl=%s\n", algorithmApiUrl.data());
+        printf("config.uploadDir=%s\n", upload_dir.data());
+        printf("config.modelDir=%s\n", model_dir.data());
+        printf("config.algorithmApiUrl=%s\n", algorithm_api_url.data());
 
     }
 }
