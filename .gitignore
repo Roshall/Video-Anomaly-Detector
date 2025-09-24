@@ -1,3 +1,4 @@
 *.onnx
 *.jp*g
 3rdparty/*
+.cache/*
