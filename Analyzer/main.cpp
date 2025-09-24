@@ -3,15 +3,12 @@
 #include "Core/Server.h"
 #include "Core/Version.h" 
 #include "Core/Algorithm.h"
+#include "Core/Utils/Log.h"
 using namespace AVSAnalyzer;
 
 int main(int argc, char** argv)
 {
-#ifdef WIN32
-	srand(time(NULL));//时间初始化
-#endif // WIN32
-
-	const char* file = NULL;
+	const char* file = nullptr;
 
 	for (int i = 1; i < argc; i += 2)
 	{
@@ -42,25 +39,28 @@ int main(int argc, char** argv)
 		}
 	}
 	
-	if (file == NULL) {
-		printf("failed to read config file\n");
+	if (file == nullptr) {
+		LOGE("failed to read config file\n");
 		return -1;
 	}
 
 	Config config(file);
 	if (!config.mState) {
-		printf("failed to read config file: %s\n", file);
+		LOGE("failed to read config file: %s\n", file);
 		return -1;
 	}
-	printf("Analyzer %s \n", PROJECT_VERSION);
+	LOGI("Analyzer %s \n", PROJECT_VERSION);
 
 	Scheduler scheduler(&config);
 	if (!scheduler.initAlgorithm()) {
 		return -1;
 	}
-	Server server;
-	server.start(&scheduler);
-	scheduler.loop();
+
+	HTTPServerStart(scheduler);
+	LOGI("Start Success");
+	// TODO: consider to use the same thread to clean up alarms and workers
+	scheduler.StartAlarmThread();
+	scheduler.CleanWorkerLoop();
 
 	return 0;
 }
