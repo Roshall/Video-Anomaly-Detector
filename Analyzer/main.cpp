@@ -52,7 +52,7 @@ int main(int argc, char** argv)
 	LOGI("Analyzer %s \n", PROJECT_VERSION);
 
 	Scheduler scheduler(&config);
-	if (!scheduler.initAlgorithm()) {
+	if (!scheduler.InitAlgorithm()) {
 		return -1;
 	}
 

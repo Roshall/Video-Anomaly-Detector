@@ -19,11 +19,11 @@ using namespace AVSAnalyzer;
 
 
 void HTTPServerStart(Scheduler &scheduler) {
-    scheduler.setState(true);
+    scheduler.SetState(true);
 
     std::thread([&]() {
 
-        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler.getConfig()->analyzer_port);
+        LOGI("启动分析器服务：http://0.0.0.0:%d", scheduler.GetConfig()->analyzer_port);
         
         event_config* evt_config = event_config_new();
         event_base* base = event_base_new_with_config(evt_config);
@@ -40,14 +40,14 @@ void HTTPServerStart(Scheduler &scheduler) {
         evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
 
         evhttp_bind_socket(http, "0.0.0.0",
-            scheduler.getConfig()->analyzer_port);
+            scheduler.GetConfig()->analyzer_port);
         event_base_dispatch(base);
 
         event_base_free(base);
         evhttp_free(http);
         event_config_free(evt_config);
 
-        scheduler.setState(false);
+        scheduler.SetState(false);
 
     }).detach();
 
