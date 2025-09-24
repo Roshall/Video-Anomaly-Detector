@@ -32,12 +32,12 @@ void HTTPServerStart(Scheduler &scheduler) {
 
         evhttp_set_timeout(http, 0);
         // 设置路由
-        evhttp_set_cb(http, "/", api_index, nullptr);
-        evhttp_set_cb(http, "/api/health", api_health, nullptr);
-        evhttp_set_cb(http, "/api/controls", api_controls, &scheduler);
-        evhttp_set_cb(http, "/api/control", api_control, &scheduler);
-        evhttp_set_cb(http, "/api/control/add", api_control_add, &scheduler);
-        evhttp_set_cb(http, "/api/control/cancel", api_control_cancel, &scheduler);
+        evhttp_set_cb(http, "/", ApiIndex, nullptr);
+        evhttp_set_cb(http, "/api/health", ApiHealth, nullptr);
+        evhttp_set_cb(http, "/api/controls", ApiAllMonitors, &scheduler);
+        evhttp_set_cb(http, "/api/control", ApiMonitor, &scheduler);
+        evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
+        evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
 
         evhttp_bind_socket(http, "0.0.0.0",
             scheduler.getConfig()->analyzerPort);
@@ -53,7 +53,7 @@ void HTTPServerStart(Scheduler &scheduler) {
 
 }
 
-void api_index(evhttp_request* req, void* arg) {
+void ApiIndex(evhttp_request* req, void* arg) {
    
     Json::Value result_urls;
     result_urls["/api"] = "this api version 1.0";
@@ -74,7 +74,7 @@ void api_index(evhttp_request* req, void* arg) {
     evbuffer_free(buff);
 
 }
-void api_health(evhttp_request* req, void* arg) {
+void ApiHealth(evhttp_request* req, void* arg) {
     int result_code = 0;
     std::string result_msg = "error";
 
@@ -93,12 +93,12 @@ void api_health(evhttp_request* req, void* arg) {
     evbuffer_free(buff);
 
 }
-void api_controls(evhttp_request* req, void* arg) {
+void ApiAllMonitors(evhttp_request* req, void* arg) {
     
 
     auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
-    parse_post(req, buf);
+    ParsePostRequest(req, buf);
 
     Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
@@ -110,27 +110,24 @@ void api_controls(evhttp_request* req, void* arg) {
     Json::Value result;
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
-
-        std::vector<Control*> controls;
-
-        if (int len = scheduler->apiControls(controls); len > 0) {
+        if (auto monitors = scheduler->GetAllMonitors(); !monitors.empty()) {
             Json::Value result_data_item;
             Json::Value result_data;
             int64_t curTimestamp = getCurTimestamp();
             int64_t startTimestamp = 0;
-            for (auto control : controls)
+            for (auto monitor : monitors)
             {
-                startTimestamp = control->startTimestamp;
+                startTimestamp = monitor->startTimestamp;
 
-                result_data_item["code"] = control->code.data();
-                result_data_item["streamUrl"] = control->streamUrl.data();
-                result_data_item["pushStream"] = control->pushStream;
-                result_data_item["pushStreamUrl"] = control->pushStreamUrl.data();
-                result_data_item["algorithmCode"] = control->algorithmCode.data();
-                result_data_item["objectCode"] = control->objectCode.data();
-                result_data_item["recognitionRegion"] = control->recognitionRegion.data();
+                result_data_item["code"] = monitor->code.data();
+                result_data_item["streamUrl"] = monitor->streamUrl.data();
+                result_data_item["pushStream"] = monitor->pushStream;
+                result_data_item["pushStreamUrl"] = monitor->pushStreamUrl.data();
+                result_data_item["algorithmCode"] = monitor->algorithmCode.data();
+                result_data_item["objectCode"] = monitor->objectCode.data();
+                result_data_item["recognitionRegion"] = monitor->recognitionRegion.data();
 
-                result_data_item["checkFps"] = control->checkFps;
+                result_data_item["checkFps"] = monitor->checkFps;
                 result_data_item["startTimestamp"] = startTimestamp;
                 result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
 
@@ -162,40 +159,40 @@ void api_controls(evhttp_request* req, void* arg) {
     evbuffer_free(buff);
 
 }
-void api_control(evhttp_request* req, void* arg) {
+void ApiMonitor(evhttp_request* req, void* arg) {
 
     auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
-    parse_post(req, buf);
+    ParsePostRequest(req, buf);
 
     Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
     Json::Value root;
     JSONCPP_STRING errs;
 
-    Json::Value result_control;
+    Json::Value result_monitor;
     int result_code = 0;
     std::string result_msg = "error";
     
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
 
-        Control* control = nullptr;
+        Monitor* monitor = nullptr;
         if (root["code"].isString()) {
             std::string code = root["code"].asCString();
-            control = scheduler->apiControl(code);
+            monitor = scheduler->GetMonitorByCode(code);
         }
 
-        if (control) {
-            result_control["code"] = control->code;
-            result_control["checkFps"] = control->checkFps;
+        if (monitor) {
+            result_monitor["code"] = monitor->code;
+            result_monitor["checkFps"] = monitor->checkFps;
 
             result_code = 1000;
             result_msg = "success";
 
         }
         else {
-            result_msg = "the control does not exist";
+            result_msg = "the monitor does not exist";
         }
     }
     else {
@@ -203,7 +200,7 @@ void api_control(evhttp_request* req, void* arg) {
     }
 
     Json::Value result;
-    result["control"] = result_control;
+    result["control"] = result_monitor;
     result["msg"] = result_msg;
     result["code"] = result_code;
 
@@ -216,11 +213,11 @@ void api_control(evhttp_request* req, void* arg) {
     evbuffer_free(buff);
 
 }
-void api_control_add(evhttp_request* req, void* arg) {
+void ApiAddMonitor(evhttp_request* req, void* arg) {
 
     const auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
-    parse_post(req, buf);
+    ParsePostRequest(req, buf);
 
     const Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
@@ -228,13 +225,13 @@ void api_control_add(evhttp_request* req, void* arg) {
     JSONCPP_STRING errs;
 
     int result_code = 0;
-    std::string result_msg = "error";
+    std::string result_msg;
 
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
         const auto objects_str = root["objects"].asString();
         const auto objects_v = split(objects_str, ",");
-        Control control{
+        Monitor control{
             root["code"].asCString(),
         root["streamUrl"].asString(),
         root["pushStream"].asBool(),
@@ -250,7 +247,7 @@ void api_control_add(evhttp_request* req, void* arg) {
         if (root["minInterval"].isString()) {
             control.minInterval = stoi(root["minInterval"].asString()) * 1000;//客户端传递过的该参数单位是秒
         }
-        // TODO: put minimum interval of Alarm into json
+        // TODO: put minimum interval of Alarm into json to make it configurable
         //强制设置报警时间最大不能超过3分钟=180000毫秒
         if (control.minInterval > 180000) {
             control.minInterval = 180000;
@@ -258,7 +255,7 @@ void api_control_add(evhttp_request* req, void* arg) {
 
 
         if (control.validateAdd(result_msg)) {
-            scheduler->ControlAdd(&control, result_code, result_msg);
+            scheduler->MonitorAdd(&control, result_code, result_msg);
         }
     }
     else {
@@ -279,10 +276,10 @@ void api_control_add(evhttp_request* req, void* arg) {
 
 }
 
-void api_control_cancel(evhttp_request* req, void* arg) {
+void ApiRemoveMonitor(evhttp_request* req, void* arg) {
     auto scheduler = static_cast<Scheduler *>(arg);
     char buf[RECV_BUF_MAX_SIZE];
-    parse_post(req, buf);
+    ParsePostRequest(req, buf);
 
     Json::CharReaderBuilder builder;
     const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
@@ -295,13 +292,13 @@ void api_control_cancel(evhttp_request* req, void* arg) {
 
     if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) && errs.empty()) {
 
-        Control control;
+        Monitor control;
 
         if (root["code"].isString()) {
             control.code = root["code"].asCString();
         }
         if (control.validateCancel(result_msg)) {
-            scheduler->apiControlCancel(&control, result_code, result_msg);
+            scheduler->MonitorRemove(&control, result_code, result_msg);
         }
 
     }
@@ -322,7 +319,7 @@ void api_control_cancel(evhttp_request* req, void* arg) {
 
 
 }
-void parse_get(struct evhttp_request* req, struct evkeyvalq* params) {
+void ParseGetRequest(struct evhttp_request* req, struct evkeyvalq* params) {
     if (req == nullptr) {
         return;
     }
@@ -344,7 +341,7 @@ void parse_get(struct evhttp_request* req, struct evkeyvalq* params) {
     }
     evhttp_parse_query_str(query, params);
 }
-void parse_post(struct evhttp_request* req, char* buf) {
+void ParsePostRequest(struct evhttp_request* req, char* buf) {
     size_t post_size = 0;
 
     post_size = evbuffer_get_length(req->input_buffer);
