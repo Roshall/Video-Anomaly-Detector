@@ -10,8 +10,7 @@
 #include <string>
 
 namespace AVSAnalyzer {
-    Scheduler::Scheduler(Config* config) :mConfig(config), mState(false),
-        mLoopAlarmThread(nullptr)
+    Scheduler::Scheduler(Config* config) :mConfig(config), mState(false)
     {
         LOGI("");
 
@@ -21,13 +20,13 @@ namespace AVSAnalyzer {
     {
         LOGI("");
 
-        clearAlarmQueue();
-        mLoopAlarmThread->join();
-        delete mLoopAlarmThread;
-        mLoopAlarmThread = nullptr;
+        // clearAlarmQueue(); // AlarmQueue store smart pointers, they will clean up the resource themselves.
+        if (mLoopAlarmThread) {
+            mLoopAlarmThread->join();
+        }
     }
 
-    Config* Scheduler::getConfig() {
+    Config* Scheduler::getConfig() const {
         return mConfig;
     }
     bool Scheduler::initAlgorithm() {
@@ -60,83 +59,75 @@ namespace AVSAnalyzer {
         LOGI("initAlgorithm() end");
         return true;
     }
-    void Scheduler::loop() {
 
-        mLoopAlarmThread = new std::thread(Scheduler::loopAlarmThread, this);
-        mLoopAlarmThread->native_handle();
+    void Scheduler::StartAlarmThread() {
+        mLoopAlarmThread = std::make_unique<std::thread>(loopAlarmThread, this);
+    }
+    void Scheduler::CleanWorkerLoop() {
+
+        mLoopAlarmThread = std::make_unique<std::thread>(loopAlarmThread, this);
         LOGI("Start Success");
-        int64_t l = 0;
         while (mState)
         {
-            ++l;
-            handleDeleteWorker();
-        
+            // TODO: wait, and use control variable to wake up this thread.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            std::unique_ptr<Worker> worker[10];
+            mTobeDeletedWorkerQ.try_dequeue_bulk(worker, 10);
         }
 
     }
 
-    int Scheduler::apiControls(std::vector<Control*>& controls) {
-        int len = 0;
-
-        mWorkerMapMtx.lock();
-        for (auto f = mWorkerMap.begin(); f != mWorkerMap.end(); ++f)
+    std::vector<Monitor*> Scheduler::GetAllMonitors() {
+        std::vector<Monitor*> monitors;
         {
-            ++len;
-            controls.push_back(f->second->mControl);
-
-        }
-        mWorkerMapMtx.unlock();
-
-        return len;
-    }
-    Control* Scheduler::apiControl(std::string& code) {
-        Control* control = nullptr;
-        mWorkerMapMtx.lock();
-        for (auto f = mWorkerMap.begin(); f != mWorkerMap.end(); ++f)
-        {
-            if (f->first == code) {
-                control = f->second->mControl;
+            std::lock_guard lock(mWorkerMapMtx);
+            monitors.reserve(mWorkerMap.size());
+            for (auto& pair : mWorkerMap)
+            {
+                monitors.push_back(pair.second->mMonitor);
             }
-
         }
-        mWorkerMapMtx.unlock();
+
+        return monitors;
+    }
+    Monitor* Scheduler::GetMonitorByCode(const std::string& code) {
+        Monitor* control = nullptr;
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            if (const auto it = mWorkerMap.find(code); it != mWorkerMap.end()) {
+                control = it->second->mMonitor;
+            }
+        }
 
         return control;
     }
 
 
-    void Scheduler::apiControlAdd(Control* control, int& result_code, std::string& result_msg) {
+    void Scheduler::MonitorAdd(Monitor* monitor, int& result_code, std::string& result_msg) {
 
-        if (isAdd(control)) {
+        if (isAdd(monitor)) {
             result_msg = "the control is running";
             result_code = 1000;
             return;
         }
 
-        else {
-            Worker* worker = new Worker(this, control);
-
-            if (worker->start(result_msg)) {
-                if (addWorker(control, worker)) {
-                    result_msg = "add success";
-                    result_code = 1000;
-                }
-                else {
-                    delete worker;
-                    result_msg = "add error";
-                    result_code = 0;
-                }
+        if (auto worker = std::make_unique<Worker>(this, monitor); worker->start(result_msg)) {
+            if (addWorker(monitor, std::move(worker))) {
+                result_msg = "add success";
+                result_code = 1000;
             }
             else {
-                delete worker;
+                result_msg = "add error";
                 result_code = 0;
             }
         }
-
+        else {
+            result_code = 0;
+        }
     }
-    void Scheduler::apiControlCancel(Control* control, int& result_code, std::string& result_msg) {
+    void Scheduler::MonitorRemove(Monitor* monitor, int& result_code, std::string& result_msg) {
 
-        Worker* worker = getWorker(control);
+        Worker* worker = GetWorkerByCode(monitor->code);
 
         if (worker) {
             if (worker->getState()) {
@@ -146,159 +137,105 @@ namespace AVSAnalyzer {
                 result_msg = "control is not running, ";
             }
 
-            removeWorker(control);
+            removeWorker(monitor->code);
 
             result_msg += "cancel success";
             result_code = 1000;
             return;
 
         }
-        else {
-            result_msg = "there is no such control";
-            result_code = 0;
-            return;
-        }
-
-    }
-    void Scheduler::setState(bool state) {
+        result_msg = "there is no such control";
+        result_code = 0;
+   }
+    void Scheduler::setState(const bool state) {
         mState = state;
     }
-    bool Scheduler::getState() {
+    bool Scheduler::getState() const {
         return mState;
     }
 
     int Scheduler::getWorkerSize() {
-        mWorkerMapMtx.lock();
-        int size = mWorkerMap.size();
-        mWorkerMapMtx.unlock();
+        size_t size{};
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            size = mWorkerMap.size();
+        }
 
-        return size;
+        return static_cast<int>(size);
     }
-    bool Scheduler::isAdd(Control* control) {
+    bool Scheduler::isAdd(Monitor* control) {
+        bool is_add{};
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            is_add = mWorkerMap.end() != mWorkerMap.find(control->code);
+        }
 
-        mWorkerMapMtx.lock();
-        bool isAdd = mWorkerMap.end() != mWorkerMap.find(control->code);
-        mWorkerMapMtx.unlock();
-
-        return isAdd;
+        return is_add;
     }
-    bool Scheduler::addWorker(Control* control, Worker* worker) {
+    bool Scheduler::addWorker(Monitor* control, std::unique_ptr<Worker> worker) {
         bool add = false;
 
-        mWorkerMapMtx.lock();
-        bool isAdd = mWorkerMap.end() != mWorkerMap.find(control->code);
-        if (!isAdd) {
-            mWorkerMap.insert(std::pair<std::string, Worker* >(control->code, worker));
-            add = true;
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            if (bool isAdd = mWorkerMap.end() != mWorkerMap.find(control->code); !isAdd) {
+                mWorkerMap.emplace(control->code, std::move(worker));
+                add = true;
+            }
         }
-        mWorkerMapMtx.unlock();
         return add;
     }
-    bool Scheduler::removeWorker(Control* control) {
+    bool Scheduler::removeWorker(const std::string& code) {
         bool result = false;
-
-        mWorkerMapMtx.lock();
-        auto f = mWorkerMap.find(control->code);
-        if (mWorkerMap.end() != f) {
-            Worker* worker = f->second;
-
-            // 添加到待删除队列start
-            std::unique_lock <std::mutex> lck(mTobeDeletedWorkerQ_mtx);
-            mTobeDeletedWorkerQ.push(worker);
-            //mTobeDeletedWorkerQ_cv.notify_all();
-            mTobeDeletedWorkerQ_cv.notify_one();
-            // 添加到待删除队列end
-
-            result = mWorkerMap.erase(control->code) != 0;
+        std::unique_ptr<Worker> worker;
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            if (auto f = mWorkerMap.find(code); mWorkerMap.end() != f) {
+                worker = std::move(f->second);
+                mWorkerMap.erase(f);
+                result = true;
+            }
         }
-        mWorkerMapMtx.unlock();
+        if (result) {
+            mTobeDeletedWorkerQ.enqueue(std::move(worker));
+        }
         return result;
     }
-    Worker* Scheduler::getWorker(Control* control) {
+    Worker* Scheduler:: GetWorkerByCode(const std::string& code) {
         Worker* worker = nullptr;
-
-        mWorkerMapMtx.lock();
-        auto f = mWorkerMap.find(control->code);
-        if (mWorkerMap.end() != f) {
-            worker = f->second;
+        {
+            std::lock_guard lock(mWorkerMapMtx);
+            if (const auto f = mWorkerMap.find(code); mWorkerMap.end() != f) {
+                worker = f->second.get();
+            }
         }
-        mWorkerMapMtx.unlock();
         return worker;
     }
 
-    void Scheduler::handleDeleteWorker() {
 
-        std::unique_lock <std::mutex> lck(mTobeDeletedWorkerQ_mtx);
-        mTobeDeletedWorkerQ_cv.wait(lck);
-
-        while (!mTobeDeletedWorkerQ.empty()) {
-            Worker* worker = mTobeDeletedWorkerQ.front();
-            mTobeDeletedWorkerQ.pop();
-
-            LOGI("code=%s,streamUrl=%s", worker->mControl->code.data(), worker->mControl->streamUrl.data());
-
-
-            delete worker;
-            worker = nullptr;
-        }
-
-    }
-    void Scheduler::handleLoopAlarm() {
-
-        int alarmQSize;
-
+    void Scheduler::PullAndGenAlarmLoop() {
+        // TODO: control variables to wake up this thread
         while (true) {
-
-            Alarm* alarm = nullptr;
-            if (getAlarm(alarm, alarmQSize)) {
-
-                GenerateAlarmVideo gen(mConfig,alarm);
+            std::unique_ptr<Alarm> alarm;
+            if (mAlarmQ.try_dequeue(alarm)) {
+                GenerateAlarmVideo gen(mConfig, alarm.get());
                 gen.genAlarmVideo();
-
-                delete alarm;
-                alarm = nullptr;
             }
-
         }
-
-
-    
     }
     void Scheduler::loopAlarmThread(void* arg) {
-        Scheduler* scheduler = (Scheduler*)arg;
-        scheduler->handleLoopAlarm();
-    }
-    void Scheduler::addAlarm(Alarm* alarm) {
-        mAlarmQ_mtx.lock();
-        if (mAlarmQ.size() > 0) {
-            //扔掉
-            delete alarm;
-            alarm = nullptr;
-        }
-        else {
-            mAlarmQ.push(alarm);
-        }
-   
-        mAlarmQ_mtx.unlock();
+        auto scheduler = static_cast<Scheduler *>(arg);
+        
+        scheduler->PullAndGenAlarmLoop();
     }
 
-    bool Scheduler::getAlarm(Alarm*& alarm, int& alarmQSize) {
-        mAlarmQ_mtx.lock();
-
-        if (!mAlarmQ.empty()) {
-            alarm = mAlarmQ.front();
-            mAlarmQ.pop();
-            alarmQSize = mAlarmQ.size();
-            mAlarmQ_mtx.unlock();
-            return true;
-
-        }
-        else {
-            alarmQSize = 0;
-            mAlarmQ_mtx.unlock();
-            return false;
-        }
+    void Scheduler::addAlarm(std::unique_ptr<Alarm> alarm) {
+        // TODO: if the alarmQ get too big, we might need to notify the detector, reduce FPS
+        std::unique_ptr<Alarm> old_alarm;
+        mAlarmQ.enqueue(std::move(alarm));
     }
-    void Scheduler::clearAlarmQueue() {}
+
+    // void Scheduler::clearAlarmQueue() {
+    //     // swap isn't thread free, but we are pretty sure that no other thread are alive if this function gets called.
+    // }
 
 }
