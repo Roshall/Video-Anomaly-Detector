@@ -1,18 +1,4 @@
 ﻿#ifndef ANALYZER_VERSION_H
 #define ANALYZER_VERSION_H
-//#define PROJECT_VERSION "v3"
-//#define PROJECT_VERSION "v3.1"
-//#define PROJECT_VERSION "v3.2"
-//#define PROJECT_VERSION "v3.3"
-//#define PROJECT_VERSION "v3.40"
-//#define PROJECT_VERSION "v3.41"
-//#define PROJECT_VERSION "v3.42"
-//#define PROJECT_VERSION "v3.43"
-//#define PROJECT_VERSION "v3.44"
-//#define PROJECT_VERSION "v3.45"
-//#define PROJECT_VERSION "v3.46"
-//#define PROJECT_VERSION "v3.47"
-//#define PROJECT_VERSION "v3.48"
-//#define PROJECT_VERSION "v3.49"
-#define PROJECT_VERSION "v3.51"
+#define PROJECT_VERSION "v0.1"
 #endif //ANALYZER_VERSION_H
