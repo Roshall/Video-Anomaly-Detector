@@ -15,7 +15,7 @@ AvPullStream::~AvPullStream() {
 }
 
 bool AvPullStream::Connect() {
-  std::string stream_url = worker_->monitor->stream_url;
+  std::string_view stream_url = worker_->monitor->stream_url;
   fmt_ctx = avformat_alloc_context();
 
   AVDictionary* fmt_options = nullptr;
@@ -29,7 +29,7 @@ bool AvPullStream::Connect() {
   // us）
 
   int ret =
-      avformat_open_input(&fmt_ctx, stream_url.data(), NULL, &fmt_options);
+      avformat_open_input(&fmt_ctx, stream_url.data(), nullptr, &fmt_options);
 
   if (ret != 0) {
     LOGE("avformat_open_input error: url=%s ", stream_url.data());
