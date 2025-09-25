@@ -17,17 +17,15 @@ https://blog.csdn.net/houxian1103/article/details/123343248
 
 */
 #include <string>
-namespace AVSAnalyzer {
-    class Request
-    {
-    public:
-        Request();
-        ~Request();
+namespace avs_analyzer {
+class Request {
+ public:
+  Request();
+  ~Request();
 
-    public:
-        bool get(const char* url, std::string& response);
-        bool post(const char* url, const char* data, std::string& response);
-
-    };
-}
-#endif //ANALYZER_REQUEST_H
+ public:
+  bool get(const char* url, std::string& response);
+  bool post(const char* url, const char* data, std::string& response);
+};
+}  // namespace avs_analyzer
+#endif  // ANALYZER_REQUEST_H

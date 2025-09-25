@@ -3,20 +3,20 @@
 #include "Utils/Common.h"
 #include <memory.h>
 
-namespace AVSAnalyzer {
+namespace avs_analyzer {
 	Frame::Frame(int bufInitSize) {
         //LOGI("");
-		this->mBufInitSize = bufInitSize;
-		this->mBuf = new uint8_t[this->mBufInitSize];
+		this->buf_init_size_ = bufInitSize;
+		this->mBuf = new uint8_t[this->buf_init_size_];
 	}
 	Frame::~Frame() {
         //LOGI("");
 		delete[]this->mBuf;
 		this->mBuf = nullptr;
 	}
-    void Frame::setBuf(unsigned char* buf, int size) {
+    void Frame::SetBuf(unsigned char* buf, int size) {
 
-        if (this->mBufInitSize == size) {
+        if (this->buf_init_size_ == size) {
             this->mBufSize = size;
             memcpy(this->mBuf, buf, size);
         }
@@ -26,10 +26,10 @@ namespace AVSAnalyzer {
         }
 
     }
-    unsigned char* Frame::getBuf() {
+    unsigned char* Frame::GetBuf() {
         return this->mBuf;
     }
-    int Frame::getSize() {
+    int Frame::size() {
         return this->mBufSize;
     }
     FramePool::FramePool(int size) :mSize(size)

@@ -16,7 +16,7 @@ extern "C" {
 
 #pragma warning(disable: 4996)
 
-namespace AVSAnalyzer {
+namespace avs_analyzer {
 
 
     Alarm::Alarm(int height, int width, int fps, int64_t happenTimestamp, int happenImageIndex, const char* controlCode) {
@@ -52,7 +52,7 @@ namespace AVSAnalyzer {
     GenerateAlarmVideo::~GenerateAlarmVideo()
     {
         //LOGI("");
-        destoryCodecCtx();
+        destroyCodecCtx();
 
     }
 
@@ -163,7 +163,7 @@ namespace AVSAnalyzer {
 
         return true;
     }
-    void GenerateAlarmVideo::destoryCodecCtx() {
+    void GenerateAlarmVideo::destroyCodecCtx() {
 
         //std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
@@ -255,7 +255,7 @@ namespace AVSAnalyzer {
             return false;
         }
 
-        std::string prifixDir = mConfig->uploadDir + "/alarm";
+        std::string prifixDir = mConfig->upload_dir + "/alarm";
 
         std::filesystem::path __prifixDir_path1(prifixDir);
         try {
@@ -298,8 +298,8 @@ namespace AVSAnalyzer {
         std::string video_path = "alarm/"+ mAlarm->controlCode +"/" + ymdhms_rd + "/main.mp4";//视频相对路径
         std::string image_path = "alarm/" + mAlarm->controlCode + "/" + ymdhms_rd + "/main.jpg";//图片相对路径
 
-        std::string video_path_abs = mConfig->uploadDir + "/" + video_path;
-        std::string image_path_abs = mConfig->uploadDir + "/" + image_path;
+        std::string video_path_abs = mConfig->upload_dir + "/" + video_path;
+        std::string image_path_abs = mConfig->upload_dir + "/" + image_path;
 
         if (!initCodecCtx(video_path_abs.data())) {
             std::cout << "genAlarmVideo() initCodecCtx error" << std::endl;
@@ -336,12 +336,12 @@ namespace AVSAnalyzer {
             //解压缩成功
             if (i == mAlarm->happenImageIndex) {
                 //封面图
-                cv::Mat happenImage_cvmat(height, width, CV_8UC3, frame->getBuf());
+                cv::Mat happenImage_cvmat(height, width, CV_8UC3, frame->GetBuf());
                 cv::imwrite(image_path_abs, happenImage_cvmat);
             }
 
                 // frame_bgr 转  frame_yuv420p
-            bgr24ToYuv420p(frame->getBuf(), width, height, frame_yuv420p_buff);
+            bgr24ToYuv420p(frame->GetBuf(), width, height, frame_yuv420p_buff);
 
             frame_yuv420p->pts = frame_yuv420p->pkt_dts = av_rescale_q_rnd(frameCount,
                 mVideoCodecCtx->time_base,
@@ -410,7 +410,6 @@ namespace AVSAnalyzer {
 
 
             delete frame;
-            frame = nullptr;
 
         }
 
@@ -419,18 +418,16 @@ namespace AVSAnalyzer {
         av_write_trailer(mFmtCtx);//写文件尾
 
         av_packet_unref(pkt);
-        pkt = nullptr;
 
 
         av_free(frame_yuv420p_buff);
-        frame_yuv420p_buff = nullptr;
 
         av_frame_free(&frame_yuv420p);
         //av_frame_unref(frame_yuv420p);
         frame_yuv420p = nullptr;
 
         //上传报警信息start
-        std::string url = mConfig->adminHost + "/api/postAddAlarm";
+        std::string url = mConfig->admin_host + "/api/postAddAlarm";
         Json::Value param;
         param["control_code"] = mAlarm->controlCode;
         param["desc"] = "";

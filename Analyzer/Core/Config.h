@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace AVSAnalyzer {
+namespace avs_analyzer {
 	struct Config
 	{
 

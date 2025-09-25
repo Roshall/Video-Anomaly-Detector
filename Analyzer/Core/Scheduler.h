@@ -1,81 +1,78 @@
 ﻿#ifndef ANALYZER_SCHEDULER_H
 #define ANALYZER_SCHEDULER_H
 
-#include "Analyzer.h"
+#include <concurrentqueue/moodycamel/concurrentqueue.h>
+
 #include <condition_variable>
-#include <mutex>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include <concurrentqueue/moodycamel/concurrentqueue.h>
+#include "Analyzer.h"
 
 using namespace moodycamel;
 
-namespace AVSAnalyzer {
-	class Config;
-	class Worker;
-	class Algorithm;
-	struct Monitor;
-	struct AlarmImage;
-	struct Alarm;
+namespace avs_analyzer {
+class Config;
+class Worker;
+class Algorithm;
+struct Monitor;
+struct AlarmImage;
+struct Alarm;
 
-	class Scheduler
-	{
-	public:
-		friend class Analyzer;
+class Scheduler {
+ public:
+  friend class Analyzer;
 
-		explicit Scheduler(Config* config);
-		~Scheduler();
-	public:
-		Config* GetConfig() const;
+  explicit Scheduler(Config* config);
+  ~Scheduler();
 
-		bool InitAlgorithm();
-		
-		void CleanWorkerLoop();
+  Config* GetConfig() const;
+  bool InitAlgorithm();
+  void CleanWorkerLoop();
+  void SetState(bool state);
+  bool GetState() const;
 
+  void AddAlarm(std::unique_ptr<Alarm> alarm);
 
-		void SetState(bool state);
-		bool GetState() const;
+  // ApiServer 对应的函数 start
+  std::vector<Monitor*> GetAllMonitors();
+  Monitor* GetMonitorByCode(const std::string& code);
+  void MonitorAdd(Monitor* monitor, int& result_code, std::string& result_msg);
+  void MonitorRemove(Monitor* monitor, int& result_code,
+                     std::string& result_msg);
+  void StartAlarmThread();
+  // ApiServer 对应的函数 end
+  bool RemoveWorker(const std::string& code);  // 加入到待实际删除队列
 
-		void AddAlarm(std::unique_ptr<Alarm> alarm);
+ private:
+  Config* config_;
+  bool state_;
 
-		// ApiServer 对应的函数 start
-		std::vector<Monitor*> GetAllMonitors();
-		Monitor* GetMonitorByCode(const std::string& code);
-		void MonitorAdd(Monitor* monitor, int& result_code, std::string& result_msg);
-		void MonitorRemove(Monitor* monitor, int& result_code, std::string& result_msg);
-		void StartAlarmThread();
-		// ApiServer 对应的函数 end
+  // each worker monitors a streaming which
+  std::unordered_map<std::string, std::unique_ptr<Worker>>
+      worker_map_;  // <monitor.code,Worker*>
+  std::mutex worker_map_mutex_;
+  int GetWorkerSize();
+  bool Contains(Monitor* monitor);
+  bool AddWorker(Monitor* monitor, std::unique_ptr<Worker> worker);
+  Worker* GetWorkerByCode(const std::string& code);
 
-		bool RemoveWorker(const std::string& code);//加入到待实际删除队列
+  ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
 
-	private:
-		Config* config_;
-		bool state_;
+  // 报警处理 start
+  std::unique_ptr<std::thread> alarm_thread_;
+  static void AlarmLoopThread(void* arg);
+  [[noreturn]] void PullAndGenAlarmLoop();
+  ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
+  // void clearAlarmQueue();
 
-		// each worker monitors a streaming which
-		std::unordered_map<std::string, std::unique_ptr<Worker>> worker_map_; // <monitor.code,Worker*>
-		std::mutex worker_map_mutex_;
-		int GetWorkerSize();
-		bool Contains(Monitor* monitor);
-		bool AddWorker(Monitor* monitor, std::unique_ptr<Worker> worker);
-		Worker* GetWorkerByCode(const std::string& code);
-
-		ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
-
-		//报警处理 start
-		std::unique_ptr<std::thread> alarm_thread_;
-		static void AlarmLoopThread(void* arg);
-		[[noreturn]] void PullAndGenAlarmLoop();
-		ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
-		// void clearAlarmQueue();
-
-		//报警处理 end
-		std::mutex algorithm_mutex_;
-		std::unique_ptr<Algorithm> yolov8n_80_classes_{};
-	};
-}
-#endif //ANALYZER_SCHEDULER_H
+  // 报警处理 end
+  std::mutex algorithm_mutex_;
+  std::unique_ptr<Algorithm> yolov8n_80_classes_{};
+};
+}  // namespace avs_analyzer
+#endif  // ANALYZER_SCHEDULER_H

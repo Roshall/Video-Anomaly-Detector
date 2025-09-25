@@ -1,21 +1,13 @@
 ﻿#include "Algorithm.h"
+
 #include "Config.h"
-#include "Utils/Log.h"
 #include "Utils/Common.h"
+#include "Utils/Log.h"
 
-namespace AVSAnalyzer {
-    Algorithm::Algorithm(Config* config) :mConfig(config)
-    {
+namespace avs_analyzer {
+Algorithm::Algorithm(Config* config) : config_(config) {}
 
-    }
+Algorithm::~Algorithm() {}
+bool Algorithm::CreateState() { return create_state_; }
 
-    Algorithm::~Algorithm()
-    {
-
-    }
-    bool Algorithm::createState(){
-        return mCreateState;
-    }
-
-
-}
+}  // namespace avs_analyzer

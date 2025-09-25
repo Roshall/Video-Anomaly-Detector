@@ -1,53 +1,53 @@
 ﻿#ifndef ANALYZER_AVPUSHSTREAM_H
 #define ANALYZER_AVPUSHSTREAM_H
-#include <queue>
 #include <mutex>
+#include <queue>
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 }
-namespace AVSAnalyzer {
-	class Worker;
-	struct Frame;
+namespace avs_analyzer {
+class Worker;
+struct Frame;
 
-	class AvPushStream
-	{
-	public:
-		AvPushStream(Worker* worker);
-		~AvPushStream();
-	public:
-		bool connect();     // 连接流媒体服务
-		bool reConnect();   // 重连流媒体服务
-		void closeConnect();// 关闭流媒体服务的连接
-		int mConnectCount = 0;
+class AvPushStream {
+ public:
+  explicit AvPushStream(Worker* worker);
+  ~AvPushStream();
 
-		AVFormatContext* mFmtCtx = nullptr;
+  bool Connect();       // 连接流媒体服务
+  bool Reconnect();     // 重连流媒体服务
+  void CloseConnect();  // 关闭流媒体服务的连接
+  int connect_count = 0;
 
-		//视频帧
-		AVCodecContext* mVideoCodecCtx = NULL;
-		AVStream* mVideoStream = NULL;
-		int mVideoIndex = -1;
-		void addVideoFrame(Frame* frame);
-		int getVideoFrameQSize();
-		void clearVideoFrameQueue();
+  AVFormatContext* fmt_ctx = nullptr;
 
-	public:
-		static void encodeVideoThread(void* arg); // 编码视频帧并推流
-		void handleEncodeVideo();
+  // 视频帧
+  AVCodecContext* video_codec_ctx = nullptr;
+  AVStream* video_stream = nullptr;
+  int video_index = -1;
+  void AddVideoFrame(Frame* frame);
+  int GetVideoFrameQSize();
+  void ClearVideoFrameQueue();
 
-	private:
-		Worker* mWorker;
+ public:
+  static void EncodeVideoThread(void* arg);  // 编码视频帧并推流
+  void EncodeVideo();
 
-		//视频帧
-		std::queue <Frame*> mVideoFrameQ;
-		std::mutex          mVideoFrameQ_mtx;
-		bool getVideoFrame(Frame*& frame);
+ private:
+  Worker* m_worker_;
 
+  // 视频帧
+  std::queue<Frame*> video_frame_q_;
+  std::mutex video_frame_q_mtx_;
+  bool GetVideoFrame(Frame*& frame);
 
-		// bgr24转yuv420p
-		unsigned char clipValue(unsigned char x, unsigned char min_val, unsigned char  max_val);
-		bool bgr24ToYuv420p(unsigned char* bgrBuf, int w, int h, unsigned char* yuvBuf);
-	};
+  // bgr24转yuv420p
+  static unsigned char ClipValue(unsigned char x, unsigned char min_val,
+                          unsigned char max_val);
+  static bool Bgr24ToYuv420P(unsigned char* bgrBuf, int w, int h,
+                      unsigned char* yuvBuf);
+};
 
-}
-#endif //ANALYZER_AVPUSHSTREAM_H
+}  // namespace avs_analyzer
+#endif  // ANALYZER_AVPUSHSTREAM_H

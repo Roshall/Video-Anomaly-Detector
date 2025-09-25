@@ -10,7 +10,7 @@ extern "C" {
 #include "libavformat/avformat.h"
 }
 
-namespace AVSAnalyzer {
+namespace avs_analyzer {
 
 	class Config;
 	struct Frame;
@@ -21,7 +21,7 @@ namespace AVSAnalyzer {
 		Alarm() = delete;
 		Alarm(int height, int width, int fps, int64_t happenTimestamp,int happenImageIndex, const char* controlCode);
 		~Alarm();
-	public:
+
 		int width = 0;
 		int height = 0;
 		int fps = 0;
@@ -39,13 +39,12 @@ namespace AVSAnalyzer {
 		GenerateAlarmVideo(Config* config, Alarm* alarm);
 		~GenerateAlarmVideo();
 
-	public:
 		bool genAlarmVideo();
 	private:
 		Config* mConfig;
 		Alarm* mAlarm;
 		bool initCodecCtx(const char* url);
-		void destoryCodecCtx();
+		void destroyCodecCtx();
 
 		AVFormatContext* mFmtCtx = nullptr;
 		//视频帧

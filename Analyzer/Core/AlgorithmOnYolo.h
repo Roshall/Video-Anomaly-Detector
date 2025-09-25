@@ -1,44 +1,46 @@
-﻿#ifndef ANALYZER_ALGORITHMONYOLO_H
-#define ANALYZER_ALGORITHMONYOLO_H
+﻿#ifndef ANALYZER_YOLOALGORITHM_H
+#define ANALYZER_YOLOALGORITHM_H
 
-#include <string>
-#include <vector>
-#include <mutex>
-#include <queue>
-#include "Algorithm.h"
 #include <onnxruntime_cxx_api.h>
 
-namespace AVSAnalyzer {
-	class Config;
-	class OnnxRuntimeEngine
-	{
-	public:
-		explicit OnnxRuntimeEngine(Config* config, std::string& modelPath, std::vector<std::string>& classNames);
-		~OnnxRuntimeEngine();
-	public:
-		bool runInference(cv::Mat& image, std::vector<DetectObject>& detects);
+#include <mutex>
+#include <string>
+#include <vector>
 
-	private:
-		Config* mConfig;
-		std::vector<std::string> mClassNames;
-		std::string mModelPath;
-		Ort::Env mEnv{ nullptr };
-		Ort::SessionOptions mSessionOptions{ nullptr };
-		Ort::Session mSession{ nullptr };
+#include "Algorithm.h"
 
-	};
-	class AlgorithmOnYolo : public Algorithm
-	{
-	public:
-		AlgorithmOnYolo(Config* config, std::string& modelPath, std::vector<std::string>& classNames);
-		virtual ~AlgorithmOnYolo();
-	public:
-		virtual bool objectDetect(cv::Mat& image, std::vector<DetectObject>& detects);
-	private:
-		std::vector<std::string> mClassNames;
-		std::mutex mMtx;
-		OnnxRuntimeEngine* mEngine;
-	};
-}
-#endif //ANALYZER_ALGORITHMONYOLO_H
+namespace avs_analyzer {
+class Config;
+class OnnxRuntimeEngine {
+ public:
+  explicit OnnxRuntimeEngine(Config* config, std::string& modelPath,
+                             std::vector<std::string>& classNames);
+  ~OnnxRuntimeEngine();
 
+
+  bool RunInference(cv::Mat& image, std::vector<Detection>& detects);
+
+ private:
+  Config* config_;
+  std::vector<std::string> class_names_;
+  std::string model_path_;
+  Ort::Env env_{nullptr};
+  Ort::SessionOptions session_options_{nullptr};
+  Ort::Session session_{nullptr};
+};
+class YoloAlgorithm : public Algorithm {
+ public:
+  YoloAlgorithm(Config* config, std::string& modelPath,
+                std::vector<std::string>& classNames);
+  virtual ~YoloAlgorithm();
+
+
+  virtual bool DetectObjects(cv::Mat& image, std::vector<Detection>& detects);
+
+ private:
+  std::vector<std::string> class_names_;
+  std::mutex mutex_;
+  OnnxRuntimeEngine* engine_;
+};
+}  // namespace avs_analyzer
+#endif  // ANALYZER_YOLOALGORITHM_H

@@ -1,35 +1,31 @@
 ﻿#ifndef ANALYZER_ANALYZER_H
 #define ANALYZER_ANALYZER_H
-
-#include <string>
-#include <vector>
 #include <opencv2/opencv.hpp>
-#include <iostream>
-#include <filesystem>
-namespace AVSAnalyzer {
-	struct Control;
-	class Config;
-	class Scheduler;
-	class Algorithm;
-	struct DetectObject;
+#include <vector>
 
-	class Analyzer
-	{
-	public:
-		explicit Analyzer(Scheduler* scheduler, Control* control);
-		~Analyzer();
-	public:
-		bool handleVideoFrame(int64_t frameCount, cv::Mat &image, std::vector<DetectObject>& happenDetects, bool& happen, float& happenScore);
-	private:
-		bool postImage2Server(int64_t frameCount, cv::Mat& image, std::vector<DetectObject>& happenDetects, bool& happen, float& happenScore);
+namespace avs_analyzer {
+struct Monitor;
+class Config;
+class Scheduler;
+class Algorithm;
+struct Detection;
 
-	private:
-		Scheduler* mScheduler;
-		Control*   mControl;
-	private:
+class Analyzer {
+ public:
+  explicit Analyzer(Scheduler* scheduler, Monitor* monitor);
+  ~Analyzer() = default;
 
+  bool ProcessVideoFrame(int64_t frameCount, cv::Mat& image,
+                         std::vector<Detection>& detection_results,
+                         bool& happen, float& happenScore);
 
-	};
-}
-#endif //ANALYZER_ANALYZER_H
+ private:
+  bool PostImageToServer(int64_t frameCount, cv::Mat& image,
+                         std::vector<Detection>& detection_results,
+                         bool& happen, float& happenScore);
 
+  Scheduler* scheduler_;
+  Monitor* monitor_;
+};
+}  // namespace avs_analyzer
+#endif  // ANALYZER_ANALYZER_H

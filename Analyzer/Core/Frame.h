@@ -4,7 +4,7 @@
 #include <queue>
 #include <mutex>
 
-namespace AVSAnalyzer {
+namespace avs_analyzer {
 	struct Frame
 	{
 	public:
@@ -12,15 +12,15 @@ namespace AVSAnalyzer {
 		Frame(int bufInitSize);
 		~Frame();
 	public:
-		void setBuf(unsigned char* buf, int size);
-		unsigned char* getBuf();
-		int getSize();
+		void SetBuf(unsigned char* buf, int size);
+		unsigned char* GetBuf();
+		int size();
 
 		bool happen = false;// 是否发生事件
-		float happenScore = 0;// 发生事件的分数
+		float happen_score = 0;// 发生事件的分数
 
 	private:
-		int mBufInitSize = 0;//buf初始化时的长度
+		int buf_init_size_ = 0;//buf初始化时的长度
 		int mBufSize = 0;
 		unsigned char* mBuf;
 
