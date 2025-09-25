@@ -41,8 +41,8 @@ class Scheduler {
   // ApiServer 对应的函数 start
   std::vector<Monitor*> GetAllMonitors();
   Monitor* GetMonitorByCode(const std::string& code);
-  void MonitorAdd(Monitor* monitor, int& result_code, std::string& result_msg);
-  void MonitorRemove(Monitor* monitor, int& result_code,
+  void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code, std::string& result_msg);
+  void MonitorRemove(const std::string& code, int& result_code,
                      std::string& result_msg);
   void StartAlarmThread();
   // ApiServer 对应的函数 end
@@ -57,8 +57,8 @@ class Scheduler {
       worker_map_;  // <monitor.code,Worker*>
   std::mutex worker_map_mutex_;
   int GetWorkerSize();
-  bool Contains(Monitor* monitor);
-  bool AddWorker(Monitor* monitor, std::unique_ptr<Worker> worker);
+  bool Contains(const std::string& code);
+  bool AddWorker(std::unique_ptr<Worker> worker);
   Worker* GetWorkerByCode(const std::string& code);
 
   ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;

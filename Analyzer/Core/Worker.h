@@ -1,54 +1,53 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
-#include <thread>
-#include <queue>
+#include <memory>
 #include <mutex>
+#include <queue>
+#include <thread>
 
-namespace AVSAnalyzer {
-	class Scheduler;
-	class AvPullStream;
-	class AvPushStream;
-	class Analyzer;
-	struct Control;
-	struct Frame;
-	class FramePool;
+namespace avs_analyzer {
+class Scheduler;
+class AvPullStream;
+class AvPushStream;
+class Analyzer;
+struct Monitor;
+struct Frame;
+class FramePool;
 
-	class Worker
-	{
-	public:
-		explicit Worker(Scheduler* scheduler, Control* control);
-		~Worker();
-	public:
-		static void decodeVideoThread(void* arg);// （线程）解码视频帧和实时分析视频帧
-		void handleDecodeVideo();
-		static void generateAlarmThread(void* arg);//（线程）实时准备报警视频帧
-		void handleGenerateAlarm();
-	public:
-		bool start(std::string& msg);
+class Worker {
+ public:
+  explicit Worker(Scheduler* scheduler, std::unique_ptr<Monitor> control);
+  ~Worker();
 
-		bool getState();
-		void remove();
-	public:
-		Control* mControl;
-		Scheduler* mScheduler;
-		AvPullStream* mPullStream;
-		AvPushStream* mPushStream;
-		Analyzer*  mAnalyzer;
-		FramePool* mVideoFramePool;
+  static void decodeVideoThread(
+      void* arg);  // （线程）解码视频帧和实时分析视频帧
+  void handleDecodeVideo();
+  static void generateAlarmThread(void* arg);  // （线程）实时准备报警视频帧
+  void handleGenerateAlarm();
 
-	private:
-		bool mState = false;
-		std::vector<std::thread*> mThreads;
+  bool start(std::string& msg);
 
+  bool getState() const;
+  void remove();
 
-		//报警视频帧
-		std::queue <Frame*> mAlarmVideoFrameQ;
-		std::mutex          mAlarmVideoFrameQ_mtx;
-		void addAlarmVideoFrameQ(Frame* frame);
-		int  getAlarmVideoFrameQSize();
-		bool getAlarmVideoFrame(Frame*& frame);
-		void clearAlarmVideoFrameQ();
+  std::unique_ptr<Monitor> monitor;
+  Scheduler* scheduler;
+  std::unique_ptr<AvPullStream> in_stream{};
+  std::unique_ptr<AvPushStream> out_Stream{};
+  std::unique_ptr<Analyzer> analyzer{};
+  std::unique_ptr<FramePool> video_frame_pool;
 
-	};
-}
-#endif //ANALYZER_WORKER_H
+ private:
+  bool state_{};
+  std::vector<std::unique_ptr<std::thread>> threads_;
+
+  // 报警视频帧
+  std::queue<Frame*> alarm_frame_queue_;
+  std::mutex frame_queue_mtx_;
+  void AddAlarmVideoFrameQ(Frame* frame);
+  size_t GetAlarmVideoFrameQSize();
+  bool GetAlarmVideoFrame(Frame*& frame);
+  void ClearAlarmVideoFrameQ();
+};
+}  // namespace avs_analyzer
+#endif  // ANALYZER_WORKER_H

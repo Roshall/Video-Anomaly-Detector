@@ -108,18 +108,18 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
       int64_t curTimestamp = getCurTimestamp();
       int64_t startTimestamp = 0;
       for (auto monitor : monitors) {
-        startTimestamp = monitor->startTimestamp;
+        startTimestamp = monitor->start_timestamp;
 
         result_data_item["code"] = monitor->code.data();
-        result_data_item["streamUrl"] = monitor->streamUrl.data();
-        result_data_item["pushStream"] = monitor->pushStream;
-        result_data_item["pushStreamUrl"] = monitor->pushStreamUrl.data();
-        result_data_item["algorithmCode"] = monitor->algorithmCode.data();
-        result_data_item["objectCode"] = monitor->objectCode.data();
+        result_data_item["streamUrl"] = monitor->stream_url.data();
+        result_data_item["pushStream"] = monitor->push_stream;
+        result_data_item["pushStreamUrl"] = monitor->push_stream_url.data();
+        result_data_item["algorithmCode"] = monitor->algorithm_code.data();
+        result_data_item["objectCode"] = monitor->object_code.data();
         result_data_item["recognitionRegion"] =
-            monitor->recognitionRegion.data();
+            monitor->roi_str.data();
 
-        result_data_item["checkFps"] = monitor->checkFps;
+        result_data_item["checkFps"] = monitor->check_fps;
         result_data_item["startTimestamp"] = startTimestamp;
         result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
 
@@ -170,7 +170,7 @@ void ApiMonitor(evhttp_request* req, void* arg) {
 
     if (monitor) {
       result_monitor["code"] = monitor->code;
-      result_monitor["checkFps"] = monitor->checkFps;
+      result_monitor["checkFps"] = monitor->check_fps;
 
       result_code = 1000;
       result_msg = "success";
@@ -212,31 +212,30 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       errs.empty()) {
     const auto objects_str = root["objects"].asString();
     const auto objects_v = split(objects_str, ",");
-    Monitor control{
-        root["code"].asCString(),
-        root["streamUrl"].asString(),
-        root["pushStream"].asBool(),
-        root["pushStreamUrl"].asString(),
-        root["algorithmCode"].asString(),
-        objects_str,
-        objects_v,
-        static_cast<int>(objects_v.size()),
-        root["objectCode"].asString(),
-        root["recognitionRegion"].asString(),
-    };
-
+    int64_t min_interval;
+    // TODO: min interval to be configurable
+    // 强制设置报警时间最大不能小于1分钟=60000毫秒
     if (root["minInterval"].isString()) {
-      control.minInterval = stoi(root["minInterval"].asString()) *
-                            1000;  // 客户端传递过的该参数单位是秒
-    }
-    // TODO: put minimum interval of Alarm into json to make it configurable
-    // 强制设置报警时间最大不能超过3分钟=180000毫秒
-    if (control.minInterval > 180000) {
-      control.minInterval = 180000;
+      min_interval = std::max(stoi(root["minInterval"].asString()) * 1000,
+                              60000);  // 客户端传递过的该参数单位是秒
+    } else {
+      min_interval = 60000;
     }
 
-    if (control.ValidateAdd(result_msg)) {
-      scheduler->MonitorAdd(&control, result_code, result_msg);
+    Monitor monitor{root["code"].asCString(),
+                    root["streamUrl"].asString(),
+                    root["pushStream"].asBool(),
+                    root["pushStreamUrl"].asString(),
+                    root["algorithmCode"].asString(),
+                    objects_str,
+                    objects_v,
+                    static_cast<int>(objects_v.size()),
+                    root["objectCode"].asString(),
+                    root["recognitionRegion"].asString(),
+                    min_interval};
+
+    if (monitor.ValidateAdd(result_msg)) {
+      scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)), result_code, result_msg);
     }
   } else {
     result_msg = "invalid request parameter";
@@ -271,13 +270,15 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
 
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
-    Monitor control;
+    std::string code;
 
     if (root["code"].isString()) {
-      control.code = root["code"].asCString();
+      code = root["code"].asCString();
     }
-    if (control.ValidateCancel(result_msg)) {
-      scheduler->MonitorRemove(&control, result_code, result_msg);
+    if (!code.empty()) {
+      scheduler->MonitorRemove(code, result_code, result_msg);
+    } else {
+      result_msg = "validate parameter error";
     }
 
   } else {
@@ -324,9 +325,9 @@ void ParsePostRequest(const evhttp_request* req, char* buff) {
   if (post_size <= 0) {
     //        printf("====line:%d,post msg is empty!\n",__LINE__);
     return;
-
   }
-  const size_t copy_len = post_size > kRecvBufMaxSize ? kRecvBufMaxSize : post_size;
+  const size_t copy_len =
+      post_size > kRecvBufMaxSize ? kRecvBufMaxSize : post_size;
   //        printf("====line:%d,post len:%d,
   //        copy_len:%d\n",__LINE__,post_size,copy_len);
   memcpy(buff, evbuffer_pullup(req->input_buffer, -1), copy_len);

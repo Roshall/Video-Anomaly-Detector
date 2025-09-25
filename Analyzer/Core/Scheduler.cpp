@@ -97,7 +97,7 @@ std::vector<Monitor*> Scheduler::GetAllMonitors() {
     std::lock_guard lock(worker_map_mutex_);
     monitors.reserve(worker_map_.size());
     for (auto& pair : worker_map_) {
-      monitors.push_back(pair.second->monitor);
+      monitors.push_back(pair.second->monitor.get());
     }
   }
 
@@ -108,24 +108,25 @@ Monitor* Scheduler::GetMonitorByCode(const std::string& code) {
   {
     std::lock_guard lock(worker_map_mutex_);
     if (const auto it = worker_map_.find(code); it != worker_map_.end()) {
-      monitor = it->second->monitor;
+      monitor = it->second->monitor.get();
     }
   }
 
   return monitor;
 }
 
-void Scheduler::MonitorAdd(Monitor* monitor, int& result_code,
+void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
                            std::string& result_msg) {
-  if (Contains(monitor)) {
+  const std::string& code = monitor->code;
+  if (Contains(code)) {
     result_msg = "the control is running";
     result_code = 1000;
     return;
   }
 
-  if (auto worker = std::make_unique<Worker>(this, monitor);
-      worker->start(result_msg)) {
-    if (AddWorker(monitor, std::move(worker))) {
+  auto worker = std::make_unique<Worker>(this, std::move(monitor));
+  if (worker->start(result_msg)) {
+    if (AddWorker(std::move(worker))) {
       result_msg = "add success";
       result_code = 1000;
     } else {
@@ -136,9 +137,9 @@ void Scheduler::MonitorAdd(Monitor* monitor, int& result_code,
     result_code = 0;
   }
 }
-void Scheduler::MonitorRemove(Monitor* monitor, int& result_code,
+void Scheduler::MonitorRemove(const std::string& code, int& result_code,
                               std::string& result_msg) {
-  Worker* worker = GetWorkerByCode(monitor->code);
+  Worker* worker = GetWorkerByCode(code);
 
   if (worker) {
     if (worker->getState()) {
@@ -147,7 +148,7 @@ void Scheduler::MonitorRemove(Monitor* monitor, int& result_code,
       result_msg = "control is not running, ";
     }
 
-    RemoveWorker(monitor->code);
+    RemoveWorker(code);
 
     result_msg += "cancel success";
     result_code = 1000;
@@ -168,24 +169,25 @@ int Scheduler::GetWorkerSize() {
 
   return static_cast<int>(num_workers);
 }
-bool Scheduler::Contains(Monitor* monitor) {
+bool Scheduler::Contains(const std::string& code) {
   bool is_added{};
   {
     std::lock_guard lock(worker_map_mutex_);
-    is_added = worker_map_.end() != worker_map_.find(monitor->code);
+    is_added = worker_map_.end() != worker_map_.find(code);
   }
 
   return is_added;
 }
-bool Scheduler::AddWorker(Monitor* monitor, std::unique_ptr<Worker> worker) {
+bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   bool added = false;
 
   {
     std::lock_guard lock(worker_map_mutex_);
+    const std::string& code = worker->monitor->code;
     if (bool is_already_added =
-            worker_map_.end() != worker_map_.find(monitor->code);
+            worker_map_.end() != worker_map_.find(code);
         !is_already_added) {
-      worker_map_.emplace(monitor->code, std::move(worker));
+      worker_map_.emplace(code, std::move(worker));
       added = true;
     }
   }
