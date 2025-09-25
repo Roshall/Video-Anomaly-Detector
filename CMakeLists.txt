@@ -78,21 +78,21 @@ set_target_properties(onnxruntime PROPERTIES
 )
 
 set(source
-        Analyzer/Core/Utils/CalcuIOU.cpp
-        Analyzer/Core/Utils/Request.cpp
-        Analyzer/Core/Algorithm.cpp
-        Analyzer/Core/AlgorithmOnYolo.cpp
-        Analyzer/Core/Analyzer.cpp
-        Analyzer/Core/AvPullStream.cpp
-        Analyzer/Core/AvPushStream.cpp
-        Analyzer/Core/Config.cpp
-        Analyzer/Core/Frame.cpp
-        Analyzer/Core/GenerateAlarmVideo.cpp
-        Analyzer/Core/Scheduler.cpp
-        Analyzer/Core/Server.cpp
-        Analyzer/Core/Worker.cpp
+        Analyzer/Core/Utils/calcu_iou.cpp
+        Analyzer/Core/Utils/request.cpp
+        Analyzer/Core/algorithm.cpp
+        Analyzer/Core/algorithm_on_yolo.cpp
+        Analyzer/Core/analyzer.cpp
+        Analyzer/Core/av_pull_stream.cpp
+        Analyzer/Core/av_push_stream.cpp
+        Analyzer/Core/config.cpp
+        Analyzer/Core/frame.cpp
+        Analyzer/Core/generate_alarm_video.cpp
+        Analyzer/Core/scheduler.cpp
+        Analyzer/Core/server.cpp
+        Analyzer/Core/worker.cpp
         Analyzer/main.cpp
-        Analyzer/Core/Analyzer.cpp)
+        Analyzer/Core/analyzer.cpp)
 
 add_executable(Analyzer ${source})
 target_link_libraries(Analyzer PRIVATE

@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "Analyzer.h"
+#include "analyzer.h"
 
 using namespace moodycamel;
 

@@ -1,8 +1,8 @@
-﻿#include "Request.h"
+﻿#include "request.h"
 
 #include <curl/curl.h>
 
-#include "Log.h"
+#include "log.h"
 
 namespace avs_analyzer {
 inline size_t onWrite(void* buffer, size_t size, size_t nmemb, void* stream) {

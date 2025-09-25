@@ -1,15 +1,15 @@
-﻿#include "Scheduler.h"
+﻿#include "scheduler.h"
 
 #include <fstream>
 #include <string>
 
-#include "Algorithm.h"
-#include "AlgorithmOnYolo.h"
-#include "Config.h"
-#include "Control.h"
-#include "GenerateAlarmVideo.h"
-#include "Utils/Log.h"
-#include "Worker.h"
+#include "algorithm.h"
+#include "algorithm_on_yolo.h"
+#include "config.h"
+#include "control.h"
+#include "generate_alarm_video.h"
+#include "Utils/log.h"
+#include "worker.h"
 
 namespace avs_analyzer {
 Scheduler::Scheduler(Config* config) : config_(config), state_(false) {

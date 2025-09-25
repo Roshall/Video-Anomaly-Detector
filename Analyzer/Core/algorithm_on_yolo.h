@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "Algorithm.h"
+#include "algorithm.h"
 
 namespace avs_analyzer {
 class Config;

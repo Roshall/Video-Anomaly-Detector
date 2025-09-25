@@ -1,9 +1,9 @@
-﻿#include "AvPullStream.h"
-#include "Config.h"
-#include "Control.h"
-#include "Scheduler.h"
-#include "Utils/Log.h"
-#include "Worker.h"
+﻿#include "av_pull_stream.h"
+#include "config.h"
+#include "control.h"
+#include "scheduler.h"
+#include "Utils/log.h"
+#include "worker.h"
 
 namespace avs_analyzer {
 AvPullStream::AvPullStream(Worker* worker) : worker_(worker) { LOGI(""); }

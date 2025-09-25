@@ -1,15 +1,15 @@
-﻿#include "Worker.h"
+﻿#include "worker.h"
 
-#include "Algorithm.h"
-#include "Analyzer.h"
-#include "AvPullStream.h"
-#include "AvPushStream.h"
-#include "Control.h"
-#include "Frame.h"
-#include "GenerateAlarmVideo.h"
-#include "Scheduler.h"
-#include "Utils/Common.h"
-#include "Utils/Log.h"
+#include "algorithm.h"
+#include "analyzer.h"
+#include "av_pull_stream.h"
+#include "av_push_stream.h"
+#include "control.h"
+#include "frame.h"
+#include "generate_alarm_video.h"
+#include "scheduler.h"
+#include "Utils/common.h"
+#include "Utils/log.h"
 
 extern "C" {
 #include <libavutil/imgutils.h>

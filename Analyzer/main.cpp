@@ -1,9 +1,8 @@
-﻿#include "Core/Algorithm.h"
-#include "Core/Config.h"
-#include "Core/Scheduler.h"
-#include "Core/Server.h"
-#include "Core/Utils/Log.h"
-#include "Core/Version.h"
+﻿#include "Core/config.h"
+#include "Core/scheduler.h"
+#include "Core/server.h"
+#include "Core/Utils/log.h"
+#include "Core/version.h"
 using namespace avs_analyzer;
 
 int main(int argc, char** argv) {

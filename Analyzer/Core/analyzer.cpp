@@ -1,17 +1,17 @@
-﻿#include "Analyzer.h"
+﻿#include "analyzer.h"
 
 #include <json/json.h>
 
 #include <fstream>
 
-#include "Algorithm.h"
-#include "Config.h"
-#include "Control.h"
-#include "Scheduler.h"
-#include "Utils/Base64.h"
-#include "Utils/CalcuIOU.h"
-#include "Utils/Log.h"
-#include "Utils/Request.h"
+#include "algorithm.h"
+#include "config.h"
+#include "control.h"
+#include "scheduler.h"
+#include "Utils/base64.h"
+#include "Utils/calcu_iou.h"
+#include "Utils/log.h"
+#include "Utils/request.h"
 
 namespace avs_analyzer {
 

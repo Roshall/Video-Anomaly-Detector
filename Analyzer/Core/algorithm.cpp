@@ -1,8 +1,8 @@
-﻿#include "Algorithm.h"
+﻿#include "algorithm.h"
 
-#include "Config.h"
-#include "Utils/Common.h"
-#include "Utils/Log.h"
+#include "config.h"
+#include "Utils/common.h"
+#include "Utils/log.h"
 
 namespace avs_analyzer {
 Algorithm::Algorithm(Config* config) : config_(config) {}

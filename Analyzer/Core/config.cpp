@@ -1,6 +1,4 @@
-﻿
-
-#include "Config.h"
+﻿#include "config.h"
 
 #include <json/json.h>
 
@@ -8,7 +6,7 @@
 #include <fstream>
 #include <iostream>
 
-#include "Utils/Log.h"
+#include "Utils/log.h"
 
 using namespace std::string_literals;
 

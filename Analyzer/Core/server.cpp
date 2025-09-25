@@ -1,4 +1,4 @@
-﻿#include "Server.h"
+﻿#include "server.h"
 
 #include <event2/buffer.h>
 #include <event2/event.h>
@@ -9,11 +9,11 @@
 
 #include <thread>
 
-#include "Config.h"
-#include "Control.h"
-#include "Scheduler.h"
-#include "Utils/Common.h"
-#include "Utils/Log.h"
+#include "config.h"
+#include "control.h"
+#include "scheduler.h"
+#include "Utils/common.h"
+#include "Utils/log.h"
 
 using namespace avs_analyzer;
 

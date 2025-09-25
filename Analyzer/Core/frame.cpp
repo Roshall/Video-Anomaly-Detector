@@ -1,6 +1,6 @@
-﻿#include "Frame.h"
-#include "Utils/Log.h"
-#include "Utils/Common.h"
+﻿#include "frame.h"
+#include "Utils/log.h"
+#include "Utils/common.h"
 #include <memory.h>
 
 namespace avs_analyzer {

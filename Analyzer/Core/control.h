@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "Utils/Common.h"
+#include "Utils/common.h"
 
 namespace avs_analyzer {
 
