@@ -52,9 +52,7 @@ int main(int argc, char** argv) {
 
   HTTPServerStart(scheduler);
   LOGI("Start Success");
-  // TODO: consider to use the same thread to clean up alarms and workers
-  scheduler.StartAlarmThread();
-  scheduler.CleanWorkerLoop();
+  scheduler.CleanUpLoop();
 
   return 0;
 }

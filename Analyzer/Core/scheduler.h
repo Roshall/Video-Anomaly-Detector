@@ -32,7 +32,7 @@ class Scheduler {
 
   Config* GetConfig() const;
   bool InitAlgorithm();
-  void CleanWorkerLoop();
+  void CleanUpLoop();
   void SetState(bool state);
   bool GetState() const;
 
@@ -44,7 +44,7 @@ class Scheduler {
   void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code, std::string& result_msg);
   void MonitorRemove(const std::string& code, int& result_code,
                      std::string& result_msg);
-  void StartAlarmThread();
+  // void StartAlarmThread();
   // ApiServer 对应的函数 end
   void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
 
@@ -52,23 +52,29 @@ class Scheduler {
   Config* config_;
   bool state_;
 
-  // each worker monitors a streaming which
-  std::unordered_map<std::string, std::unique_ptr<Worker>>
-      worker_map_;  // <monitor.code,Worker*>
-  std::mutex worker_map_mutex_;
+  
   size_t GetWorkerSize();
   bool Contains(const std::string& code);
   bool AddWorker(std::unique_ptr<Worker> worker);
   Worker* GetWorkerByCode(const std::string& code);
-
+  
+  
+  // each worker monitors one type of anomaly for a stream
+  std::unordered_map<std::string, std::unique_ptr<Worker>>
+      worker_map_;  // <monitor.code,Worker*>
+  std::mutex worker_map_mutex_;
   ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
 
   // 报警处理 start
-  std::unique_ptr<std::thread> alarm_thread_;
-  static void AlarmLoopThread(void* arg);
-  [[noreturn]] void PullAndGenAlarmLoop();
+  // std::unique_ptr<std::thread> alarm_thread_;
+  // static void AlarmLoopThread(void* arg);
+  [[noreturn]] void PullAndGenAlarm();
   ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
-  // void clearAlarmQueue();
+  
+  void NotifyCleanUp();
+  std::mutex clean_up_mtx_;
+  bool clean_up_ready_ = false;
+  std::condition_variable clean_up_cv_;
 
   // 报警处理 end
   std::mutex algorithm_mutex_;

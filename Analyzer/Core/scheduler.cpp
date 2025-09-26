@@ -1,6 +1,7 @@
 ﻿#include "scheduler.h"
 
 #include <fstream>
+#include <mutex>
 #include <string>
 
 #include "algorithm.h"
@@ -16,15 +17,17 @@ Scheduler::Scheduler(Config* config) : config_(config), state_(false) {
   LOGI("");
 }
 
-Scheduler::~Scheduler() {
-  LOGI("");
+Scheduler::~Scheduler() = default;
 
-  // clearAlarmQueue(); // AlarmQueue store smart pointers, they will clean up
-  // the resource themselves.
-  if (alarm_thread_) {
-    alarm_thread_->join();
-  }
-}
+// Scheduler::~Scheduler() {
+//   LOGI("");
+
+//   // clearAlarmQueue(); // AlarmQueue store smart pointers, they will clean up
+//   // the resource themselves.
+//   if (alarm_thread_) {
+//     alarm_thread_->join();
+//   }
+// }
 
 Config* Scheduler::GetConfig() const { return config_; }
 bool Scheduler::InitAlgorithm() {
@@ -77,18 +80,25 @@ bool Scheduler::InitAlgorithm() {
   return true;
 }
 
-void Scheduler::StartAlarmThread() {
-  alarm_thread_ = std::make_unique<std::thread>(AlarmLoopThread, this);
-}
-void Scheduler::CleanWorkerLoop() {
-  alarm_thread_ = std::make_unique<std::thread>(AlarmLoopThread, this);
+// void Scheduler::StartAlarmThread() {
+//   alarm_thread_ = std::make_unique<std::thread>(AlarmLoopThread, this);
+// }
+void Scheduler::CleanUpLoop() {
   LOGI("Start Success");
   const int kWorkerSize = 100;
   while (state_) {
-    // TODO: wait, and use control variable to wake up this thread.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    {
+      std::unique_lock lk(clean_up_mtx_);
+      clean_up_cv_.wait(lk, [&]{return clean_up_ready_;});
+    }
+    PullAndGenAlarm();
     std::unique_ptr<Worker> workers[kWorkerSize];
-    while(to_be_deleted_workers_queue_.try_dequeue_bulk(workers, kWorkerSize) <= kWorkerSize);
+    while(to_be_deleted_workers_queue_.try_dequeue_bulk(workers, kWorkerSize) < kWorkerSize){}
+
+    {
+      std::lock_guard lock(clean_up_mtx_);
+      clean_up_ready_ = false;
+    }
   }
 }
 
@@ -184,6 +194,7 @@ bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   return added;
 }
 void Scheduler::RemoveWorker(const std::string& code) {
+
   bool result = false;
   std::unique_ptr<Worker> worker_to_delete;
   {
@@ -194,8 +205,13 @@ void Scheduler::RemoveWorker(const std::string& code) {
       result = true;
     }
   }
+  // TODO: worker clean up threshold to be configurable
+  const int kWorkerCleanUpThreshold = 10;
   if (result) {
     to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
+  }
+  if (to_be_deleted_workers_queue_.size_approx() > kWorkerCleanUpThreshold) {
+    NotifyCleanUp();
   }
 }
 Worker* Scheduler::GetWorkerByCode(const std::string& code) {
@@ -209,27 +225,35 @@ Worker* Scheduler::GetWorkerByCode(const std::string& code) {
   return found_worker;
 }
 
-void Scheduler::PullAndGenAlarmLoop() {
-  // TODO: control variables to wake up this thread
-  while (true) {
+void Scheduler::NotifyCleanUp() {
+  {
+    std::lock_guard lock(clean_up_mtx_);
+    clean_up_ready_ = true;
+  }
+  clean_up_cv_.notify_one();
+}
+
+void Scheduler::PullAndGenAlarm() {
     std::unique_ptr<Alarm> alarm;
-    if (alarm_queue_.try_dequeue(alarm)) {
+    while (alarm_queue_.try_dequeue(alarm)) {
       GenerateAlarmVideo gen(config_, alarm.get());
       gen.genAlarmVideo();
     }
-  }
 }
-void Scheduler::AlarmLoopThread(void* arg) {
-  auto scheduler = static_cast<Scheduler*>(arg);
-
-  scheduler->PullAndGenAlarmLoop();
-}
+// void Scheduler::AlarmLoopThread(void* arg) {
+//   auto scheduler = static_cast<Scheduler*>(arg);
+//   while(true) scheduler->PullAndGenAlarm();
+// }
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
-  // TODO: if the alarmQ get too big, we might need to notify the detector,
-  // reduce FPS
+  // TODO: alarm queue size to be configurable
+  const int kAlarmQueueSize = 100;
+
   std::unique_ptr<Alarm> old_alarm;
   alarm_queue_.enqueue(std::move(alarm));
+  if (alarm_queue_.size_approx() > kAlarmQueueSize) {
+    NotifyCleanUp();
+  }
 }
 
 // void Scheduler::clearAlarmQueue() {
