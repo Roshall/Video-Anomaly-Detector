@@ -46,7 +46,7 @@ class Scheduler {
                      std::string& result_msg);
   void StartAlarmThread();
   // ApiServer 对应的函数 end
-  bool RemoveWorker(const std::string& code);  // 加入到待实际删除队列
+  void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
 
  private:
   Config* config_;
@@ -56,7 +56,7 @@ class Scheduler {
   std::unordered_map<std::string, std::unique_ptr<Worker>>
       worker_map_;  // <monitor.code,Worker*>
   std::mutex worker_map_mutex_;
-  int GetWorkerSize();
+  size_t GetWorkerSize();
   bool Contains(const std::string& code);
   bool AddWorker(std::unique_ptr<Worker> worker);
   Worker* GetWorkerByCode(const std::string& code);

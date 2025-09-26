@@ -83,11 +83,12 @@ void Scheduler::StartAlarmThread() {
 void Scheduler::CleanWorkerLoop() {
   alarm_thread_ = std::make_unique<std::thread>(AlarmLoopThread, this);
   LOGI("Start Success");
+  const int kWorkerSize = 100;
   while (state_) {
     // TODO: wait, and use control variable to wake up this thread.
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    std::unique_ptr<Worker> workers[10];
-    to_be_deleted_workers_queue_.try_dequeue_bulk(workers, 10);
+    std::unique_ptr<Worker> workers[kWorkerSize];
+    while(to_be_deleted_workers_queue_.try_dequeue_bulk(workers, kWorkerSize) <= kWorkerSize);
   }
 }
 
@@ -160,30 +161,19 @@ void Scheduler::MonitorRemove(const std::string& code, int& result_code,
 void Scheduler::SetState(const bool state) { state_ = state; }
 bool Scheduler::GetState() const { return state_; }
 
-int Scheduler::GetWorkerSize() {
-  size_t num_workers{};
-  {
+size_t Scheduler::GetWorkerSize() {
     std::lock_guard lock(worker_map_mutex_);
-    num_workers = worker_map_.size();
-  }
-
-  return static_cast<int>(num_workers);
+    return worker_map_.size();
 }
 bool Scheduler::Contains(const std::string& code) {
-  bool is_added{};
-  {
-    std::lock_guard lock(worker_map_mutex_);
-    is_added = worker_map_.end() != worker_map_.find(code);
-  }
-
-  return is_added;
+  std::lock_guard lock(worker_map_mutex_);
+  return worker_map_.end() != worker_map_.find(code);
 }
 bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   bool added = false;
-
+  const std::string& code = worker->monitor->code;
   {
     std::lock_guard lock(worker_map_mutex_);
-    const std::string& code = worker->monitor->code;
     if (bool is_already_added =
             worker_map_.end() != worker_map_.find(code);
         !is_already_added) {
@@ -193,7 +183,7 @@ bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   }
   return added;
 }
-bool Scheduler::RemoveWorker(const std::string& code) {
+void Scheduler::RemoveWorker(const std::string& code) {
   bool result = false;
   std::unique_ptr<Worker> worker_to_delete;
   {
@@ -207,7 +197,6 @@ bool Scheduler::RemoveWorker(const std::string& code) {
   if (result) {
     to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
   }
-  return result;
 }
 Worker* Scheduler::GetWorkerByCode(const std::string& code) {
   Worker* found_worker = nullptr;
