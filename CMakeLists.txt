@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.16.0)
 project(Analyzer)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -pthread ")
+set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_BUILD_TYPE DEBUG)
 SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb")
@@ -16,6 +15,8 @@ list(APPEND CMAKE_PREFIX_PATH
     "${CMAKE_SOURCE_DIR}/3rdparty"
     "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-1.22.0"
 )
+
+find_package(Threads REQUIRED)
 
 # Find OpenCV
 find_package(OpenCV REQUIRED)
@@ -77,8 +78,31 @@ set_target_properties(onnxruntime PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
 )
 
+# google test
+include(FetchContent)
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP true
+)
+
+FetchContent_MakeAvailable(googletest)
+
+enable_testing()
+
+add_executable(tests tests/event_test.cpp Analyzer/Core/event.cpp)
+target_link_libraries(tests GTest::gtest_main)
+target_include_directories(tests PRIVATE Analyzer/Core)
+
+
+add_executable(yuv_test tests/yuv_test.cpp)
+target_link_directories(yuv_test PRIVATE opencv_core)
+target_include_directories(yuv_test PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+add_executable(detect_test Analyzer/Core/event.cpp tests/strategic_detect_test.cpp)
+
 set(source
-        Analyzer/Core/Utils/calcu_iou.cpp
+        Analyzer/Core/Utils/img_processing.cpp
         Analyzer/Core/Utils/request.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/algorithm_on_yolo.cpp
@@ -92,10 +116,15 @@ set(source
         Analyzer/Core/server.cpp
         Analyzer/Core/worker.cpp
         Analyzer/main.cpp
-        Analyzer/Core/analyzer.cpp)
+        Analyzer/Core/analyzer.cpp
+        Analyzer/Core/Utils/video_transcode.h
+        Analyzer/Core/Utils/video_transcode.cpp
+        Analyzer/Core/event.h
+        Analyzer/Core/event.cpp)
 
 add_executable(Analyzer ${source})
 target_link_libraries(Analyzer PRIVATE
+        Threads::Threads
         opencv_core
         opencv_imgproc
         opencv_dnn
