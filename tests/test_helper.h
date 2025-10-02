@@ -21,6 +21,7 @@ class Streamer {
   [[nodiscard]] bool EoF() const;
   [[nodiscard]] int width() const;
   [[nodiscard]] int height() const;
+  [[nodiscard]] AVPixelFormat PixelFormat() const;
   int fps{};
 
  private:
@@ -30,5 +31,6 @@ class Streamer {
   AVFrame* frame_{};
   bool end_{};
 };
-int runner(Streamer&,const std::function<AVFrame*(AVFrame*, int&)>&);
+int runner(Streamer&, const std::function<AVFrame*(AVFrame*, int&)>&,
+           bool free_frame = true);
 #endif  // ANALYZER_TEST_HELPER_H

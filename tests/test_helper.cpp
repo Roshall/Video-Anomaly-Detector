@@ -102,10 +102,11 @@ int Streamer::width() const {
 int Streamer::height() const {
     return codec_ctx_->height;
   }
-
+AVPixelFormat Streamer::PixelFormat() const { return codec_ctx_->pix_fmt; }
 
 int runner(Streamer& input_stream,
-           const std::function<AVFrame*(AVFrame*, int&)>& func) {
+           const std::function<AVFrame*(AVFrame*, int&)>& func,
+           bool free_frame) {
 
   // --- Configuration ---
   avs_analyzer::FrameRecorder::VideoConfig config{};
@@ -132,6 +133,9 @@ int runner(Streamer& input_stream,
     }
     frame = func(frame, frame_count);
     recorder.add_video_frame(frame);
+    if (free_frame) {
+      av_frame_free(&frame);
+    }
     // Simulate real-time delay
   }
   // --- Finalization ---

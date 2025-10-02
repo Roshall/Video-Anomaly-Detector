@@ -30,11 +30,14 @@ int main(int argc, char* argv[]) {
   if (!input_stream.Valid()) {
     return -1;
   }
-  return runner(input_stream, [](AVFrame* frame, int& fc) {
-    if (++fc > 45) {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-      fc = 0;
-    }
-    return frame;
-  });
+  return runner(
+      input_stream,
+      [](AVFrame* frame, int& fc) {
+        if (++fc > 45) {
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+          fc = 0;
+        }
+        return frame;
+      },
+      false);
 }
