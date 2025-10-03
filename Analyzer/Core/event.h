@@ -10,20 +10,15 @@
 #include <string>
 #include <vector>
 
-// Represents a detected object.
-struct Detection {};
+#include "frame.h"
 
-// Represents a single frame from a video feed.
-struct Frame {
-  double timestamp{};
-  std::string data;
-  bool has_object{false};
-};
-
+namespace avs_analyzer {
 // Represents a detected event, containing all relevant frames.
 struct Event {
   double start_timestamp{};
   double end_timestamp{};
+  bool more_segments{false};
+
   std::vector<Frame> frames;
 
   [[nodiscard]] double GetDuration() const {
@@ -54,7 +49,7 @@ class EventDetector {
   std::optional<Event> Flush();
 
  private:
-  enum class State { kMajorCheck, kMinorCheck, kEventActive, kEventEnding};
+  enum class State { kMajorCheck, kMinorCheck, kEventActive, kEventEnding };
 
   // Helper method to finalize and create an event object.
   Event FinalizeEvent(double event_end_timestamp);
@@ -65,7 +60,7 @@ class EventDetector {
   const EventDetectorConfig config_;
   State current_state_{State::kMajorCheck};
 
-  double last_major_check_ts_{-2.0}; // Initialized to allow first frame check.
+  double last_major_check_ts_{-2.0};  // Initialized to allow first frame check.
   double last_minor_check_ts_{0.0};
 
   // Buffer for all recent frames, used to construct events.
@@ -76,5 +71,5 @@ class EventDetector {
   double active_event_start_ts_{0.0};
   double active_event_end_ts_{0.0};
 };
-
+}
 #endif  // ANALYZER_EVENT_H
