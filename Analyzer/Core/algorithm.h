@@ -23,14 +23,9 @@ cv::Mat static PadToSquare(const cv::Mat& source) {
 };
 
 struct Detection {
-  int x1;
-  int y1;
-  int x2;
-  int y2;
-  float class_score;
-  int class_id;
-  std::string class_name;
-  bool happen = false;
+  std::vector<cv::Rect> bbox;
+  std::vector<float> confidences;
+  std::vector<int> class_id;
 };
 
 class Algorithm {
@@ -40,8 +35,7 @@ class Algorithm {
   virtual ~Algorithm();
 
  public:
-  virtual bool DetectObjects(cv::Mat& image,
-                             std::vector<Detection>& detects) = 0;
+  virtual Detection DetectObjects(cv::Mat& image) = 0;
   bool CreateState();
 
  protected:
