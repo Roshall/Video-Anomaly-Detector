@@ -59,7 +59,7 @@ endif()
 
 # Find FFmpeg and curl using pkg-config
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavcodec libavformat libavutil libswscale)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 
 # Find ONNX Runtime (prebuilt, no CMake config)
@@ -96,10 +96,33 @@ target_include_directories(tests PRIVATE Analyzer/Core)
 
 
 add_executable(yuv_test tests/yuv_test.cpp)
-target_link_directories(yuv_test PRIVATE opencv_core)
+target_link_libraries(yuv_test PRIVATE opencv_core)
 target_include_directories(yuv_test PRIVATE ${OpenCV_INCLUDE_DIRS})
 
-add_executable(detect_test Analyzer/Core/event.cpp tests/strategic_detect_test.cpp)
+add_executable(detect_test Analyzer/Core/event.cpp tests/strategic_detect_test.cpp
+        tests/test_helper.cpp)
+add_executable(write_test
+        Analyzer/Core/video_processing/frame_recorder.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        tests/test_helper.cpp
+        tests/continuous_video_test.cpp)
+
+target_link_libraries(write_test PRIVATE PkgConfig::FFMPEG Threads::Threads)
+target_include_directories(write_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_include_directories(write_test PRIVATE Analyzer/Core/video_processing)
+
+add_executable(annotator_test
+        Analyzer/Core/video_processing/annotator.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/video_processing/frame_recorder.cpp
+        tests/test_helper.cpp
+        tests/annotator_test.cpp
+)
+target_link_libraries(annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc)
+target_include_directories(annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(annotator_test PRIVATE Analyzer/Core/video_processing)
+target_compile_definitions(annotator_test PRIVATE
+        __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
 set(source
         Analyzer/Core/Utils/img_processing.cpp
@@ -116,11 +139,11 @@ set(source
         Analyzer/Core/server.cpp
         Analyzer/Core/worker.cpp
         Analyzer/main.cpp
-        Analyzer/Core/analyzer.cpp
-        Analyzer/Core/Utils/video_transcode.h
-        Analyzer/Core/Utils/video_transcode.cpp
-        Analyzer/Core/event.h
-        Analyzer/Core/event.cpp)
+        Analyzer/Core/event.cpp
+        Analyzer/Core/video_processing/video_transcode.h
+        Analyzer/Core/video_processing/video_transcode.cpp
+        Analyzer/Core/video_processing/annotator.cpp
+        Analyzer/Core/video_processing/annotator.h)
 
 add_executable(Analyzer ${source})
 target_link_libraries(Analyzer PRIVATE
@@ -146,3 +169,5 @@ target_include_directories(Analyzer PRIVATE
         ${FFMPEG_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
 )
+
+target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing)
