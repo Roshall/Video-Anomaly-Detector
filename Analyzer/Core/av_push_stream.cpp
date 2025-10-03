@@ -1,11 +1,11 @@
 ﻿#include "av_push_stream.h"
 
+#include "Utils/common.h"
+#include "Utils/log.h"
 #include "analyzer.h"
 #include "config.h"
 #include "control.h"
 #include "frame.h"
-#include "Utils/common.h"
-#include "Utils/log.h"
 #include "worker.h"
 extern "C" {
 #include <libavutil/imgutils.h>
@@ -15,12 +15,10 @@ extern "C" {
 }
 
 namespace avs_analyzer {
-AvPushStream::AvPushStream(Worker* worker) : m_worker_(worker) { LOGI(""); }
+AvPushStream::AvPushStream(Worker* worker) : m_worker_(worker) {}
 
 AvPushStream::~AvPushStream() {
-  LOGI("");
   CloseConnect();
-  ClearVideoFrameQueue();
 }
 
 bool AvPushStream::Connect() {
@@ -37,7 +35,11 @@ bool AvPushStream::Connect() {
   }
 
   // init video start
-  const AVCodec* videoCodec = avcodec_find_encoder(AV_CODEC_ID_H264);
+  // NVIDIA: h264_nvenc, hevc_nvenc
+  // Intel: h264_qsv, hevc_qsv
+  // AMD/VAAPI: h264_vaapi, hevc_vaapi
+  // where hevc = h265
+  const AVCodec* videoCodec = avcodec_find_encoder_by_name("ibx265");
   if (!videoCodec) {
     LOGI("avcodec_find_encoder error: pushStreamUrl=%s", in_stream_url.data());
     return false;
@@ -49,47 +51,45 @@ bool AvPushStream::Connect() {
     return false;
   }
   // int bit_rate = 300 * 1024 * 8;  //压缩后每秒视频的bit位大小 300kB
-  constexpr int bit_rate = 40960000;
+  //  constexpr int bit_rate = 40960000;
   // CBR：Constant BitRate - 固定比特率
   //        mVideoCodecCtx->flags |= AV_CODEC_FLAG_QSCALE;
   //        mVideoCodecCtx->bit_rate = bit_rate;
   //        mVideoCodecCtx->rc_min_rate = bit_rate;
   //        mVideoCodecCtx->rc_max_rate = bit_rate;
   //        mVideoCodecCtx->bit_rate_tolerance = bit_rate;
+  constexpr int bit_rate = 20480000;
 
   // VBR
   video_codec_ctx->flags |= AV_CODEC_FLAG_QSCALE;
   video_codec_ctx->rc_min_rate = bit_rate / 2;
-  video_codec_ctx->rc_max_rate = bit_rate / 2 + bit_rate;
+  video_codec_ctx->rc_max_rate = bit_rate * 1.5;
   video_codec_ctx->bit_rate = bit_rate;
 
-  // ABR：Average Bitrate - 平均码率
-  //        mDstVimVideoCodecCtxdeoCodecCtx->bit_rate = bit_rate;
-
-  video_codec_ctx->codec_id = videoCodec->id;
+  //  video_codec_ctx->codec_id = videoCodec->id;
   video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-  video_codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
+  //  video_codec_ctx->codec_type = AVMEDIA_TYPE_VIDEO;
   video_codec_ctx->width = video_width;
   video_codec_ctx->height = video_height;
-  video_codec_ctx->time_base = {1, video_fps};
+  video_codec_ctx->time_base = {1, 25};
   //        mDstVideoCodecCtx->framerate = { mDstVideoFps, 1 };
-  video_codec_ctx->gop_size = 1;
-  video_codec_ctx->max_b_frames = 0;
-  video_codec_ctx->thread_count = 5;
+  video_codec_ctx->gop_size = 30;
+  video_codec_ctx->max_b_frames = 0;  // b frame introduce latency, disable it
+  video_codec_ctx->thread_count = 3;
   video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;  // 添加PPS、SPS
-  AVDictionary* video_codec_options = NULL;
+  AVDictionary* video_codec_options = nullptr;
 
   // H.264
-  if (video_codec_ctx->codec_id == AV_CODEC_ID_H264) {
-    //            av_dict_set(&video_codec_options, "profile", "main", 0);
-    av_dict_set(&video_codec_options, "preset", "superfast", 0);
-    av_dict_set(&video_codec_options, "tune", "zerolatency", 0);
-  }
+  //  if (video_codec_ctx->codec_id == AV_CODEC_ID_H264) {
+  //    //            av_dict_set(&video_codec_options, "profile", "main", 0);
+  //    av_dict_set(&video_codec_options, "preset", "superfast", 0);
+  //    av_dict_set(&video_codec_options, "tune", "zerolatency", 0);
+  //  }
   // H.265
-  if (video_codec_ctx->codec_id == AV_CODEC_ID_H265) {
-    av_dict_set(&video_codec_options, "preset", "ultrafast", 0);
-    av_dict_set(&video_codec_options, "tune", "zero-latency", 0);
-  }
+  //  if (video_codec_ctx->codec_id == AV_CODEC_ID_H265) {
+  av_dict_set(&video_codec_options, "preset", "ultrafast", 0);
+  av_dict_set(&video_codec_options, "tune", "zero-latency", 0);
+  //  }
   if (avcodec_open2(video_codec_ctx, videoCodec, &video_codec_options) < 0) {
     LOGI("avcodec_open2 error: pushStreamUrl=%s", in_stream_url.data());
     return false;
@@ -148,11 +148,10 @@ bool AvPushStream::Reconnect() {
   return false;
 }
 void AvPushStream::CloseConnect() {
-  LOGI("");
-
   ClearVideoFrameQueue();
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  video_frame_cs_.release(); // in case the consumer is still waiting for frames
 
   if (fmt_ctx) {
     // 推流需要释放start
@@ -178,99 +177,43 @@ void AvPushStream::CloseConnect() {
   }
 }
 
-void AvPushStream::AddVideoFrame(Frame* frame) {
-  video_frame_q_mtx_.lock();
-  video_frame_q_.push(frame);
-  video_frame_q_mtx_.unlock();
+void AvPushStream::AddVideoFrame(std::shared_ptr<AVFrame> frame) {
+  video_frame_q_.enqueue(std::move(frame));
+  video_frame_cs_.release();
 }
-int AvPushStream::GetVideoFrameQSize() {
-  int size = 0;
-  video_frame_q_mtx_.lock();
-  size = video_frame_q_.size();
-  video_frame_q_mtx_.unlock();
+int AvPushStream::GetVideoFrameQSize() { return video_frame_q_.size_approx(); }
 
-  return size;
-}
-
-bool AvPushStream::GetVideoFrame(Frame*& frame) {
-  video_frame_q_mtx_.lock();
-
-  if (!video_frame_q_.empty()) {
-    frame = video_frame_q_.front();
-    video_frame_q_.pop();
-    video_frame_q_mtx_.unlock();
-    return true;
-  }
-  video_frame_q_mtx_.unlock();
-  return false;
+std::shared_ptr<AVFrame> AvPushStream::PopVideoFrame() {
+  video_frame_cs_.acquire();
+  std::shared_ptr<AVFrame> frame;
+  video_frame_q_.try_dequeue(frame);
+  return frame;
 }
 void AvPushStream::ClearVideoFrameQueue() {
-  video_frame_q_mtx_.lock();
-  while (!video_frame_q_.empty()) {
-    Frame* frame = video_frame_q_.front();
-    video_frame_q_.pop();
-    m_worker_->video_frame_pool->giveBack(frame);
+  std::shared_ptr<AVFrame> video_frame;
+  while (video_frame_q_.try_dequeue(video_frame)) {
+    // delete video_frame;
   }
-  video_frame_q_mtx_.unlock();
 }
 void AvPushStream::EncodeVideo() {
-  const int width = m_worker_->monitor->video_width;
-  const int height = m_worker_->monitor->video_height;
-
-  Frame* video_frame = nullptr;  // 未编码的视频帧（bgr格式）
-
-  AVFrame* frame_yuv420p = av_frame_alloc();
-  frame_yuv420p->format = video_codec_ctx->pix_fmt;
-  frame_yuv420p->width = width;
-  frame_yuv420p->height = height;
-
-  int frame_yuv420p_buff_size =
-      av_image_get_buffer_size(AV_PIX_FMT_YUV420P, width, height, 1);
-  auto frame_yuv420p_buff = static_cast<uint8_t*>(av_malloc(frame_yuv420p_buff_size));
-  av_image_fill_arrays(frame_yuv420p->data, frame_yuv420p->linesize,
-                       frame_yuv420p_buff, AV_PIX_FMT_YUV420P, width, height,
-                       1);
-
-  AVPacket* pkt = av_packet_alloc();  // 编码后的视频帧
-  int64_t encode_success_count{};
+  AVPacketPtr pkt{av_packet_alloc()};
   int64_t frameCount = 0;
 
-  int64_t t1 = 0;
-  int64_t t2 = 0;
-  int ret = -1;
   while (m_worker_->getState()) {
-    if (GetVideoFrame(video_frame)) {
-      // frame_bgr 转  frame_yuv420p
-      Bgr24ToYuv420P(video_frame->GetBuf(), width, height, frame_yuv420p_buff);
-      m_worker_->video_frame_pool->giveBack(video_frame);
+    if (auto frame = PopVideoFrame()) {
+      frame->pts = frameCount;
 
-      frame_yuv420p->pts = frame_yuv420p->pkt_dts = av_rescale_q_rnd(
-          frameCount, video_codec_ctx->time_base, video_stream->time_base,
-          (AVRounding)(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+      if (int ret = avcodec_send_frame(video_codec_ctx, frame.get());
+          ret >= 0) {
+        if (ret = avcodec_receive_packet(video_codec_ctx, pkt.get());
+            ret >= 0) {  // 编码后的视频帧
 
-      frame_yuv420p->pkt_duration = av_rescale_q_rnd(
-          1, video_codec_ctx->time_base, video_stream->time_base,
-          (AVRounding)(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-
-      frame_yuv420p->pkt_pos = -1;
-
-      t1 = getCurTime();
-      ret = avcodec_send_frame(video_codec_ctx, frame_yuv420p);
-      if (ret >= 0) {
-        ret = avcodec_receive_packet(video_codec_ctx, pkt);
-        if (ret >= 0) {
-          t2 = getCurTime();
-          encode_success_count++;
-
-          // LOGI("encode 1 frame spend：%lld(ms),frameCount=%lld,
-          // encodeSuccessCount = %lld, frameQSize=%d,ret=%d",
-          //     (t2 - t1), frameCount, encodeSuccessCount, frameQSize, ret);
           pkt->stream_index = video_index;
 
           pkt->pos = -1;
-          pkt->duration = frame_yuv420p->pkt_duration;
+          av_packet_rescale_ts(pkt.get(), video_codec_ctx->time_base, video_stream->time_base);
 
-          ret = av_interleaved_write_frame(fmt_ctx, pkt);
+          ret = av_interleaved_write_frame(fmt_ctx, pkt.get());
           if (ret < 0) {
             LOGE("av_interleaved_write_frame error : ret=%d", ret);
           }
@@ -284,65 +227,15 @@ void AvPushStream::EncodeVideo() {
       }
 
       frameCount++;
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   }
 
   // av_write_trailer(mFmtCtx);//写文件尾
 
-  av_packet_unref(pkt);
-
-  av_free(frame_yuv420p_buff);
-
-  av_frame_free(&frame_yuv420p);
-  // av_frame_unref(frame_yuv420p);
+  av_packet_unref(pkt.get());
 }
 void AvPushStream::EncodeVideoThread(void* arg) {
   static_cast<AvPushStream*>(arg)->EncodeVideo();
 }
 
-unsigned char AvPushStream::ClipValue(unsigned char x, unsigned char min_val,
-                                      unsigned char max_val) {
-  if (x > max_val) {
-    return max_val;
-  }
-  if (x < min_val) {
-    return min_val;
-  }
-  return x;
-}
-
-bool AvPushStream::Bgr24ToYuv420P(unsigned char* bgrBuf, int w, int h,
-                                  unsigned char* yuvBuf) {
-  memset(yuvBuf, 0, w * h * 3 / 2);
-  unsigned char* ptrY = yuvBuf;
-  unsigned char* ptrU = yuvBuf + w * h;
-  unsigned char* ptrV = ptrU + (w * h * 1 / 4);
-
-  for (int j = 0; j < h; ++j) {
-    const unsigned char* ptrRGB = bgrBuf + w * j * 3;
-    for (int i = 0; i < w; i++) {
-      unsigned char b = *(ptrRGB++);
-      unsigned char g = *(ptrRGB++);
-      unsigned char r = *(ptrRGB++);
-
-      unsigned char y =
-          static_cast<unsigned char>((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
-      unsigned char u =
-          static_cast<unsigned char>((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
-      unsigned char v =
-          static_cast<unsigned char>((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
-      *(ptrY++) = ClipValue(y, 0, 255);
-      if (j % 2 == 0 && i % 2 == 0) {
-        *(ptrU++) = ClipValue(u, 0, 255);
-      } else {
-        if (i % 2 == 0) {
-          *(ptrV++) = ClipValue(v, 0, 255);
-        }
-      }
-    }
-  }
-  return true;
-}
 }  // namespace avs_analyzer

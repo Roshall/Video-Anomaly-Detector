@@ -2,11 +2,17 @@
 #define ANALYZER_AVPUSHSTREAM_H
 #include <mutex>
 #include <queue>
+
+#include "helper.h"
+
+#include <semaphore>
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 }
+#include <readerwriterqueue/readerwriterqueue.h>
 namespace avs_analyzer {
+using namespace moodycamel;
 class Worker;
 struct Frame;
 
@@ -26,7 +32,7 @@ class AvPushStream {
   AVCodecContext* video_codec_ctx = nullptr;
   AVStream* video_stream = nullptr;
   int video_index = -1;
-  void AddVideoFrame(Frame* frame);
+  void AddVideoFrame(std::shared_ptr<AVFrame> frame);
   int GetVideoFrameQSize();
   void ClearVideoFrameQueue();
 
@@ -38,15 +44,9 @@ class AvPushStream {
   Worker* m_worker_;
 
   // 视频帧
-  std::queue<Frame*> video_frame_q_;
-  std::mutex video_frame_q_mtx_;
-  bool GetVideoFrame(Frame*& frame);
-
-  // bgr24转yuv420p
-  static unsigned char ClipValue(unsigned char x, unsigned char min_val,
-                          unsigned char max_val);
-  static bool Bgr24ToYuv420P(unsigned char* bgrBuf, int w, int h,
-                      unsigned char* yuvBuf);
+  ReaderWriterQueue<std::shared_ptr<AVFrame>> video_frame_q_;
+  std::counting_semaphore<> video_frame_cs_{0};
+  std::shared_ptr<AVFrame> PopVideoFrame();
 };
 
 }  // namespace avs_analyzer
