@@ -1,18 +1,19 @@
 ﻿#ifndef ANALYZER_AVPULLSTREAM_H
 #define ANALYZER_AVPULLSTREAM_H
-#include <mutex>
+#include <readerwriterqueue/readerwriterqueue.h>
+
+#include <semaphore>
 #include <queue>
+
+#include "video_processing/helper.h"
 
 extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 }
 namespace avs_analyzer {
+using namespace moodycamel;
 class Worker;
-// TODO: support cache, and throw away data when cache is full,
-//  consider using this queue lib:
-//  https://github.com/cameron314/readerwriterqueue?tab=readme-ov-file it's
-//  thread-safe and lock-free.
 class AvPullStream {
  public:
   explicit AvPullStream(Worker* worker);
@@ -29,19 +30,17 @@ class AvPullStream {
   // 视频帧
   AVCodecContext* video_codec_ctx = nullptr;
   AVStream* stream = nullptr;
-  bool GetVideoPkt(AVPacket& pkt,
-                   int& pktQSize);  // 从队列获取的pkt，一定要主动释放!!!
+  AVPacketPtr GetVideoPkt();
+  AVPacket* PeakPkt();
 
   static void ReadThread(void* arg);  // 拉流媒体流
   void HandleRead();
 
  private:
   Worker* worker_;
-
-  bool PushVideoPkt(const AVPacket& pkt);
   void ClearVideoPktQ();
-  std::queue<AVPacket> video_pkt_queue_;
-  std::mutex pkt_queue_mtx_;
+  ReaderWriterQueue<AVPacketPtr> video_pkt_queue_;
+  std::counting_semaphore<> pkt_cs_{0};
 };
 
 }  // namespace avs_analyzer
