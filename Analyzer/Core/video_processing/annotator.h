@@ -27,7 +27,10 @@ struct SimpleRect { int x, y, w, h, thickness; };
 
 class VideoOverlay {
  public:
-  ~VideoOverlay();
+  VideoOverlay() = default;
+  VideoOverlay(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame) {
+    init(polygon_vertices, frame);
+  }
 
   // Initializes the filter graph with a fixed polygon.
   int init(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame);
@@ -37,18 +40,14 @@ class VideoOverlay {
                            const std::vector<cv::Rect>& rects, int thickness);
 
  private:
-  void cleanup();
 
-  AVFilterGraph* filter_graph = nullptr;
+  AVFilterGraphPtr filter_graph;
   AVFilterContext* buffersrc_ctx_main = nullptr;
   AVFilterContext* buffersrc_ctx_overlay = nullptr;
   AVFilterContext* buffersink_ctx = nullptr;
 
   // We store the pre-rendered polygon frame here
-  AVFrame* polygon_overlay_frame = nullptr;
-  std::string last_bbox_str{};
-  std::string args_main{};
-  std::string args_overlay{};
+  AVFramePtr polygon_overlay_frame;
   AVPixelFormat format;
 
 };
