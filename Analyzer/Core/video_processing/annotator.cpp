@@ -121,78 +121,158 @@ struct YUVColor {
   uint8_t y, u, v;
 };
 
+
+
 /**
- * @brief Paints a single pixel on a YUV420p frame.
- *
- * This function handles the chroma subsampling (4:2:0), where one U/V sample
- * corresponds to a 2x2 block of Y samples.
+ * @brief Optimized horizontal line drawing
  */
-inline void paint_px_yuv420p(AVFrame* f, int x, int y, const YUVColor& c) {
-  // Bounds check for the luma (Y) plane
-  if ((unsigned)x >= (unsigned)f->width || (unsigned)y >= (unsigned)f->height) {
+inline void draw_horizontal_line_yuv420p(AVFrame* f, int x1, int x2, int y,
+                                         const YUVColor& color, int thickness) {
+  const int start_x = std::max(x1, 0);
+  const int end_x = std::min(x2, f->width - 1);
+  const int start_y = std::max(y, 0);
+  const int end_y = std::min(y + thickness - 1, f->height - 1);
+
+  if (end_x < start_x || end_y < start_y) return;
+
+  // Draw luma (Y) plane
+  for (int y_pos = start_y; y_pos <= end_y; ++y_pos) {
+    uint8_t* y_plane = f->data[0] + y_pos * f->linesize[0];
+    std::memset(y_plane + start_x, color.y, end_x - start_x + 1);
+  }
+
+  // Calculate chroma coordinates once per block
+  const int chroma_start_x = start_x / 2;
+  const int chroma_end_x = end_x / 2;
+  const int chroma_start_y = start_y / 2;
+  const int chroma_end_y = end_y / 2;
+
+  // Draw chroma planes
+  for (int cy = chroma_start_y; cy <= chroma_end_y; ++cy) {
+    uint8_t* u_plane = f->data[1] + cy * f->linesize[1];
+    uint8_t* v_plane = f->data[2] + cy * f->linesize[2];
+
+    for (int cx = chroma_start_x; cx <= chroma_end_x; ++cx) {
+      u_plane[cx] = color.u;
+      v_plane[cx] = color.v;
+    }
+  }
+}
+
+
+inline void draw_vertical_line_yuv420p(AVFrame* f, int x, int y1, int y2,
+                                       const YUVColor& color, int thickness) {
+  const int start_x = std::max(x, 0);
+  const int end_x = std::min(x + thickness - 1, f->width - 1);
+  const int start_y = std::max(y1, 0);
+  const int end_y = std::min(y2, f->height - 1);
+
+  if (end_x < start_x || end_y < start_y) return;
+
+  // Draw luma (Y) plane
+  for (int y_pos = start_y; y_pos <= end_y; ++y_pos) {
+    uint8_t* y_plane = f->data[0] + y_pos * f->linesize[0];
+    for (int x_pos = start_x; x_pos <= end_x; ++x_pos) {
+      y_plane[x_pos] = color.y;
+    }
+  }
+
+  // Calculate chroma coordinates once per block
+  const int chroma_start_x = start_x / 2;
+  const int chroma_end_x = end_x / 2;
+  const int chroma_start_y = start_y / 2;
+  const int chroma_end_y = end_y / 2;
+
+  // Draw chroma planes
+  for (int cy = chroma_start_y; cy <= chroma_end_y; ++cy) {
+    uint8_t* u_plane = f->data[1] + cy * f->linesize[1];
+    uint8_t* v_plane = f->data[2] + cy * f->linesize[2];
+
+    for (int cx = chroma_start_x; cx <= chroma_end_x; ++cx) {
+      u_plane[cx] = color.u;
+      v_plane[cx] = color.v;
+    }
+  }
+}
+
+inline void draw_filled_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
+                                          const YUVColor& color) {
+  const int start_x = std::max(rect.x, 0);
+  const int end_x = std::min(rect.x + rect.width - 1, f->width - 1);
+  const int start_y = std::max(rect.y, 0);
+  const int end_y = std::min(rect.y + rect.height - 1, f->height - 1);
+
+  if (end_x < start_x || end_y < start_y) return;
+
+  // Fill luma plane
+  for (int y = start_y; y <= end_y; ++y) {
+    uint8_t* y_plane = f->data[0] + y * f->linesize[0];
+    std::memset(y_plane + start_x, color.y, end_x - start_x + 1);
+  }
+
+  // Calculate chroma coordinates
+  const int chroma_start_x = start_x / 2;
+  const int chroma_end_x = end_x / 2;
+  const int chroma_start_y = start_y / 2;
+  const int chroma_end_y = end_y / 2;
+
+  // Fill chroma planes
+  for (int cy = chroma_start_y; cy <= chroma_end_y; ++cy) {
+    uint8_t* u_plane = f->data[1] + cy * f->linesize[1];
+    uint8_t* v_plane = f->data[2] + cy * f->linesize[2];
+
+    for (int cx = chroma_start_x; cx <= chroma_end_x; ++cx) {
+      u_plane[cx] = color.u;
+      v_plane[cx] = color.v;
+    }
+  }
+}
+inline void draw_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
+                                             const YUVColor& color, int thickness) {
+  if (f->format != AV_PIX_FMT_YUV420P || thickness <= 0) return;
+
+  const int width = f->width;
+  const int height = f->height;
+
+  // Clamp rectangle to frame boundaries
+  const int x1 = std::clamp(rect.x, 0, width - 1);
+  const int y1 = std::clamp(rect.y, 0, height - 1);
+  const int x2 = std::clamp(rect.x + rect.width - 1, 0, width - 1);
+  const int y2 = std::clamp(rect.y + rect.height - 1, 0, height - 1);
+
+  if (x2 < x1 || y2 < y1) return;
+
+  // Draw filled rectangle if thickness is large enough
+  if (thickness >= std::min(rect.width, rect.height) / 2) {
+    draw_filled_rectangle_yuv420p(f, rect, color);
     return;
   }
 
-  // 1. Set the Y value (full resolution)
-  f->data[0][y * f->linesize[0] + x] = c.y;
-
-  // 2. Set the U and V values (half resolution)
-  // A 2x2 block of pixels shares a single U and V sample.
-  int chroma_x = x / 2;
-  int chroma_y = y / 2;
-  f->data[1][chroma_y * f->linesize[1] + chroma_x] = c.u;
-  f->data[2][chroma_y * f->linesize[2] + chroma_x] = c.v;
-}
-
-inline void stamp_brush_disk_yuv420p(AVFrame* f, int x0, int y0, int r,
-                                     const YUVColor& c) {
-  if (r <= 0) {
-    paint_px_yuv420p(f, x0, y0, c);
-    return;
+  // Draw four edges as rectangles
+  // Top edge
+  if (y1 >= 0 && y1 < height) {
+    draw_horizontal_line_yuv420p(f, x1, x2, y1, color, thickness);
   }
-  int r2 = r * r;
-  for (int oy = -r; oy <= r; ++oy) {
-    int oy2 = oy * oy;
-    for (int ox = -r; ox <= r; ++ox) {
-      if (ox * ox + oy2 > r2) continue;
-      paint_px_yuv420p(f, x0 + ox, y0 + oy, c);
-    }
+
+  // Bottom edge
+  const int bottom_y = y2 - thickness + 1;
+  if (bottom_y >= 0 && bottom_y < height) {
+    draw_horizontal_line_yuv420p(f, x1, x2, bottom_y, color, thickness);
   }
-}
 
-inline void draw_line_yuv420p_thick(AVFrame* f, int x0, int y0, int x1, int y1,
-                                    const YUVColor& c, int thickness) {
-  if (f->format != AV_PIX_FMT_YUV420P) return;
-
-  int r = std::max(0, thickness / 2);
-  int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-  int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-  int err = dx + dy;
-
-  while (true) {
-    stamp_brush_disk_yuv420p(f, x0, y0, r, c);
-    if (x0 == x1 && y0 == y1) break;
-    int e2 = 2 * err;
-    if (e2 >= dy) {
-      err += dy;
-      x0 += sx;
-    }
-    if (e2 <= dx) {
-      err += dx;
-      y0 += sy;
-    }
+  // Left edge (excluding corners already drawn)
+  const int left_start_y = y1 + thickness;
+  const int left_end_y = y2 - thickness;
+  if (left_end_y >= left_start_y) {
+    draw_vertical_line_yuv420p(f, x1, left_start_y, left_end_y, color, thickness);
   }
-}
 
-inline void draw_rectangle_yuv420p_thick(AVFrame* f, const cv::Rect& r,
-                                         const YUVColor& c, int thickness) {
-  int x1 = r.x, y1 = r.y;
-  int x2 = r.x + r.width, y2 = r.y + r.height;
-
-  draw_line_yuv420p_thick(f, x1, y1, x2, y1, c, thickness);  // Top
-  draw_line_yuv420p_thick(f, x2, y1, x2, y2, c, thickness);  // Right
-  draw_line_yuv420p_thick(f, x2, y2, x1, y2, c, thickness);  // Bottom
-  draw_line_yuv420p_thick(f, x1, y2, x1, y1, c, thickness);  // Left
+  // Right edge (excluding corners already drawn)
+  const int right_start_y = y1 + thickness;
+  const int right_end_y = y2 - thickness;
+  if (right_end_y >= right_start_y) {
+    draw_vertical_line_yuv420p(f, x2 - thickness + 1, right_start_y, right_end_y, color, thickness);
+  }
 }
 
 // Polygon outline with thickness
@@ -342,7 +422,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   for (const auto& r : rects) {
     // NOTE: This assumes the input format is YUVA420P. A robust implementation
     // would need to handle different pixel formats.
-    draw_rectangle_yuv420p_thick(in_frame, r, rect_color, thickness);
+    draw_rectangle_yuv420p(in_frame, r, rect_color, thickness);
   }
 
   // 3. Push the modified frame and the overlay into the static graph

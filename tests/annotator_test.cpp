@@ -32,8 +32,8 @@ int main(int argc, char* argv[]) {
       input_stream,
       [&](AVFrame* frame, int& fc) {
         static int count{0};
-        bboxes[0].width += std::min(5 * count, 500);
-        return graph.draw_elements(frame, bboxes, 6).release();
+        bboxes[0].width += std::min(count++, 200);
+        return graph.draw_elements(frame, bboxes, 4).release();
       },
       true);
 }
