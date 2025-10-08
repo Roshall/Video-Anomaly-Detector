@@ -140,10 +140,11 @@ set(source
         Analyzer/Core/worker.cpp
         Analyzer/main.cpp
         Analyzer/Core/event.cpp
-        Analyzer/Core/video_processing/video_transcode.h
-        Analyzer/Core/video_processing/video_transcode.cpp
+        Analyzer/Core/video_processing/frame_recorder.cpp
         Analyzer/Core/video_processing/annotator.cpp
-        Analyzer/Core/video_processing/annotator.h)
+        Analyzer/Core/video_processing/annotator.h
+        Analyzer/Core/video_processing/format_convertor.cpp
+        Analyzer/Core/video_processing/format_convertor.h)
 
 add_executable(Analyzer ${source})
 target_link_libraries(Analyzer PRIVATE
