@@ -5,49 +5,41 @@
 #ifndef ANALYZER_FRAME_RECORDER_H
 #define ANALYZER_FRAME_RECORDER_H
 
-#include <chrono>
 #include <string>
-#include <vector>
 
 #include "helper.h"
 
 namespace avs_analyzer {
-class FrameRecorder {
+class Recorder {
  public:
   struct VideoConfig {
     int width;
     int height;
-    int fps;
-    int bitrate;
+    int fps{25};
   };
 
-  FrameRecorder(std::string_view filename_prefix, VideoConfig config);
-  ~FrameRecorder();
+  explicit Recorder(VideoConfig config);
+  ~Recorder();
 
   // Initializes the encoder and prepares for recording. Must be called before adding frames.
-  bool initialize();
+  bool Initialize(std::string_view file_path);
 
   // Encodes a single video frame.
-  bool add_video_frame(AVFrame* frame);
+  bool AddVideoFrame(AVFrame* frame);
 
-  // Flushes the encoder, merges all segments, and cleans up.
-  void finalize();
+  std::string_view dst() {return file_path_;}
 
+  VideoConfig config;
  private:
-  // Internal state and management
-  bool open_output_segment();
-  void close_output_segment();
-  void encode_and_write(AVFrame* frame);
+  bool OpenOutputSegment();
+  void CloseOutputSegment();
+  bool EncodeAndWrite(AVFrame* frame);
 
-  // Member variables
-  VideoConfig m_config;
-  std::string file_path_;
-  int pts_{0};
+
+  std::string file_path_{};
 
   AVFormatContextPtr output_ctx_{};
   AVCodecContextPtr video_codec_ctx_{};
-  AVStream* video_stream_{};
-  std::chrono::steady_clock::time_point m_segment_start_time;
 };
 
 }  // namespace avs_analyzer

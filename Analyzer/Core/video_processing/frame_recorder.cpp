@@ -19,18 +19,19 @@ void log_error(const std::string& message, int error_code) {
             << std::endl;
 }
 
-FrameRecorder::FrameRecorder(const std::string_view filename_prefix, VideoConfig config)
-    : m_config(config), file_path_(filename_prefix){}
+Recorder::Recorder(VideoConfig config)
+    : config(config){}
 
-FrameRecorder::~FrameRecorder() {
-  close_output_segment();
+Recorder::~Recorder() {
+  CloseOutputSegment();
 }
 
-bool FrameRecorder::initialize() {
-  return open_output_segment();  // Start the first segment
+bool Recorder::Initialize(std::string_view file_path) {
+  file_path_ = file_path;
+  return OpenOutputSegment();  // Start the first segment
 }
 
-bool FrameRecorder::open_output_segment() {
+bool Recorder::OpenOutputSegment() {
   // set up codec
   // 1. Find the H.265 encoder
   const AVCodec* codec = avcodec_find_encoder_by_name("libx265");
@@ -47,17 +48,19 @@ bool FrameRecorder::open_output_segment() {
   }
 
   // 2. Set encoder parameters
-  video_codec_ctx_->width = m_config.width;
-  video_codec_ctx_->height = m_config.height;
-  video_codec_ctx_->bit_rate = m_config.bitrate;
-  video_codec_ctx_->time_base = {1, m_config.fps};
-  video_codec_ctx_->framerate = {m_config.fps, 1};
-//  video_codec_ctx_->gop_size = m_config.fps;  // One I-frame per second
-//  video_codec_ctx_->max_b_frames = 2;
+  video_codec_ctx_->width = config.width;
+  video_codec_ctx_->height = config.height;
+//  video_codec_ctx_->bit_rate = config.bitrate;
+  video_codec_ctx_->time_base = {1, 90000};
+//  video_codec_ctx_->framerate = {config.fps, 1};
+  video_codec_ctx_->gop_size = config.fps * 2;  // One I-frame every 2 seconds
+  video_codec_ctx_->max_b_frames = 2;
   video_codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
 
-  av_opt_set(video_codec_ctx_->priv_data, "preset", "ultrafast", 0);
-  av_opt_set(video_codec_ctx_->priv_data, "tune", "fastdecode", 0);
+  av_opt_set(video_codec_ctx_->priv_data, "crf", "28", 0);
+  av_opt_set(video_codec_ctx_->priv_data, "preset", "faster", 0);
+
+  video_codec_ctx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
   // 3. Open the codec
   int ret = avcodec_open2(video_codec_ctx_.get(), codec, nullptr);
@@ -69,19 +72,18 @@ bool FrameRecorder::open_output_segment() {
   AVFormatContext* fmt_ctx;
   ret = avformat_alloc_output_context2(&fmt_ctx, nullptr, nullptr,
                                            file_path_.c_str());
-  output_ctx_.reset(fmt_ctx);
   if (ret < 0) {
     log_error("Could not create output context", ret);
     return false;
   }
+  output_ctx_.reset(fmt_ctx);
 
-  video_stream_ = avformat_new_stream(output_ctx_.get(), nullptr);
+  auto video_stream_ = avformat_new_stream(output_ctx_.get(), nullptr);
   if (!video_stream_) {
     std::cerr << "Failed to create new stream" << std::endl;
     return false;
   }
   video_stream_->id = output_ctx_->nb_streams - 1;
-  video_stream_->time_base = video_codec_ctx_->time_base;
 
   ret = avcodec_parameters_from_context(video_stream_->codecpar,
                                         video_codec_ctx_.get());
@@ -103,14 +105,13 @@ bool FrameRecorder::open_output_segment() {
     log_error("Could not write header", ret);
     return false;
   }
-  m_segment_start_time = std::chrono::steady_clock::now();
   return true;
 }
 
-void FrameRecorder::close_output_segment() {
+void Recorder::CloseOutputSegment() {
   if (output_ctx_) {
     // Flush any remaining packets from the encoder
-    encode_and_write(nullptr);
+    EncodeAndWrite(nullptr);
 
     std::cout << "Closing file: " << file_path_ << std::endl;
     av_write_trailer(output_ctx_.get());
@@ -118,41 +119,34 @@ void FrameRecorder::close_output_segment() {
   }
 }
 
-void FrameRecorder::encode_and_write(AVFrame* frame) {
+bool Recorder::EncodeAndWrite(AVFrame* frame) {
   int ret = avcodec_send_frame(video_codec_ctx_.get(), frame);
   if (ret < 0) {
     log_error("Error sending frame to encoder", ret);
-    return;
+    return false;
   }
 
   AVPacket* pkt = av_packet_alloc();
   while (true) {
     ret = avcodec_receive_packet(video_codec_ctx_.get(), pkt);
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-      break;
+      return false;
     } else if (ret < 0) {
       log_error("Error receiving packet from encoder", ret);
-      break;
+      return false;
     }
 
-    // Rescale timestamps and write the packet
-    av_packet_rescale_ts(pkt, video_codec_ctx_->time_base,
-                         video_stream_->time_base);
-    pkt->stream_index = video_stream_->index;
+    pkt->stream_index = output_ctx_->streams[0]->index;
     av_interleaved_write_frame(output_ctx_.get(), pkt);
     av_packet_unref(pkt);
   }
   av_packet_free(&pkt);
-}
-
-bool FrameRecorder::add_video_frame(AVFrame* frame) {
-  frame->pts = pts_++;
-  encode_and_write(frame);
   return true;
 }
 
-void FrameRecorder::finalize() {
-  close_output_segment();
+bool Recorder::AddVideoFrame(AVFrame* frame) {
+  // frame.time_base must set to input stream's time base
+  frame->pts = av_rescale_q(frame->pts, frame->time_base, video_codec_ctx_->time_base);
+  return EncodeAndWrite(frame);
 }
-
 }
