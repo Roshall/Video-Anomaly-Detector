@@ -13,7 +13,7 @@ FormatConvertor::FormatConvertor(int in_width, int in_height,
                                                AVPixelFormat in_fmt,
                                                int out_width, int out_height)
     : width_{out_width},
-      height_{out_width},
+      height_{out_height},
       bgr_frame_{av_frame_alloc()},
       sws_context_{sws_getContext(in_width, in_height, in_fmt, out_width,
                                   out_height, AV_PIX_FMT_BGR24, SWS_BICUBIC,
@@ -28,13 +28,14 @@ FormatConvertor::FormatConvertor(FormatConvertor&& other) noexcept
     : width_{other.width_},
       height_{other.height_},
       bgr_frame_(std::move(other.bgr_frame_)),
+      bgr_buffer_(std::move(other.bgr_buffer_)),
       sws_context_{std::move(other.sws_context_)} {}
 
 cv::Mat FormatConvertor::operator()(
-    AVFrame* original_frame) const {
+    AVFrame* original_frame) {
   sws_scale(sws_context_.get(), original_frame->data, original_frame->linesize,
             0, height_, bgr_frame_->data, bgr_frame_->linesize);
 
-  return {height_, width_, CV_8UC3, bgr_frame_->data[0]};
+  return {height_, width_, CV_8UC3, bgr_frame_->data[0], static_cast<size_t>(bgr_frame_->linesize[0])};
 }
 }
