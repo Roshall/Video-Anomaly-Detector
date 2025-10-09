@@ -4,6 +4,8 @@
 
 #include "annotator.h"
 
+#include <format>
+
 extern "C" {
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
@@ -350,7 +352,8 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   // Using smart pointers for inout to guarantee cleanup on failure
   AVFilterInOutPtr inputs{avfilter_inout_alloc()};
   AVFilterInOutPtr outputs{avfilter_inout_alloc()};
-  if (!inputs || !outputs)
+  AVFilterInOutPtr outputs_next{avfilter_inout_alloc()};
+  if (!inputs || !outputs || !outputs_next)
     throw std::runtime_error("Cannot allocate filter in/out.");
 
   // 4. Create filter instances
@@ -382,11 +385,11 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   outputs->name = av_strdup("in");
   outputs->filter_ctx = buffersrc_ctx_main;
   outputs->pad_idx = 0;
-  outputs->next = avfilter_inout_alloc();
-  outputs->next->name = av_strdup("poly");
-  outputs->next->filter_ctx = buffersrc_ctx_overlay;
-  outputs->next->pad_idx = 0;
-  outputs->next->next = nullptr;
+  outputs_next->name = av_strdup("poly");
+  outputs_next->filter_ctx = buffersrc_ctx_overlay;
+  outputs_next->pad_idx = 0;
+  outputs_next->next = nullptr;
+  outputs->next = outputs_next.release();
 
   inputs->name = av_strdup("out");
   inputs->filter_ctx = buffersink_ctx;

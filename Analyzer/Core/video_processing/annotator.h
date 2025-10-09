@@ -4,15 +4,9 @@
 
 #ifndef ANALYZER_ANNOTATOR_H
 #define ANALYZER_ANNOTATOR_H
-extern "C" {
-
-}
 
 #include <opencv2/opencv.hpp>
-#include <sstream>
 #include <vector>
-#include <string>
-#include <stdexcept>
 
 #include "helper.h"
 

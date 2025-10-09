@@ -11,7 +11,6 @@ extern "C" {
 }
 
 namespace avs_analyzer {
-// Helper to log errors
 void log_error(const std::string& message, int error_code) {
   static char err_buf[AV_ERROR_MAX_STRING_SIZE];
   av_strerror(error_code, err_buf, sizeof(err_buf));
@@ -84,6 +83,7 @@ bool Recorder::OpenOutputSegment() {
     return false;
   }
   video_stream_->id = output_ctx_->nb_streams - 1;
+  video_stream_->time_base = video_codec_ctx_->time_base;
 
   ret = avcodec_parameters_from_context(video_stream_->codecpar,
                                         video_codec_ctx_.get());
@@ -126,22 +126,23 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     return false;
   }
 
-  AVPacket* pkt = av_packet_alloc();
+  AVPacketPtr pkt{av_packet_alloc()};
+  bool get_frame{};
   while (true) {
-    ret = avcodec_receive_packet(video_codec_ctx_.get(), pkt);
+    ret = avcodec_receive_packet(video_codec_ctx_.get(), pkt.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-      return false;
+      break;
     } else if (ret < 0) {
       log_error("Error receiving packet from encoder", ret);
-      return false;
+      break;
     }
 
     pkt->stream_index = output_ctx_->streams[0]->index;
-    av_interleaved_write_frame(output_ctx_.get(), pkt);
-    av_packet_unref(pkt);
+    av_interleaved_write_frame(output_ctx_.get(), pkt.get());
+    av_packet_unref(pkt.get());
   }
-  av_packet_free(&pkt);
-  return true;
+  get_frame = true;
+  return get_frame;
 }
 
 bool Recorder::AddVideoFrame(AVFrame* frame) {

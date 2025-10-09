@@ -30,6 +30,7 @@ class FormatConvertor {
  private:
   int width_;
   int height_;
+  int in_height_;
   AVFramePtr bgr_frame_;
   AVBufferPtr bgr_buffer_;
   SwsContextPtr sws_context_;
