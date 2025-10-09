@@ -1,27 +1,26 @@
 ﻿#include "av_pull_stream.h"
-#include <mutex>
 
-#include "config.h"
-#include "control.h"
+
 #include "scheduler.h"
 #include "Utils/log.h"
 #include "worker.h"
 #include "video_processing/helper.h"
+#include "control.h"
+
+extern "C" {
+#include <libavutil/dict.h>
+}
 
 
 namespace avs_analyzer {
 
 AvPullStream::AvPullStream(Worker* worker) : worker_(worker) { LOGI(""); }
 
-AvPullStream::~AvPullStream() {
-  LOGI("");
-
-  CloseConnect();
-}
+AvPullStream::~AvPullStream() { SignalShutdown();}
 
 bool AvPullStream::Connect() {
   std::string_view stream_url = worker_->monitor->stream_url;
-  fmt_ctx = avformat_alloc_context();
+
 
   AVDictionary* fmt_options = nullptr;
   av_dict_set(&fmt_options, "rtsp_transport", "tcp",
@@ -32,23 +31,24 @@ bool AvPullStream::Connect() {
               0);  // 设置rtmp/http-flv连接超时（单位 us）
   // av_dict_set(&fmt_options, "timeout", "1000000", 0);//设置udp/http超时（单位
   // us）
-
+  auto fmt = avformat_alloc_context();
   int ret =
-      avformat_open_input(&fmt_ctx, stream_url.data(), nullptr, &fmt_options);
+      avformat_open_input(&fmt, stream_url.data(), nullptr, &fmt_options);
+  fmt_ctx.reset(fmt);
 
   if (ret != 0) {
     LOGE("avformat_open_input error: url=%s ", stream_url.data());
     return false;
   }
 
-  if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+  if (avformat_find_stream_info(fmt_ctx.get(), nullptr) < 0) {
     LOGE("avformat_find_stream_info error");
     return false;
   }
 
   // video start
   auto video_index =
-      av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+      av_find_best_stream(fmt_ctx.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   worker_->monitor->video_index = video_index;
   if (video_index > -1) {
     AVCodecParameters* videoCodecPar = fmt_ctx->streams[video_index]->codecpar;
@@ -60,12 +60,12 @@ bool AvPullStream::Connect() {
       return false;
     }
 
-    video_codec_ctx = avcodec_alloc_context3(video_codec);
-    if (avcodec_parameters_to_context(video_codec_ctx, videoCodecPar) != 0) {
+    video_codec_ctx.reset(avcodec_alloc_context3(video_codec));
+    if (avcodec_parameters_to_context(video_codec_ctx.get(), videoCodecPar) != 0) {
       LOGE("avcodec_parameters_to_context error");
       return false;
     }
-    if (avcodec_open2(video_codec_ctx, video_codec, nullptr) < 0) {
+    if (avcodec_open2(video_codec_ctx.get(), video_codec, nullptr) < 0) {
       LOGE("avcodec_open2 error");
       return false;
     }
@@ -109,7 +109,6 @@ bool AvPullStream::Connect() {
 bool AvPullStream::Reconnect() {
   if (connect_count <= 100) {
     CloseConnect();
-
     if (Connect()) {
       return true;
     } else {
@@ -118,49 +117,22 @@ bool AvPullStream::Reconnect() {
   }
   return false;
 }
-void AvPullStream::CloseConnect() {
-  LOGI("");
-
-  ClearVideoPktQ();
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
-  if (video_codec_ctx) {
-    avcodec_close(video_codec_ctx);
-    avcodec_free_context(&video_codec_ctx);
-    video_codec_ctx = nullptr;
-    worker_->monitor->video_index = -1;
-  }
-
-  if (fmt_ctx) {
-    // 拉流不需要释放start
-    // if (mFmtCtx && !(mFmtCtx->oformat->flags & AVFMT_NOFILE)) {
-    //    avio_close(mFmtCtx->pb);
-    //}
-    // 拉流不需要释放end
-    avformat_close_input(&fmt_ctx);
-    avformat_free_context(fmt_ctx);
-    fmt_ctx = nullptr;
-  }
-}
 
 AVPacketPtr AvPullStream::GetVideoPkt() {
   pkt_cs_.acquire();
   AVPacketPtr pkg;
-  assert(video_pkt_queue_.try_dequeue(pkg));
+  video_pkt_queue_.try_dequeue(pkg);
   return pkg;
 }
-void AvPullStream::ClearVideoPktQ() {
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+void AvPullStream::SignalShutdown() {
   pkt_cs_.release(); //sent a message to wake up the thread and let it terminated itself.
-
 }
-void AvPullStream::HandleRead() {
+void AvPullStream::Read() {
   int continuity_error_count = 0;
 
   while (worker_->getState()) {
     AVPacketPtr pkt{av_packet_alloc()};
-    if (av_read_frame(fmt_ctx, pkt.get()) >= 0) {
+    if (av_read_frame(fmt_ctx.get(), pkt.get()) >= 0) {
       continuity_error_count = 0;
       if (pkt->stream_index == worker_->monitor->video_index) {
         video_pkt_queue_.enqueue(std::move(pkt));
@@ -187,12 +159,11 @@ void AvPullStream::HandleRead() {
     }
   }
 }
-void AvPullStream::ReadThread(void* arg) {
-  auto pullStream = static_cast<AvPullStream*>(arg);
-  pullStream->HandleRead();
-}
-AVPacket* AvPullStream::PeakPkt() {
-  pkt_cs_.acquire();
-  return video_pkt_queue_.peek()->get();
+void AvPullStream::CloseConnect() {
+  AVPacketPtr video_pkt;
+  fmt_ctx.reset();
+  while (video_pkt_queue_.try_dequeue(video_pkt)) {
+    // delete video_pkt;
+  }
 }
 }  // namespace avs_analyzer

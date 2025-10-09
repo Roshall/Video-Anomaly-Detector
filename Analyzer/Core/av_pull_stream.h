@@ -21,24 +21,23 @@ class AvPullStream {
 
   bool Connect();       // 连接流媒体服务
   bool Reconnect();     // 重连流媒体服务
-  void CloseConnect();  // 关闭流媒体服务的连接
+  void CloseConnect();
 
   int connect_count = 0;
 
-  AVFormatContext* fmt_ctx = nullptr;
+  AVFormatContextPtr fmt_ctx;
 
   // 视频帧
-  AVCodecContext* video_codec_ctx = nullptr;
+  AVCodecContextPtr video_codec_ctx;
   AVStream* stream = nullptr;
   AVPacketPtr GetVideoPkt();
-  AVPacket* PeakPkt();
 
-  static void ReadThread(void* arg);  // 拉流媒体流
-  void HandleRead();
+  // 拉流媒体流
+  void Read();
 
  private:
   Worker* worker_;
-  void ClearVideoPktQ();
+  void SignalShutdown();
   ReaderWriterQueue<AVPacketPtr> video_pkt_queue_;
   std::counting_semaphore<> pkt_cs_{0};
 };
