@@ -1,4 +1,4 @@
-﻿#include "generate_alarm_video.h"
+﻿#include "alarm.h"
 
 #include <json/json.h>
 
