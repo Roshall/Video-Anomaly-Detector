@@ -34,10 +34,11 @@ class AvPullStream {
 
   // 拉流媒体流
   void Read();
+  void SignalShutdown();
+  void ClearPacketQueue();
 
  private:
   Worker* worker_;
-  void SignalShutdown();
   ReaderWriterQueue<AVPacketPtr> video_pkt_queue_;
   std::counting_semaphore<> pkt_cs_{0};
 };
