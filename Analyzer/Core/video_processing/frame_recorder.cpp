@@ -19,7 +19,11 @@ void log_error(const std::string& message, int error_code) {
 }
 
 Recorder::Recorder(VideoConfig config)
-    : config(config){}
+    : config(config), reused_pkt_(av_packet_alloc()){
+      if (!reused_pkt_) {
+        log_error("Failed to allocate packet", AVERROR(ENOMEM));
+      }
+    }
 
 Recorder::~Recorder() {
   CloseOutputSegment();
@@ -126,10 +130,9 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     return false;
   }
 
-  AVPacketPtr pkt{av_packet_alloc()};
   bool get_frame{};
   while (true) {
-    ret = avcodec_receive_packet(video_codec_ctx_.get(), pkt.get());
+    ret = avcodec_receive_packet(video_codec_ctx_.get(), reused_pkt_.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
       break;
     } else if (ret < 0) {
@@ -137,9 +140,12 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
       break;
     }
 
-    pkt->stream_index = output_ctx_->streams[0]->index;
-    av_interleaved_write_frame(output_ctx_.get(), pkt.get());
-    av_packet_unref(pkt.get());
+    reused_pkt_->stream_index = output_ctx_->streams[0]->index;
+    if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get()); ret < 0) {
+      log_error("Error writing frame to output", ret);
+      break;
+    }
+    av_packet_unref(reused_pkt_.get());
   }
   get_frame = true;
   return get_frame;
@@ -147,7 +153,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
 
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
-  frame->pts = av_rescale_q(frame->pts, frame->time_base, video_codec_ctx_->time_base);
+  frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base, video_codec_ctx_->time_base);
   return EncodeAndWrite(frame);
 }
 }

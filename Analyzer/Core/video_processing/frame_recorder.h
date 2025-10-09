@@ -36,6 +36,7 @@ class Recorder {
   bool EncodeAndWrite(AVFrame* frame);
 
 
+  AVPacketPtr reused_pkt_;
   std::string file_path_{};
 
   AVFormatContextPtr output_ctx_{};
