@@ -6,7 +6,6 @@
 #include "worker.h"
 #include "video_processing/helper.h"
 #include "control.h"
-#include "helper.h"
 
 extern "C" {
 #include <libavutil/dict.h>
