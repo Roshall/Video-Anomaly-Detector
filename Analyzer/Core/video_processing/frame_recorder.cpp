@@ -1,45 +1,49 @@
 #include "frame_recorder.h"
+
 #include <iostream>
 #include <stdexcept>
 
-
 extern "C" {
-#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavutil/opt.h>
+#include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
 }
 
 namespace avs_analyzer {
-void log_error(const std::string& message, int error_code) {
-  static char err_buf[AV_ERROR_MAX_STRING_SIZE];
-  av_strerror(error_code, err_buf, sizeof(err_buf));
-  std::cerr << message << ": " << err_buf << " ( " << error_code << ")"
-            << std::endl;
-}
 
 Recorder::Recorder(VideoConfig config)
-    : config(config), reused_pkt_(av_packet_alloc()){
-      if (!reused_pkt_) {
-        log_error("Failed to allocate packet", AVERROR(ENOMEM));
-      }
-    }
-
-Recorder::~Recorder() {
-  CloseOutputSegment();
+    : config(config), reused_pkt_(av_packet_alloc()) {
+  if (!reused_pkt_) {
+    log_error("Failed to allocate packet", AVERROR(ENOMEM));
+  }
 }
 
-bool Recorder::Initialize(std::string_view file_path) {
+Recorder::~Recorder() { CloseOutputSegment(); }
+
+bool Recorder::Initialize(std::string_view file_path, bool file) {
   file_path_ = file_path;
-  return OpenOutputSegment();  // Start the first segment
+  dst_file_ = file;
+  CodeConfig conf{};
+
+  if (!file) {
+    AVDictionary* fmt_options = nullptr;
+    av_dict_set(&fmt_options, "rw_timeout", "30000000",
+                0);  // 设置rtmp/http-flv连接超时
+    av_dict_set(&fmt_options, "stimeout", "30000000", 0);  // 设置rtsp连接超时
+    av_dict_set(&fmt_options, "rtsp_transport", "tcp", 0);
+    conf = {1, 0, "23", "ultrafast", "rtsp", fmt_options};
+  }
+  return OpenOutputSegment(conf);  // Start the first segment
 }
 
-bool Recorder::OpenOutputSegment() {
+bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   // set up codec
   // 1. Find the H.265 encoder
   const AVCodec* codec = avcodec_find_encoder_by_name("libx265");
   if (!codec) {
-    std::cerr << "Codec 'libx265' not found. Please ensure FFmpeg is compiled with support for it."
+    std::cerr << "Codec 'libx265' not found. Please ensure FFmpeg is compiled "
+                 "with support for it."
               << std::endl;
     return false;
   }
@@ -53,15 +57,15 @@ bool Recorder::OpenOutputSegment() {
   // 2. Set encoder parameters
   video_codec_ctx_->width = config.width;
   video_codec_ctx_->height = config.height;
-//  video_codec_ctx_->bit_rate = config.bitrate;
+  //  video_codec_ctx_->bit_rate = config.bitrate;
   video_codec_ctx_->time_base = {1, 90000};
-//  video_codec_ctx_->framerate = {config.fps, 1};
-  video_codec_ctx_->gop_size = config.fps * 2;  // One I-frame every 2 seconds
-  video_codec_ctx_->max_b_frames = 2;
+  //  video_codec_ctx_->framerate = {config.fps, 1};
+  video_codec_ctx_->gop_size = config.fps * cconfig.gop_size_scale;
+  video_codec_ctx_->max_b_frames = cconfig.max_b_frame;
   video_codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
 
-  av_opt_set(video_codec_ctx_->priv_data, "crf", "28", 0);
-  av_opt_set(video_codec_ctx_->priv_data, "preset", "faster", 0);
+  av_opt_set(video_codec_ctx_->priv_data, "crf", cconfig.crf.c_str(), 0);
+  av_opt_set(video_codec_ctx_->priv_data, "preset", cconfig.preset.c_str(), 0);
 
   video_codec_ctx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
@@ -73,8 +77,8 @@ bool Recorder::OpenOutputSegment() {
   }
   // set up output stream
   AVFormatContext* fmt_ctx;
-  ret = avformat_alloc_output_context2(&fmt_ctx, nullptr, nullptr,
-                                           file_path_.c_str());
+  ret = avformat_alloc_output_context2(&fmt_ctx, nullptr, cconfig.format_name,
+                                       file_path_.c_str());
   if (ret < 0) {
     log_error("Could not create output context", ret);
     return false;
@@ -103,8 +107,11 @@ bool Recorder::OpenOutputSegment() {
       return false;
     }
   }
+  ret = avformat_write_header(output_ctx_.get(), &cconfig.fmt_options);
+  if (cconfig.fmt_options) {
+    av_dict_free(&cconfig.fmt_options);
+  }
 
-  ret = avformat_write_header(output_ctx_.get(), nullptr);
   if (ret < 0) {
     log_error("Could not write header", ret);
     return false;
@@ -130,30 +137,32 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     return false;
   }
 
-  bool get_frame{};
+  bool get_frame{true};
   while (true) {
     ret = avcodec_receive_packet(video_codec_ctx_.get(), reused_pkt_.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
       break;
     } else if (ret < 0) {
+      get_frame = false;
       log_error("Error receiving packet from encoder", ret);
       break;
     }
-
     reused_pkt_->stream_index = output_ctx_->streams[0]->index;
-    if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get()); ret < 0) {
+    if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
+        ret < 0) {
+      get_frame = false;
       log_error("Error writing frame to output", ret);
       break;
     }
     av_packet_unref(reused_pkt_.get());
   }
-  get_frame = true;
   return get_frame;
 }
 
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
-  frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base, video_codec_ctx_->time_base);
+  frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
+                            video_codec_ctx_->time_base);
   return EncodeAndWrite(frame);
 }
-}
+}  // namespace avs_analyzer

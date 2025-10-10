@@ -18,21 +18,30 @@ class Recorder {
     int fps{25};
   };
 
+  struct CodeConfig {
+    int gop_size_scale{2};
+    int max_b_frame{2};
+    std::string crf{"28"};
+    std::string preset{"faster"};
+    const char* format_name{nullptr};
+    mutable AVDictionary* fmt_options{nullptr};
+  };
+
   explicit Recorder(VideoConfig config);
   ~Recorder();
 
   // Initializes the encoder and prepares for recording. Must be called before adding frames.
-  bool Initialize(std::string_view file_path);
+  bool Initialize(std::string_view file_path, bool file=true);
 
   // Encodes a single video frame.
   bool AddVideoFrame(AVFrame* frame);
+  bool OpenOutputSegment(const CodeConfig& cconfig);
+  void CloseOutputSegment();
 
   std::string_view dst() {return file_path_;}
 
   VideoConfig config;
  private:
-  bool OpenOutputSegment();
-  void CloseOutputSegment();
   bool EncodeAndWrite(AVFrame* frame);
 
 
@@ -41,6 +50,7 @@ class Recorder {
 
   AVFormatContextPtr output_ctx_{};
   AVCodecContextPtr video_codec_ctx_{};
+  bool dst_file_{};
 };
 
 }  // namespace avs_analyzer
