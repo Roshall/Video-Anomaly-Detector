@@ -197,4 +197,7 @@ std::unique_ptr<Frame> EventDetector::latest_frame() {
   auto& frame = frame_buffer_.back();
   return std::make_unique<Frame>(frame->timestamp, AVFramePtr{av_frame_clone(frame->data.get())});
 }
+int64_t EventDetector::timestamp() const {
+  return frame_buffer_.back()->data->best_effort_timestamp;
+}
 }

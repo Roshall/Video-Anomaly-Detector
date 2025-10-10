@@ -32,48 +32,16 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
 bool Alarm::Finalize(Config& config) {
   Recorder recorder({width, height, fps});
   std::filesystem::path prefix_dir{config.upload_dir};
-  prefix_dir /= "alarm";
-  try {
-    if (!std::filesystem::exists(prefix_dir)) {
-      std::filesystem::create_directory(prefix_dir);
-    }
-  } catch (std::filesystem::filesystem_error& e) {
-    std::cout << "genAlarmVideo() create_directory1 error:" << e.what()
-              << std::endl;
-    return false;
-  }
+  std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
+  prefix_dir = prefix_dir / "alarm" / control_code / start_time;
 
-  prefix_dir /= control_code;
-  try {
-    if (!std::filesystem::exists(prefix_dir)) {
-      std::filesystem::create_directory(prefix_dir);
-    }
-  } catch (std::filesystem::filesystem_error& e) {
-    std::cout << "genAlarmVideo() create_directory2 error:" << e.what()
-              << std::endl;
-    return false;
-  }
-
-  prefix_dir /= FrameWallClock::to_iso8601_utc(start_ts);
-
-  try {
-    if (!std::filesystem::exists(prefix_dir)) {
-      std::filesystem::create_directory(prefix_dir);
-    }
-  } catch (std::filesystem::filesystem_error& e) {
-    std::cout << "genAlarmVideo() create_directory3 error:" << e.what()
-              << std::endl;
-    return false;
-  }
 
   if (event->more_segments || std::filesystem::exists(prefix_dir / "videos")) {
     prefix_dir /= "videos";
     try {
-      if (!std::filesystem::exists(prefix_dir)) {
-        std::filesystem::create_directory(prefix_dir);
-      }
+      std::filesystem::create_directories(prefix_dir);
     } catch (std::filesystem::filesystem_error& e) {
-      std::cout << "genAlarmVideo() create_directory3 error:" << e.what()
+      std::cout << "genAlarmVideo() create_directorys error:" << e.what()
                 << std::endl;
       return false;
     }
@@ -87,12 +55,12 @@ bool Alarm::Finalize(Config& config) {
   }
 
   // 上传报警信息start
-  std::string url = config.admin_host + "/api/postAddAlarm";
+  std::string url = config.admin_host + "/api/postAddAlarmVideo";
   Json::Value param;
   param["control_code"] = control_code;
   param["desc"] = "";
   param["video_path"] = path;
-  param["image_path"] = path;
+  param["create_time"] =   start_time;
 
   std::string data = param.toStyledString();
   Request request;
@@ -102,7 +70,6 @@ bool Alarm::Finalize(Config& config) {
   LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
   for (auto& frame : event->frames) {
     recorder.AddVideoFrame(frame.get()->data.get());
-    // TODO: create cover image
   }
   return true;
 }
