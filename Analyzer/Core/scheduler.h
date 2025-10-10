@@ -1,7 +1,7 @@
 ﻿#ifndef ANALYZER_SCHEDULER_H
 #define ANALYZER_SCHEDULER_H
 
-#include <concurrentqueue/moodycamel/concurrentqueue.h>
+#include <concurrentqueue/moodycamel/concurrentqueue.h> // lock-free queue
 
 #include <condition_variable>
 #include <memory>
@@ -27,10 +27,10 @@ class Scheduler {
  public:
   friend class Analyzer;
 
-  explicit Scheduler(Config* config);
+  explicit Scheduler(Config& config);
   ~Scheduler();
 
-  Config* GetConfig() const;
+  Config& GetConfig() const;
   bool InitAlgorithm();
   void CleanUpLoop();
   void SetState(bool state);
@@ -39,7 +39,7 @@ class Scheduler {
   void AddAlarm(std::unique_ptr<Alarm> alarm);
 
   // ApiServer 对应的函数 start
-  std::vector<Monitor*> GetAllMonitors();
+  std::vector<Monitor> GetAllMonitors();
   Monitor* GetMonitorByCode(const std::string& code);
   void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code, std::string& result_msg);
   void MonitorRemove(const std::string& code, int& result_code,
@@ -47,18 +47,19 @@ class Scheduler {
   // void StartAlarmThread();
   // ApiServer 对应的函数 end
   void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
+  void NotifyCleanUp();
 
  private:
-  Config* config_;
-  bool state_;
+  Config& config_;
+  std::atomic<bool> state_{false};
 
   
   size_t GetWorkerSize();
   bool Contains(const std::string& code);
   bool AddWorker(std::unique_ptr<Worker> worker);
   Worker* GetWorkerByCode(const std::string& code);
-  
-  
+
+
   // each worker monitors one type of anomaly for a stream
   std::unordered_map<std::string, std::unique_ptr<Worker>>
       worker_map_;  // <monitor.code,Worker*>
@@ -70,10 +71,8 @@ class Scheduler {
   // static void AlarmLoopThread(void* arg);
   [[noreturn]] void PullAndGenAlarm();
   ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
-  
-  void NotifyCleanUp();
+
   std::mutex clean_up_mtx_;
-  bool clean_up_ready_ = false;
   std::condition_variable clean_up_cv_;
 
   // 报警处理 end

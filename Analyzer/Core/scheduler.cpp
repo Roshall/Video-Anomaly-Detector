@@ -4,38 +4,28 @@
 #include <mutex>
 #include <string>
 
+#include "Utils/log.h"
 #include "algorithm.h"
 #include "algorithm_on_yolo.h"
 #include "config.h"
 #include "control.h"
-#include "generate_alarm_video.h"
-#include "Utils/log.h"
+#include "alarm.h"
 #include "worker.h"
 
+
+
 namespace avs_analyzer {
-Scheduler::Scheduler(Config* config) : config_(config), state_(false) {
-  LOGI("");
-}
+Scheduler::Scheduler(Config& config) : config_(config) {}
 
 Scheduler::~Scheduler() = default;
 
-// Scheduler::~Scheduler() {
-//   LOGI("");
-
-//   // clearAlarmQueue(); // AlarmQueue store smart pointers, they will clean up
-//   // the resource themselves.
-//   if (alarm_thread_) {
-//     alarm_thread_->join();
-//   }
-// }
-
-Config* Scheduler::GetConfig() const { return config_; }
+Config& Scheduler::GetConfig() const { return config_; }
 bool Scheduler::InitAlgorithm() {
   LOGI("initAlgorithm() start");
 
   // 初始化on-yolo8 80分类模型
   LOGI("初始化on-yolo8 80分类模型");
-  std::string model_path = config_->model_dir + "/yolov8n.onnx";
+  std::string model_path = config_.model_dir + "/yolov8n.onnx";
   std::vector<std::string> class_names = {
       "person",        "bicycle",      "car",
       "motorcycle",    "airplane",     "bus",
@@ -65,50 +55,45 @@ bool Scheduler::InitAlgorithm() {
       "vase",          "scissors",     "teddy bear",
       "hair drier",    "toothbrush"};
   yolov8n_80_classes_ =
-      std::make_unique<YoloAlgorithm>(config_, model_path, class_names);
+      std::make_unique<YoloAlgorithm>(&config_, model_path, class_names);
 
-  // auto img = cv::imread("bus.jpg");
-  // if (!img.empty()) {
-  //     std::vector<DetectObject> detects;
-  //     algorithm_openvino_yolov8n->objectDetect(img, detects);
-  //     LOGI("img.w=%d,img.h=%d,detects.size()=%d",
-  //     img.cols,img.rows,detects.size());
-
-  //}
 
   LOGI("initAlgorithm() end");
   return true;
 }
 
-// void Scheduler::StartAlarmThread() {
-//   alarm_thread_ = std::make_unique<std::thread>(AlarmLoopThread, this);
-// }
 void Scheduler::CleanUpLoop() {
-  LOGI("Start Success");
-  const int kWorkerSize = 100;
+  // TODO: use thread pool to handle alarm and cleanup
   while (state_) {
     {
       std::unique_lock lk(clean_up_mtx_);
-      clean_up_cv_.wait(lk, [&]{return clean_up_ready_;});
+      clean_up_cv_.wait(lk, [this] {
+        return !this->state_ ||
+               this->alarm_queue_.size_approx() > 0 ||
+               this->to_be_deleted_workers_queue_.size_approx() > 0;
+      });
     }
-    PullAndGenAlarm();
-    std::unique_ptr<Worker> workers[kWorkerSize];
-    while(to_be_deleted_workers_queue_.try_dequeue_bulk(workers, kWorkerSize) < kWorkerSize){}
-
+    if (!state_) break;
+//    PullAndGenAlarm();
     {
-      std::lock_guard lock(clean_up_mtx_);
-      clean_up_ready_ = false;
+      std::unique_ptr<Alarm> alarm;
+      while (alarm_queue_.try_dequeue(alarm)) {
+        alarm->Finalize(config_);
+      }
+    }
+    std::unique_ptr<Worker> worker;
+    while (to_be_deleted_workers_queue_.try_dequeue(worker)) {
     }
   }
 }
 
-std::vector<Monitor*> Scheduler::GetAllMonitors() {
-  std::vector<Monitor*> monitors;
+std::vector<Monitor> Scheduler::GetAllMonitors() {
+  std::vector<Monitor> monitors;
   {
     std::lock_guard lock(worker_map_mutex_);
     monitors.reserve(worker_map_.size());
     for (auto& pair : worker_map_) {
-      monitors.push_back(pair.second->monitor.get());
+      monitors.push_back(*pair.second->monitor_.get());
     }
   }
 
@@ -119,7 +104,7 @@ Monitor* Scheduler::GetMonitorByCode(const std::string& code) {
   {
     std::lock_guard lock(worker_map_mutex_);
     if (const auto it = worker_map_.find(code); it != worker_map_.end()) {
-      monitor = it->second->monitor.get();
+      monitor = it->second->monitor_.get();
     }
   }
 
@@ -172,8 +157,8 @@ void Scheduler::SetState(const bool state) { state_ = state; }
 bool Scheduler::GetState() const { return state_; }
 
 size_t Scheduler::GetWorkerSize() {
-    std::lock_guard lock(worker_map_mutex_);
-    return worker_map_.size();
+  std::lock_guard lock(worker_map_mutex_);
+  return worker_map_.size();
 }
 bool Scheduler::Contains(const std::string& code) {
   std::lock_guard lock(worker_map_mutex_);
@@ -181,11 +166,10 @@ bool Scheduler::Contains(const std::string& code) {
 }
 bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   bool added = false;
-  const std::string& code = worker->monitor->code;
+  const std::string& code = worker->monitor_->code;
   {
     std::lock_guard lock(worker_map_mutex_);
-    if (bool is_already_added =
-            worker_map_.end() != worker_map_.find(code);
+    if (bool is_already_added = worker_map_.end() != worker_map_.find(code);
         !is_already_added) {
       worker_map_.emplace(code, std::move(worker));
       added = true;
@@ -194,7 +178,6 @@ bool Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
   return added;
 }
 void Scheduler::RemoveWorker(const std::string& code) {
-
   bool result = false;
   std::unique_ptr<Worker> worker_to_delete;
   {
@@ -205,12 +188,9 @@ void Scheduler::RemoveWorker(const std::string& code) {
       result = true;
     }
   }
-  // TODO: worker clean up threshold to be configurable
-  const int kWorkerCleanUpThreshold = 10;
   if (result) {
+
     to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
-  }
-  if (to_be_deleted_workers_queue_.size_approx() > kWorkerCleanUpThreshold) {
     NotifyCleanUp();
   }
 }
@@ -226,24 +206,16 @@ Worker* Scheduler::GetWorkerByCode(const std::string& code) {
 }
 
 void Scheduler::NotifyCleanUp() {
-  {
-    std::lock_guard lock(clean_up_mtx_);
-    clean_up_ready_ = true;
-  }
+  std::lock_guard lock(clean_up_mtx_);
   clean_up_cv_.notify_one();
 }
 
 void Scheduler::PullAndGenAlarm() {
-    std::unique_ptr<Alarm> alarm;
-    while (alarm_queue_.try_dequeue(alarm)) {
-      GenerateAlarmVideo gen(config_, alarm.get());
-      gen.genAlarmVideo();
-    }
+  std::unique_ptr<Alarm> alarm;
+  while (alarm_queue_.try_dequeue(alarm)) {
+    alarm->Finalize(config_);
+  }
 }
-// void Scheduler::AlarmLoopThread(void* arg) {
-//   auto scheduler = static_cast<Scheduler*>(arg);
-//   while(true) scheduler->PullAndGenAlarm();
-// }
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
   // TODO: alarm queue size to be configurable
@@ -255,10 +227,4 @@ void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
     NotifyCleanUp();
   }
 }
-
-// void Scheduler::clearAlarmQueue() {
-//     // swap isn't thread free, but we are pretty sure that no other thread
-//     are alive if this function gets called.
-// }
-
 }  // namespace avs_analyzer
