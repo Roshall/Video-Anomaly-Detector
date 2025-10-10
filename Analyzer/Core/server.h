@@ -1,10 +1,12 @@
 ﻿#ifndef ANALYZER_SERVER_H
 #define ANALYZER_SERVER_H
 #include "scheduler.h"
+#include <event2/http.h>
 
 struct evhttp_request;
 
-void HTTPServerStart(avs_analyzer::Scheduler& scheduler);
+std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler,
+                            event_base* event_base_p);
 void ApiIndex(evhttp_request* req, void* arg);
 void ApiHealth(evhttp_request* req, void* arg);
 void ApiAllMonitors(evhttp_request* req, void* arg);

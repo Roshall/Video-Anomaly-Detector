@@ -19,15 +19,12 @@ using namespace avs_analyzer;
 
 constexpr int kRecvBufMaxSize = 1024 * 8;
 
-void HTTPServerStart(Scheduler& scheduler) {
-  scheduler.SetState(true);
-
-  std::thread([&]() {
+std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base) {
+  return std::thread([&, base]() {
     LOGI("启动分析器服务：http://0.0.0.0:%d",
-         scheduler.GetConfig()->analyzer_port);
-
-    event_config* evt_config = event_config_new();
-    event_base* base = event_base_new_with_config(evt_config);
+         scheduler.GetConfig().analyzer_port);
+//    event_config* evt_config = event_config_new();
+//    event_base* base = event_base_new_with_config(evt_config);
     evhttp* http = evhttp_new(base);
     evhttp_set_default_content_type(http, "text/html; charset=utf-8");
 
@@ -40,15 +37,13 @@ void HTTPServerStart(Scheduler& scheduler) {
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
 
-    evhttp_bind_socket(http, "0.0.0.0", scheduler.GetConfig()->analyzer_port);
+    evhttp_bind_socket(http, "0.0.0.0", scheduler.GetConfig().analyzer_port);
     event_base_dispatch(base);
 
-    event_base_free(base);
     evhttp_free(http);
-    event_config_free(evt_config);
-
-    scheduler.SetState(false);
-  }).detach();
+//    event_config_free(evt_config);
+//    event_base_free(base);
+  });
 }
 
 void ApiIndex(evhttp_request* req, void* arg) {
@@ -107,19 +102,19 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
       Json::Value result_data;
       int64_t curTimestamp = getCurTimestamp();
       int64_t startTimestamp = 0;
-      for (auto monitor : monitors) {
-        startTimestamp = monitor->start_timestamp;
+      for (auto& monitor : monitors) {
+        startTimestamp = monitor.start_timestamp;
 
-        result_data_item["code"] = monitor->code.data();
-        result_data_item["streamUrl"] = monitor->stream_url.data();
-        result_data_item["pushStream"] = monitor->push_stream;
-        result_data_item["pushStreamUrl"] = monitor->push_stream_url.data();
-        result_data_item["algorithmCode"] = monitor->algorithm_code.data();
-        result_data_item["objectCode"] = monitor->object_code.data();
+        result_data_item["code"] = monitor.code.data();
+        result_data_item["streamUrl"] = monitor.stream_url.data();
+        result_data_item["pushStream"] = monitor.push_stream;
+        result_data_item["pushStreamUrl"] = monitor.push_stream_url.data();
+        result_data_item["algorithmCode"] = monitor.algorithm_code.data();
+        result_data_item["objectCode"] = monitor.object_code.data();
         result_data_item["recognitionRegion"] =
-            monitor->roi_str.data();
+            monitor.roi_str.data();
 
-        result_data_item["checkFps"] = monitor->check_fps;
+        result_data_item["checkFps"] = monitor.check_fps;
         result_data_item["startTimestamp"] = startTimestamp;
         result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
 
