@@ -22,6 +22,8 @@ class Worker {
  public:
   explicit Worker(Scheduler* scheduler, std::unique_ptr<Monitor> control);
   ~Worker();
+  Worker(const Worker& other) = delete;
+  Worker operator= (const Worker& other) = delete;
 
   // （线程）解码视频帧和实时分析视频帧
   void DecodeVideo();

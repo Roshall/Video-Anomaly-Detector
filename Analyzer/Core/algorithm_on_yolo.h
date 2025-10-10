@@ -17,8 +17,7 @@ class OnnxRuntimeEngine {
                              std::vector<std::string>& classNames);
   ~OnnxRuntimeEngine();
 
-
-  bool RunInference(cv::Mat& image, std::vector<Detection>& detects);
+  Detection RunInference(const cv::Mat& image);
 
  private:
   Config* config_;
@@ -35,7 +34,7 @@ class YoloAlgorithm : public Algorithm {
   virtual ~YoloAlgorithm();
 
 
-  virtual bool DetectObjects(cv::Mat& image, std::vector<Detection>& detects);
+  virtual Detection DetectObjects(const cv::Mat& image);
 
  private:
   std::vector<std::string> class_names_;

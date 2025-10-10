@@ -42,8 +42,7 @@ OnnxRuntimeEngine::~OnnxRuntimeEngine() {
   session_.release();
   env_.release();
 }
-bool OnnxRuntimeEngine::RunInference(cv::Mat& image,
-                                     std::vector<Detection>& detects) {
+Detection OnnxRuntimeEngine::RunInference(const cv::Mat& image) {
   int image_w = image.cols;
   int image_h = image.rows;
 
@@ -61,7 +60,7 @@ bool OnnxRuntimeEngine::RunInference(cv::Mat& image,
   int input_h = 0;
   for (int i = 0; i < numInputNodes; i++) {
     auto input_name = session_.GetInputNameAllocated(i, allocator);
-    input_node_names.push_back(input_name.get());
+    input_node_names.emplace_back(input_name.get());
     Ort::TypeInfo input_type_info = session_.GetInputTypeInfo(i);
     auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
     auto input_dims = input_tensor_info.GetShape();
@@ -119,8 +118,8 @@ bool OnnxRuntimeEngine::RunInference(cv::Mat& image,
                    1, outNames.data(), outNames.size());
 
   // output data
-  const float* pdata = ort_outputs[0].GetTensorMutableData<float>();
-  cv::Mat dout(output_dim, output_row, CV_32F, (float*)pdata);
+  auto pdata = ort_outputs[0].GetTensorMutableData<float>();
+  cv::Mat dout(output_dim, output_row, CV_32F, pdata);
   cv::Mat det_output = dout.t();  // 8400x84
 
   // post-process
@@ -160,25 +159,7 @@ bool OnnxRuntimeEngine::RunInference(cv::Mat& image,
   std::vector<int> indexes;
   cv::dnn::NMSBoxes(boxes, confidences, score_threshold, nms_threshold,
                     indexes);
-  for (size_t i = 0; i < indexes.size(); i++) {
-    int index = indexes[i];
-    int class_id = classIds[index];
-    float class_score = confidences[index];
-    cv::Rect box = boxes[index];
-
-    Detection detect;
-    detect.x1 = box.x;
-    detect.y1 = box.y;
-    detect.x2 = box.x + box.width;
-    detect.y2 = box.y + box.height;
-    detect.class_id = class_id;
-    detect.class_name = class_names_[class_id];
-    detect.class_score = class_score;
-
-    detects.push_back(detect);
-  }
-
-  return true;
+  return {std::move(boxes), std::move(confidences), std::move(classIds)};
 }
 YoloAlgorithm::YoloAlgorithm(Config* config, std::string& modelPath,
                              std::vector<std::string>& classNames)
@@ -192,12 +173,9 @@ YoloAlgorithm::~YoloAlgorithm() {
   engine_ = nullptr;
 }
 
-bool YoloAlgorithm::DetectObjects(cv::Mat& image,
-                                  std::vector<Detection>& detects) {
-  mutex_.lock();
-  bool ret = engine_->RunInference(image, detects);
-  mutex_.unlock();
-  return ret;
+Detection YoloAlgorithm::DetectObjects(const cv::Mat& image) {
+  std::lock_guard loc(mutex_);
+  return engine_->RunInference(image);
 }
 
 }  // namespace avs_analyzer

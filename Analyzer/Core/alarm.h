@@ -20,7 +20,8 @@ struct Frame;
 
 struct Alarm {
   Alarm() = delete;
-  Alarm(int64_t happenTimestamp, std::string_view controlCode, Event event,
+  Alarm(int64_t happenTimestamp, std::string_view controlCode,
+        std::unique_ptr<Event> event,
         const std::shared_ptr<Recorder>& recorder);
   ~Alarm() = default;
 
@@ -29,7 +30,7 @@ struct Alarm {
   int64_t start_ts = 0;      // 发生事件的时间戳（毫秒级）
   std::string control_code;  // 布控编号
   std::shared_ptr<Recorder> recorder;
-  Event event;
+  std::unique_ptr<Event> event;
 };
 
 }  // namespace avs_analyzer

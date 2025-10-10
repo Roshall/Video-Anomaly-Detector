@@ -210,12 +210,6 @@ void Scheduler::NotifyCleanUp() {
   clean_up_cv_.notify_one();
 }
 
-void Scheduler::PullAndGenAlarm() {
-  std::unique_ptr<Alarm> alarm;
-  while (alarm_queue_.try_dequeue(alarm)) {
-    alarm->Finalize(config_);
-  }
-}
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
   // TODO: alarm queue size to be configurable
@@ -223,8 +217,6 @@ void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
 
   std::unique_ptr<Alarm> old_alarm;
   alarm_queue_.enqueue(std::move(alarm));
-  if (alarm_queue_.size_approx() > kAlarmQueueSize) {
-    NotifyCleanUp();
-  }
+  NotifyCleanUp();
 }
 }  // namespace avs_analyzer

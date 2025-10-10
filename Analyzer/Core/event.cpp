@@ -7,6 +7,8 @@
 #include <iostream>
 #include <numeric>
 
+#include "Utils/log.h"
+
 extern "C" {
 #include <libavutil/frame.h>
 }
@@ -36,14 +38,13 @@ int64_t EventDetector::FindFirstVoteTimestamp() const {
     // The last frame in the buffer corresponds to the last vote in the window.
     if (frame_buffer_.size() > (object_votes_window_.size() - 1 - index)) {
       return frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +
-                           index]
-          .timestamp;
+                           index]->timestamp;
     }
   }
-  return frame_buffer_.back().timestamp;
+  return frame_buffer_.back()->timestamp;
 }
 
-EventDetector::State EventDetector::ProcessFrame(EventDetector::Frame frame) {
+EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
   State state{State::kNoEvent};
   switch (current_state_) {
     case InnerState::kMajorCheck: {
@@ -118,27 +119,30 @@ EventDetector::State EventDetector::ProcessFrame(EventDetector::Frame frame) {
                     << std::endl;
           // Prepare for next event search
           current_state_ = InnerState::kEventEnding;
-          active_event_end_ts_ = frame.timestamp;
         }
       }
 
       // Check for max duration
-      if (frame.timestamp - active_event_start_ts_ >=
+      int64_t start = last_spilt_time_ < 0 ? active_event_start_ts_: last_spilt_time_;
+      if (frame.timestamp - start >=
           config_.max_event_duration_s) {
         std::cout << "[Active] Event reached max duration at t="
                   << frame.timestamp << "s. Saving and splitting." << std::endl;
         state = State::kEventSplit;
+        last_spilt_time_ = frame.timestamp;
       }
       break;
     }
     case InnerState::kEventEnding: {
-      if (frame.timestamp - active_event_end_ts_ >=
+      int64_t start = last_spilt_time_ < 0 ? active_event_start_ts_: last_spilt_time_;
+      if (frame.timestamp - start >=
           config_.post_event_buffer_s) {
         // Finalize the event.
         current_state_ = InnerState::kMajorCheck;
         last_major_check_ts_ = frame.timestamp;
         object_votes_window_.clear();
         state = State::kEventEnd;
+        last_spilt_time_ = -1;
       }
       break;
     }
@@ -153,39 +157,44 @@ EventDetector::State EventDetector::ProcessFrame(EventDetector::Frame frame) {
     out_frame.reset(av_frame_alloc());
     av_frame_move_ref(out_frame.get(), frame.data);
   }
-  frame_buffer_.emplace_back(frame.timestamp, std::move(out_frame));
+  frame_buffer_.emplace_back(std::make_unique<Frame>(frame.timestamp, std::move(out_frame)));
   // Keep buffer size manageable. Max duration + buffers is a safe upper limit.
-  if (!frame_buffer_.empty() &&
-         frame.timestamp - frame_buffer_.front().timestamp > max_buffer_time_) {
+  if (frame_buffer_.size() > 10 &&
+         frame.timestamp - frame_buffer_.front()->timestamp > max_buffer_time_) {
     frame_buffer_.pop_front();
   }
 
   return state;
 }
 
-std::optional<Event> EventDetector::Flush() {
+std::unique_ptr<Event> EventDetector::Flush() {
   if ((current_state_ == InnerState::kEventEnding ||
        current_state_ == InnerState::kEventActive)
       && !frame_buffer_.empty()) {
-    Event event{active_event_start_ts_, frame_buffer_.back().timestamp};
+    auto event = std::make_unique<Event>(active_event_start_ts_, frame_buffer_.back()->timestamp);
 
     // Find the start index for pre-buffering.
     auto it_start = std::upper_bound(
         frame_buffer_.begin(), frame_buffer_.end(),
         active_event_start_ts_ - config_.pre_event_buffer_s,
-        [](int64_t ts, const OutFrame& f) { return ts < f.timestamp; });
-    auto elem = std::move(it_start->data);
+        [](int64_t ts, const std::unique_ptr<Frame>& f) { return ts < f->timestamp; });
+    event->frames.reserve(std::distance(it_start, frame_buffer_.end()));
     for (;it_start < frame_buffer_.end(); ++it_start) {
-      event.frames.emplace_back(std::move(it_start->data));
+      event->frames.emplace_back(std::move(*it_start));
     }
+    event->more_segments = current_state_ == InnerState::kEventActive;
     std::cout << "[Saved] Event package ends at t="
-              << frame_buffer_.back().timestamp << std::endl;
+              << event->frames.back()->timestamp << std::endl;
     frame_buffer_.clear();
     return event;
   }
-  return std::nullopt;
+  return nullptr;
 }
 std::vector<cv::Rect> EventDetector::Detect(AVFrame* frame) {
   return analyzer_.ProcessVideoFrame(convertor_(frame));
+}
+std::unique_ptr<Frame> EventDetector::latest_frame() {
+  auto& frame = frame_buffer_.back();
+  return std::make_unique<Frame>(frame->timestamp, AVFramePtr{av_frame_clone(frame->data.get())});
 }
 }

@@ -18,6 +18,8 @@ class AvPullStream {
  public:
   explicit AvPullStream(Worker* worker);
   ~AvPullStream();
+  AvPullStream(const AvPullStream&) = delete;
+  AvPullStream operator=(const AvPullStream&) = delete;
 
   bool Connect();       // 连接流媒体服务
   bool Reconnect();     // 重连流媒体服务

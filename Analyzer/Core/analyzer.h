@@ -15,15 +15,9 @@ class Analyzer {
   explicit Analyzer(Scheduler* scheduler, Monitor* monitor);
   ~Analyzer() = default;
 
-  bool ProcessVideoFrame(int64_t frameCount, cv::Mat& image,
-                         std::vector<Detection>& detection_results,
-                         bool& happen, float& happenScore);
+  std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;
 
  private:
-  bool PostImageToServer(int64_t frameCount, cv::Mat& image,
-                         std::vector<Detection>& detection_results,
-                         bool& happen, float& happenScore);
-
   Scheduler* scheduler_;
   Monitor* monitor_;
 };

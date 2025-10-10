@@ -5,9 +5,15 @@
 
 namespace avs_analyzer {
 struct Frame {
+  int64_t timestamp{}; // ms
+  AVFramePtr data{};
   uint32_t object_count{};
-  std::shared_ptr<AVFrame> data{};
   uint32_t HasObject() const { return object_count > 0; }
+};
+
+struct RawFrame {
+  int64_t timestamp{};
+  AVFrame* data{};
 };
 
 }  // namespace avs_analyzer

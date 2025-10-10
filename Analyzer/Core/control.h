@@ -30,20 +30,18 @@ struct Monitor {
 
   std::vector<double>
       roi_vector;  // 算法识别区域坐标点 x1, y1, x2, y2, x3, y3, x4, y4
-  std::vector<cv::Point> ror_points{};  // 算法识别区域
+  std::vector<cv::Point> roi_points{};  // 算法识别区域
   // 通过计算获得的参数
 
   int64_t start_timestamp = 0;  // 执行器启动时毫秒级时间戳（13位）
   float check_fps = 0;          // 算法检测的帧率（每秒检测的次数）
   int video_width = 0;          // 布控视频流的像素宽
   int video_height = 0;         // 布控视频流的像素高
-  int video_channel = 0;
   int video_index = -1;
-  int video_fps = 0;
 
   bool ParseRecognitionRegion() {
     bool res = false;
-    if (ror_points.empty()) {
+    if (roi_points.empty()) {
       if (video_width > 0 && video_height > 0) {
         std::vector<std::string> xys = split(roi_str, ",");
         int lineCount = xys.size() / 2;  // 多边形边数
@@ -63,7 +61,7 @@ struct Monitor {
             roi_vector.push_back(y);
 
             cv::Point p(x, y);
-            ror_points.push_back(p);
+            roi_points.push_back(p);
           }
           res = true;
         }

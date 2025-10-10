@@ -124,13 +124,19 @@ void Worker::DecodeVideo() {
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
     }
+    //TODO: real time
     auto timestamp = frame_yuv420p->best_effort_timestamp;
 
     frame_yuv420p->time_base = in_time_base;
     frame_yuv420p->pict_type =  AV_PICTURE_TYPE_NONE;
+    // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
+    // to has 'ms' time base
     auto state =
         checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
                               frame_yuv420p.get()});
+    if (monitor_->push_stream) {
+      out_stream->AddVideoFrame(checker.latest_frame());
+    }
     switch (state) {
       case EventDetector::kEventStart: {
         recorder = std::make_shared<Recorder>(Recorder::VideoConfig{width, height});
@@ -139,16 +145,16 @@ void Worker::DecodeVideo() {
       }
       case EventDetector::kEventSplit: {
         auto event = checker.Flush();
-        assert(event.has_value() && "event should exist");
+        assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
-            getCurTimestamp(), monitor_->code, *event, recorder));
+            getCurTimestamp(), monitor_->code, std::move(event), recorder));
         break;
       }
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
-        assert(event.has_value() && "event should exist");
+        assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
-            getCurTimestamp(), monitor_->code, *event, std::move(recorder)));
+            getCurTimestamp(), monitor_->code, std::move(event), std::move(recorder)));
         // TODO: fire an alarm end to server
         break;
       }
@@ -162,11 +168,6 @@ void Worker::DecodeVideo() {
       }
       default:
         break;
-    }
-
-    if (monitor_->push_stream) {
-//      tester->AddVideoFrame(checker.latest_frame().get());
-      out_stream->AddVideoFrame(checker.latest_frame());
     }
   }
 }

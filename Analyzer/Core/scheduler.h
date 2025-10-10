@@ -29,6 +29,8 @@ class Scheduler {
 
   explicit Scheduler(Config& config);
   ~Scheduler();
+  Scheduler(const Scheduler&) = delete;
+  Scheduler operator=(const Scheduler&) = delete;
 
   Config& GetConfig() const;
   bool InitAlgorithm();

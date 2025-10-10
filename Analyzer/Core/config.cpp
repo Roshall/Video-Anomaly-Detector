@@ -35,7 +35,6 @@ Config::Config(const char* file) {
     upload_dir = root["uploadDir"].asString();
     model_dir = root["modelDir"].asString();
 
-    algorithm_api_url = root["algorithmApiUrl"].asString();
     std::filesystem::path path(upload_dir);
     try {
       if (!std::filesystem::exists(path)) {
@@ -62,6 +61,5 @@ void Config::Show() {
 
   printf("config.uploadDir=%s\n", upload_dir.data());
   printf("config.modelDir=%s\n", model_dir.data());
-  printf("config.algorithmApiUrl=%s\n", algorithm_api_url.data());
 }
 }  // namespace avs_analyzer

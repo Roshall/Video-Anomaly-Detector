@@ -20,14 +20,15 @@ extern "C" {
 
 namespace avs_analyzer {
 
-Alarm::Alarm(int64_t happenTimestamp, std::string_view controlCode, Event event,
+Alarm::Alarm(int64_t happenTimestamp, std::string_view controlCode,
+             std::unique_ptr<Event> event,
              const std::shared_ptr<Recorder>& recorder)
     : start_ts(happenTimestamp),
       control_code(controlCode),
       recorder(recorder),
       event(std::move(event)) {}
 bool Alarm::Finalize(Config& config) {
-  if (!recorder->dst().empty()) {
+  if (recorder->dst().empty()) {
     std::string prifixDir = config.upload_dir + "/alarm";
 
     std::filesystem::path prefix_path1(prifixDir);
@@ -74,7 +75,7 @@ bool Alarm::Finalize(Config& config) {
     std::string video_path_abs = config.upload_dir + "/" + video_path;
 //    std::string image_path_abs = config.upload_dir + "/" + image_path;
 
-    if (!recorder->Initialize(video_path_abs.data(), false)) {
+    if (!recorder->Initialize(video_path_abs.data(), true)) {
       std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
       return false;
     }
@@ -94,8 +95,8 @@ bool Alarm::Finalize(Config& config) {
 
     LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
   }
-  for (auto& frame : event.frames) {
-    recorder->AddVideoFrame(frame.get());
+  for (auto& frame : event->frames) {
+    recorder->AddVideoFrame(frame.get()->data.get());
     // TODO: create cover image
   }
   return true;

@@ -78,18 +78,9 @@ bool AvPullStream::Connect() {
     // mVideoCodecCtx->thread_count = 1;
 
     stream = fmt_ctx->streams[video_index];
-    if (0 == stream->avg_frame_rate.den) {
-      LOGE("videoIndex=%d,videoStream->avg_frame_rate.den = 0", video_index);
-
-      worker_->monitor_->video_fps = 25;
-    } else {
-      worker_->monitor_->video_fps =
-          stream->avg_frame_rate.num / stream->avg_frame_rate.den;
-    }
     // TODO: video resize
     worker_->monitor_->video_width = video_codec_ctx->width;
     worker_->monitor_->video_height = video_codec_ctx->height;
-    worker_->monitor_->video_channel = 3;
 
     if (!worker_->monitor_->ParseRecognitionRegion()) {
       LOGE("ParseRecognitionRegion() error");
@@ -182,4 +173,5 @@ void AvPullStream::CloseConnect() {
   SignalShutdown();
 //  fmt_ctx.reset();
 }
-}  // namespace avs_analyzer
+}
+// namespace avs_analyzer

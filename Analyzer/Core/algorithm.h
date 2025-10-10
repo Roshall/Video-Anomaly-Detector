@@ -35,7 +35,7 @@ class Algorithm {
   virtual ~Algorithm();
 
  public:
-  virtual Detection DetectObjects(cv::Mat& image) = 0;
+  virtual Detection DetectObjects(const cv::Mat& image) = 0;
   bool CreateState();
 
  protected:
