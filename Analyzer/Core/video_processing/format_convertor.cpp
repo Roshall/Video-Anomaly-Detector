@@ -4,6 +4,8 @@
 
 #include "format_convertor.h"
 
+#include <stdexcept>
+
 extern "C" {
 #include <libavutil/frame.h>
 }
@@ -34,9 +36,6 @@ FormatConvertor::FormatConvertor(int in_width, int in_height,
   }
   av_image_fill_arrays(bgr_frame_->data, bgr_frame_->linesize, bgr_buffer_.get(),
                        AV_PIX_FMT_BGR24, out_width, out_height, 1);
-  bgr_frame_->format = AV_PIX_FMT_BGR24;
-  bgr_frame_->width = out_width;
-  bgr_frame_->height = out_height;
 }
 FormatConvertor::FormatConvertor(FormatConvertor&& other) noexcept
     : width_{other.width_},
@@ -54,6 +53,6 @@ cv::Mat FormatConvertor::operator()(
   sws_scale(sws_context_.get(), original_frame->data, original_frame->linesize,
             0, in_height_, bgr_frame_->data, bgr_frame_->linesize);
 
-  return {height_, width_, CV_8UC3, bgr_frame_->data[0], static_cast<size_t>(bgr_frame_->linesize[0])};
+  return {height_, width_, CV_8UC3, bgr_frame_->data[0]};
 }
 }
