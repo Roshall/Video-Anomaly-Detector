@@ -22,7 +22,7 @@ struct Alarm {
   Alarm() = delete;
   Alarm(int64_t happenTimestamp, std::string_view controlCode, Event event,
         const std::shared_ptr<Recorder>& recorder);
-  ~Alarm();
+  ~Alarm() = default;
 
   bool Finalize(Config& config);
 

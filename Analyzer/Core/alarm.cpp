@@ -26,7 +26,6 @@ Alarm::Alarm(int64_t happenTimestamp, std::string_view controlCode, Event event,
       control_code(controlCode),
       recorder(recorder),
       event(std::move(event)) {}
-Alarm::~Alarm() {}
 bool Alarm::Finalize(Config& config) {
   if (!recorder->dst().empty()) {
     std::string prifixDir = config.upload_dir + "/alarm";
@@ -75,8 +74,8 @@ bool Alarm::Finalize(Config& config) {
     std::string video_path_abs = config.upload_dir + "/" + video_path;
 //    std::string image_path_abs = config.upload_dir + "/" + image_path;
 
-    if (!recorder->Initialize(video_path_abs.data())) {
-      std::cout << "genAlarm can not initialize recorder error" << std::endl;
+    if (!recorder->Initialize(video_path_abs.data(), false)) {
+      std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
       return false;
     }
 
