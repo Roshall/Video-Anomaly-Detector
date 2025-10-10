@@ -337,11 +337,11 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
 
   auto args_main = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", width,
-      height, frame->format, tb.num, tb.den, sar.num, sar.den);
+      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)), tb.num, tb.den, sar.num, sar.den);
 
   auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1", width,
-      height, polygon_overlay_frame->format, tb.num, tb.den);
+      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(polygon_overlay_frame->format)), tb.num, tb.den);
 
   format = (AVPixelFormat)frame->format;
   const std::string filter_descr = "[in][poly]overlay=format=auto[out]";
@@ -456,6 +456,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
     }
     return nullptr;
   }
+  av_frame_copy_props(out_frame.get(), in_frame);
   return out_frame;
 }
 }  // namespace avs_analyzer
