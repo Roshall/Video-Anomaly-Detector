@@ -10,66 +10,101 @@
 #include <string>
 #include <vector>
 
+#include "annotator.h"
+#include "format_convertor.h"
 #include "frame.h"
+
+struct AVFrame;
+class Analyzer;
 
 namespace avs_analyzer {
 // Represents a detected event, containing all relevant frames.
+
+
 struct Event {
-  double start_timestamp{};
-  double end_timestamp{};
+  int64_t start_timestamp{};
+  int64_t end_timestamp{};
   bool more_segments{false};
 
-  std::vector<Frame> frames;
+  std::vector<std::shared_ptr<AVFrame>> frames{};
 
-  [[nodiscard]] double GetDuration() const {
+  [[nodiscard]] int64_t GetDuration() const {
     return end_timestamp - start_timestamp;
   }
 };
 
 // Configuration for the EventDetector.
-struct EventDetectorConfig {
-  double major_stride_s{2.0};
-  double minor_stride_s{0.2};
+struct EventDetectorConfig { // all time in base ms
+  int64_t major_stride_s{2000};
+  int64_t minor_stride_s{200};
   int window_size{5};
   int min_vote{3};
-  double pre_event_buffer_s{1.0};
-  double post_event_buffer_s{1.0};
-  double max_event_duration_s{10.0};
+  int64_t pre_event_buffer_s{1000};
+  int64_t post_event_buffer_s{1000};
+  int64_t max_event_duration_s{60000};
 };
 
 // Processes a stream of frames to detect events based on object presence.
 class EventDetector {
  public:
-  explicit EventDetector(const EventDetectorConfig& config);
+  struct Frame {
+    int64_t timestamp;
+    AVFrame* data;
+  };
+  enum State {
+    kNoEvent, kEventStart, kEventActive, kEventSplit, kEventEnd,
+  };
+
+  EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
+                FormatConvertor convertor, std::vector<cv::Point>& roi_points,
+                AVFrame* sample);
 
   // Processes a single frame and returns an Event if one has just been completed.
-  std::optional<Event> ProcessFrame(const Frame& frame);
+  State ProcessFrame(EventDetector::Frame frame);
+
+  [[nodiscard]] std::shared_ptr<AVFrame> latest_frame() {return frame_buffer_.back().data;}
+  int num_detection() const {return static_cast<int>(kept_bboxes_.size());}
+  [[nodiscard]] int64_t event_duration() const {
+      if (current_state_ != InnerState::kEventActive) {
+        return 0;
+      } else {
+        return frame_buffer_.back().timestamp - active_event_start_ts_;
+      }
+  };
 
   // Flushes any pending event when the stream ends.
   std::optional<Event> Flush();
 
  private:
-  enum class State { kMajorCheck, kMinorCheck, kEventActive, kEventEnding };
+  enum class InnerState { kMajorCheck, kMinorCheck, kEventActive, kEventEnding };
+  struct OutFrame {
+    int64_t timestamp;
+    std::shared_ptr<AVFrame> data;
+  };
 
-  // Helper method to finalize and create an event object.
-  Event FinalizeEvent(double event_end_timestamp);
+  std::vector<cv::Rect> Detect(AVFrame* frame);
 
   // Helper to find the timestamp of the first positive vote in the window.
-  double FindFirstVoteTimestamp() const;
+  int64_t FindFirstVoteTimestamp() const;
 
   const EventDetectorConfig config_;
-  State current_state_{State::kMajorCheck};
+  InnerState current_state_{InnerState::kMajorCheck};
 
-  double last_major_check_ts_{-2.0};  // Initialized to allow first frame check.
-  double last_minor_check_ts_{0.0};
+  VideoOverlay painter_;
+  FormatConvertor convertor_;
+  const Analyzer& analyzer_;
+
+  int64_t last_major_check_ts_{-2000};  // Initialized to allow first frame check.
+  int64_t last_minor_check_ts_{0};
 
   // Buffer for all recent frames, used to construct events.
-  std::deque<Frame> frame_buffer_;
+  std::deque<OutFrame> frame_buffer_;
   // Sliding window to track object presence for voting.
   std::deque<bool> object_votes_window_;
-
-  double active_event_start_ts_{0.0};
-  double active_event_end_ts_{0.0};
+  std::vector<cv::Rect> kept_bboxes_{};
+  int64_t active_event_start_ts_{0};
+  int64_t active_event_end_ts_{0};
+  int64_t max_buffer_time_{0};
 };
 }
 #endif  // ANALYZER_EVENT_H
