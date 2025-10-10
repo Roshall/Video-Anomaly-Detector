@@ -29,19 +29,20 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
                      1000;
 }
 
-int64_t EventDetector::FindFirstVoteTimestamp() const {
+std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
   auto it = std::find(object_votes_window_.cbegin(),
                       object_votes_window_.cend(), true);
+  const std::unique_ptr<Frame>* frame;
   if (it != object_votes_window_.cend()) {
     auto index = std::distance(object_votes_window_.cbegin(), it);
     // The frame_buffer_ contains more frames than the window, so we need to find the correct starting point.
     // The last frame in the buffer corresponds to the last vote in the window.
     if (frame_buffer_.size() > (object_votes_window_.size() - 1 - index)) {
-      return frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +
-                           index]->timestamp;
+      frame = &frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +index];
     }
   }
-  return frame_buffer_.back()->timestamp;
+  frame = &frame_buffer_.back();
+  return {(*frame)->timestamp, (*frame)->data->best_effort_timestamp};
 }
 
 EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
@@ -82,7 +83,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
             current_state_ = InnerState::kEventActive;
             state = State::kEventStart;
             // TODO: add cover page for the event
-            active_event_start_ts_ = FindFirstVoteTimestamp();
+            std::tie(active_event_start_ts_, start_frame_ts_) = FindFirstVoteTimestamp();
           } else {
             std::cout << "[Minor] Verification failed. Votes: " << current_votes
                       << ". Back to MAJOR_CHECK." << std::endl;
@@ -168,11 +169,10 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
 }
 
 std::unique_ptr<Event> EventDetector::Flush() {
-  if ((current_state_ == InnerState::kEventEnding ||
+  if ((current_state_ == InnerState::kMajorCheck||
        current_state_ == InnerState::kEventActive)
       && !frame_buffer_.empty()) {
-    auto event = std::make_unique<Event>(active_event_start_ts_, frame_buffer_.back()->timestamp);
-
+    auto event = std::make_unique<Event>(start_frame_ts_, frame_buffer_.back()->data->best_effort_timestamp);
     // Find the start index for pre-buffering.
     auto it_start = std::upper_bound(
         frame_buffer_.begin(), frame_buffer_.end(),

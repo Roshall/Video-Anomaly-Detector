@@ -11,94 +11,99 @@
 #include "Utils/request.h"
 #include "config.h"
 #include "frame_recorder.h"
+#include "frame_walk_time.h"
 extern "C" {
-//#include "libswscale/swscale.h"
+// #include "libswscale/swscale.h"
 #include <libavutil/imgutils.h>
-//#include <libswresample/swresample.h>
+// #include <libswresample/swresample.h>
 }
-
 
 namespace avs_analyzer {
 
-Alarm::Alarm(int64_t happenTimestamp, std::string_view controlCode,
-             std::unique_ptr<Event> event,
-             const std::shared_ptr<Recorder>& recorder)
+Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
+             std::string_view controlCode, std::unique_ptr<Event> event,
+             int width, int height, int fps)
     : start_ts(happenTimestamp),
       control_code(controlCode),
-      recorder(recorder),
-      event(std::move(event)) {}
+      event(std::move(event)),
+      width(width),
+      height(height),
+      fps(fps) {}
 bool Alarm::Finalize(Config& config) {
-  if (recorder->dst().empty()) {
-    std::string prifixDir = config.upload_dir + "/alarm";
-
-    std::filesystem::path prefix_path1(prifixDir);
-    try {
-      if (!std::filesystem::exists(prefix_path1)) {
-        std::filesystem::create_directory(prefix_path1);
-      }
-    } catch (std::filesystem::filesystem_error& e) {
-      std::cout << "genAlarmVideo() create_directory1 error:" << e.what()
-                << std::endl;
-      return false;
+  Recorder recorder({width, height, fps});
+  std::filesystem::path prefix_dir{config.upload_dir};
+  prefix_dir /= "alarm";
+  try {
+    if (!std::filesystem::exists(prefix_dir)) {
+      std::filesystem::create_directory(prefix_dir);
     }
+  } catch (std::filesystem::filesystem_error& e) {
+    std::cout << "genAlarmVideo() create_directory1 error:" << e.what()
+              << std::endl;
+    return false;
+  }
 
-    prifixDir = prifixDir + "/" + control_code;
-
-    std::filesystem::path prefix_path2(prifixDir);
-    try {
-      if (!std::filesystem::exists(prefix_path2)) {
-        std::filesystem::create_directory(prefix_path2);
-      }
-    } catch (std::filesystem::filesystem_error& e) {
-      std::cout << "genAlarmVideo() create_directory2 error:" << e.what()
-                << std::endl;
-      return false;
+  prefix_dir /= control_code;
+  try {
+    if (!std::filesystem::exists(prefix_dir)) {
+      std::filesystem::create_directory(prefix_dir);
     }
-    std::string ymdhms_rd = std::format("{}_{}", start_ts, getRandomInt());
-    prifixDir += "/" + ymdhms_rd;
-    std::filesystem::path prefix_dir_path3(prifixDir);
+  } catch (std::filesystem::filesystem_error& e) {
+    std::cout << "genAlarmVideo() create_directory2 error:" << e.what()
+              << std::endl;
+    return false;
+  }
+
+  prefix_dir /= FrameWallClock::to_iso8601_utc(start_ts);
+
+  try {
+    if (!std::filesystem::exists(prefix_dir)) {
+      std::filesystem::create_directory(prefix_dir);
+    }
+  } catch (std::filesystem::filesystem_error& e) {
+    std::cout << "genAlarmVideo() create_directory3 error:" << e.what()
+              << std::endl;
+    return false;
+  }
+
+  if (event->more_segments || std::filesystem::exists(prefix_dir / "videos")) {
+    prefix_dir /= "videos";
     try {
-      if (!std::filesystem::exists(prefix_dir_path3)) {
-        std::filesystem::create_directory(prefix_dir_path3);
+      if (!std::filesystem::exists(prefix_dir)) {
+        std::filesystem::create_directory(prefix_dir);
       }
     } catch (std::filesystem::filesystem_error& e) {
       std::cout << "genAlarmVideo() create_directory3 error:" << e.what()
                 << std::endl;
       return false;
     }
-
-    std::string video_path = "alarm/" + control_code + "/" + ymdhms_rd +
-                             "/main.ts";  // 视频相对路径
-//    std::string image_path = "alarm/" + control_code + "/" + ymdhms_rd +
-//                             "/main.jpg";  // 图片相对路径
-
-    std::string video_path_abs = config.upload_dir + "/" + video_path;
-//    std::string image_path_abs = config.upload_dir + "/" + image_path;
-
-    if (!recorder->Initialize(video_path_abs.data(), true)) {
-      std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
-      return false;
-    }
-
-    // 上传报警信息start
-    std::string url = config.admin_host + "/api/postAddAlarm";
-    Json::Value param;
-    param["control_code"] = control_code;
-    param["desc"] = "";
-    param["video_path"] = video_path;
-//    param["image_path"] = image_path;
-
-    std::string data = param.toStyledString();
-    Request request;
-    std::string response;
-    request.post(url.data(), data.data(), response);
-
-    LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
   }
+  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".ts";
+  //    std::string image_path_abs = config.upload_dir + "/" + image_path;
+  std::string path = prefix_dir.c_str();
+  if (!recorder.Initialize(path, true)) {
+    std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
+    return false;
+  }
+
+  // 上传报警信息start
+  std::string url = config.admin_host + "/api/postAddAlarm";
+  Json::Value param;
+  param["control_code"] = control_code;
+  param["desc"] = "";
+  param["video_path"] = path;
+  param["image_path"] = path;
+
+  std::string data = param.toStyledString();
+  Request request;
+  std::string response;
+  request.post(url.data(), data.data(), response);
+
+  LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
   for (auto& frame : event->frames) {
-    recorder->AddVideoFrame(frame.get()->data.get());
+    recorder.AddVideoFrame(frame.get()->data.get());
     // TODO: create cover image
   }
   return true;
 }
-}
+}  // namespace avs_analyzer

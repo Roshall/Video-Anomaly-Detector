@@ -75,7 +75,7 @@ class EventDetector {
   std::vector<cv::Rect> Detect(AVFrame* frame);
 
   // Helper to find the timestamp of the first positive vote in the window.
-  int64_t FindFirstVoteTimestamp() const;
+  std::pair<int64_t, int64_t> FindFirstVoteTimestamp() const;
 
   const EventDetectorConfig config_;
   InnerState current_state_{InnerState::kMajorCheck};
@@ -95,6 +95,7 @@ class EventDetector {
   int64_t last_spilt_time_{-1};
   int64_t active_event_start_ts_{0};
   int64_t max_buffer_time_{0};
+  int64_t start_frame_ts_{};
 };
 }
 #endif  // ANALYZER_EVENT_H
