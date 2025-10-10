@@ -1,16 +1,23 @@
 ﻿#include "worker.h"
 
+#include <json/value.h>
+
+#include <filesystem>
+
 #include "Utils/common.h"
 #include "Utils/log.h"
+#include "Utils/request.h"
+#include "alarm.h"
 #include "algorithm.h"
 #include "analyzer.h"
 #include "annotator.h"
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
+#include "config.h"
 #include "control.h"
 #include "event.h"
 #include "frame_recorder.h"
-#include "alarm.h"
+#include "jpeg_encoder.h"
 #include "scheduler.h"
 
 extern "C" {
@@ -31,14 +38,16 @@ Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor)
 Worker::~Worker() {
   LOGI("code=%s,streamUrl=%s finished.", monitor_->code.data(),
        monitor_->stream_url.data());
-  state_.store(false); // Signal threads to stop
-  // Wake up any sleeping threads (important for queues with timeouts/semaphores)
-  if (in_stream) in_stream->CloseConnect(); // This should unblock GetVideoPkt
-  if (out_stream) out_stream->CloseConnect(); // This should unblock PopVideoFrame
+  state_.store(false);  // Signal threads to stop
+  // Wake up any sleeping threads (important for queues with
+  // timeouts/semaphores)
+  if (in_stream) in_stream->CloseConnect();  // This should unblock GetVideoPkt
+  if (out_stream)
+    out_stream->CloseConnect();  // This should unblock PopVideoFrame
 
   for (auto& thread : threads_) {
     if (thread && thread->joinable()) {
-      thread->join(); // Wait for the thread to finish
+      thread->join();  // Wait for the thread to finish
     }
   }
   threads_.clear();
@@ -64,19 +73,20 @@ bool Worker::start(std::string& msg) {
   }
   analyzer = std::make_unique<Analyzer>(scheduler, monitor_.get());
 
+  timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
+
   state_.store(true);
   threads_.reserve(3);
-  threads_.push_back(std::make_unique<std::thread>([this]() { this->in_stream->Read();
-  }));
+  threads_.push_back(
+      std::make_unique<std::thread>([this]() { this->in_stream->Read(); }));
 
-  threads_.push_back(std::make_unique<std::thread>([this]() { this->DecodeVideo();
-  }));
+  threads_.push_back(
+      std::make_unique<std::thread>([this]() { this->DecodeVideo(); }));
 
   if (monitor_->push_stream) {
     if (monitor_->video_index > -1) {
-      threads_.push_back(std::make_unique<std::thread>([this]() {
-        this->out_stream->EncodeVideo();
-      }));
+      threads_.push_back(std::make_unique<std::thread>(
+          [this]() { this->out_stream->EncodeVideo(); }));
     }
   }
   return true;
@@ -103,32 +113,27 @@ void Worker::DecodeVideo() {
     LOGE("No data can be retrieve from stream. exist");
     return;
   }
-  int out_width =
-      monitor_->push_stream ? out_stream->width() : width;
-  int out_height =
-      monitor_->push_stream ? out_stream->height() : height;
+  int out_width = monitor_->push_stream ? out_stream->width() : width;
+  int out_height = monitor_->push_stream ? out_stream->height() : height;
 
-  EventDetector checker{
-      EventDetectorConfig(),
-      *analyzer,
-      {width, height, in_stream->video_codec_ctx->pix_fmt, out_width, out_height},
+  EventDetector checker{EventDetectorConfig(),
+                        *analyzer,
+                        {width, height, in_stream->video_codec_ctx->pix_fmt,
+                         out_width, out_height},
                         monitor_->roi_points,
-      frame_yuv420p.get()};
+                        frame_yuv420p.get()};
 
-  std::shared_ptr<Recorder> recorder;
-//  std::shared_ptr<Recorder> tester{std::make_shared<Recorder>(Recorder::VideoConfig{width, height})};
-//  tester->Initialize("/tmp/test.ts");
+  JPEGEncoder pict_writer(width, height);
 
   while (getState() && monitor_->video_index > -1) {
     av_frame_unref(frame_yuv420p.get());
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
     }
-    //TODO: real time
     auto timestamp = frame_yuv420p->best_effort_timestamp;
 
     frame_yuv420p->time_base = in_time_base;
-    frame_yuv420p->pict_type =  AV_PICTURE_TYPE_NONE;
+    frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
     // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
     // to has 'ms' time base
     auto state =
@@ -139,22 +144,53 @@ void Worker::DecodeVideo() {
     }
     switch (state) {
       case EventDetector::kEventStart: {
-        recorder = std::make_shared<Recorder>(Recorder::VideoConfig{width, height});
-        // TODO: fire an alarm start to server
+        // TODO: save alarm img and fire an alarm start to server
+        auto ts = timer_.compute(checker.timestamp());
+        g_th_pool.detach_task([&, this, ts,
+                               frame = checker.latest_frame().release()] {
+          std::unique_ptr<Frame> frame_p{frame};
+          auto& conf = scheduler->GetConfig();
+          auto time_str = FrameWallClock::to_iso8601_utc(ts);
+          auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
+                                      monitor_->code, time_str);
+          std::filesystem::create_directories(std::filesystem::path(img_path));
+          int ret = pict_writer.saveFrame(
+              frame_p->data.get(),
+              std::format("{}/{}.jpg", img_path, time_str));
+          if (ret < 0) {
+            log_error("failed to save picture", ret);
+          } else {
+            std::cout << "save alarm image to " << img_path;
+            return;
+          }
+
+          //          std::string url = std::format("{}/api/postAlert",
+          //          conf.admin_host); Json::Value param; param["control_code"]
+          //          = monitor_->code; param["desc"] = ""; param["img_path"] =
+          //          img_path; param["create_time"] = time_str;
+          //
+          //          std::string data = param.toStyledString();
+          //          Request request;
+          //          std::string response;
+          //          request.post(url.data(), data.data(), response);
+          //          std::cout << "sent to " << conf.admin_host;
+        });
         break;
       }
       case EventDetector::kEventSplit: {
         auto event = checker.Flush();
         assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
-            getCurTimestamp(), monitor_->code, std::move(event), recorder));
+            timer_.compute(event->start_timestamp), monitor_->code,
+            std::move(event), out_width, out_height));
         break;
       }
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
         assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
-            getCurTimestamp(), monitor_->code, std::move(event), std::move(recorder)));
+            timer_.compute(event->start_timestamp), monitor_->code,
+            std::move(event), out_width, out_height));
         // TODO: fire an alarm end to server
         break;
       }
@@ -173,17 +209,19 @@ void Worker::DecodeVideo() {
 }
 
 bool Worker::GrabFrame(AVFrame* frame) const {
-  while(true) {
+  while (true) {
     auto ret = avcodec_receive_frame(in_stream->video_codec_ctx.get(), frame);
     if (ret == AVERROR(EAGAIN)) {
       // Decoder needs more data, so we need to send the next packet.
       auto pkg = in_stream->GetVideoPkt();
       if (!pkg) return false;
-      if (ret = avcodec_send_packet(in_stream->video_codec_ctx.get(), pkg.get()); ret < 0) {
+      if (ret =
+              avcodec_send_packet(in_stream->video_codec_ctx.get(), pkg.get());
+          ret < 0) {
         log_error("worker cannot send a packet:", ret);
         return false;
       }
-      continue; // Go back to try receiving again
+      continue;  // Go back to try receiving again
     } else if (ret < 0) {
       // A real error
       log_error("worker cannot decode a packet:", ret);

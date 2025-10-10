@@ -15,7 +15,10 @@
 
 
 namespace avs_analyzer {
-Scheduler::Scheduler(Config& config) : config_(config) {}
+BS::thread_pool<0> g_th_pool{3};
+
+Scheduler::Scheduler(Config& config) : config_(config){
+}
 
 Scheduler::~Scheduler() = default;
 

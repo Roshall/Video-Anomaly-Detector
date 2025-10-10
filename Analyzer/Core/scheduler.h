@@ -10,12 +10,15 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <threadpool/BS_thread_pool.hpp>
 
 #include "analyzer.h"
 
 using namespace moodycamel;
 
 namespace avs_analyzer {
+extern BS::thread_pool<0> g_th_pool;
+
 class Config;
 class Worker;
 class Algorithm;
@@ -55,7 +58,6 @@ class Scheduler {
   Config& config_;
   std::atomic<bool> state_{false};
 
-  
   size_t GetWorkerSize();
   bool Contains(const std::string& code);
   bool AddWorker(std::unique_ptr<Worker> worker);
@@ -68,16 +70,12 @@ class Scheduler {
   std::mutex worker_map_mutex_;
   ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
 
-  // 报警处理 start
-  // std::unique_ptr<std::thread> alarm_thread_;
-  // static void AlarmLoopThread(void* arg);
-  [[noreturn]] void PullAndGenAlarm();
+
   ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
 
   std::mutex clean_up_mtx_;
   std::condition_variable clean_up_cv_;
 
-  // 报警处理 end
   std::mutex algorithm_mutex_;
   std::unique_ptr<Algorithm> yolov8n_80_classes_{};
 };

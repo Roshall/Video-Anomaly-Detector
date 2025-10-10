@@ -1,12 +1,14 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
+#include <readerwriterqueue/readerwriterqueue.h>
+
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
-#include <readerwriterqueue/readerwriterqueue.h>
 
+#include "frame_walk_time.h"
 #include "helper.h"
 
 namespace avs_analyzer {
@@ -40,6 +42,7 @@ class Worker {
   std::unique_ptr<Analyzer> analyzer{};
 
  private:
+  FrameWallClock timer_;
   std::atomic<bool> state_{false};
   std::vector<std::unique_ptr<std::thread>> threads_;
 
