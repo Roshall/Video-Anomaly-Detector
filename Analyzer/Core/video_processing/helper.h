@@ -15,7 +15,8 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
-};
+}
+
 namespace avs_analyzer {
 using std::unique_ptr;
 struct AVFormatContextDeleter {
@@ -65,6 +66,13 @@ struct AVFilterInOutDeleter {
   }
 };
 
+struct AVDictionaryDeleter {
+  void operator() (AVDictionary* ptr) const {
+    if(ptr) av_dict_free(&ptr);
+  }
+};
+
+using AVDictionaryPtr = std::unique_ptr<AVDictionary, AVDictionaryDeleter>;
 using AVFilterInOutPtr = unique_ptr<AVFilterInOut, AVFilterInOutDeleter>;
 using AVFilterGraphPtr = unique_ptr<AVFilterGraph, AVFilterGraphDeleter>;
 using AVFramePtr = unique_ptr<AVFrame, AVFrameDeleter>;
@@ -77,6 +85,7 @@ struct AVPacketWrapper {
   AVPacketPtr pkg_{av_packet_alloc()};
   void clear() const { av_packet_unref(pkg_.get());}
 };
+
 void log_error(const std::string& message, int error_code);
 
 }
