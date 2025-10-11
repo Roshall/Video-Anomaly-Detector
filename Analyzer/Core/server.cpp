@@ -15,15 +15,23 @@
 #include "Utils/common.h"
 #include "Utils/log.h"
 #include "task.h"
+#include <sstream>
+
+int extract_port(const std::string& ip_address) {
+  std::string port_str = ip_address.substr(ip_address.find(':') + 1);
+  int port = 0;
+  std::istringstream(port_str) >> port;
+  return port;
+}
 
 using namespace avs_analyzer;
 
 constexpr int kRecvBufMaxSize = 1024 * 8;
 
 std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base) {
-  return std::thread([&, base]() {
-    LOGI("启动分析器服务：http://0.0.0.0:%d",
-         scheduler.GetConfig().analyzer_port);
+  int port = extract_port(scheduler.GetConfig().analyzer_host);
+  return std::thread([&, base, port]() {
+    LOGI("启动分析器服务：http://0.0.0.0:%d", port);
 //    event_config* evt_config = event_config_new();
 //    event_base* base = event_base_new_with_config(evt_config);
     evhttp* http = evhttp_new(base);
@@ -38,7 +46,7 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
 
-    evhttp_bind_socket(http, "0.0.0.0", scheduler.GetConfig().analyzer_port);
+    evhttp_bind_socket(http, "0.0.0.0", port);
     event_base_dispatch(base);
 
     evhttp_free(http);
