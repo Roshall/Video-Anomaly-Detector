@@ -167,9 +167,13 @@ add_executable(tracker_test
         Analyzer/Core/tracker/ByteTrack/STrack.cpp
         Analyzer/Core/detector/constant_yolo.cpp
         Analyzer/Core/detector/inference.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/track_algorithm.cpp
+        Analyzer/Core/algorithm.cpp
+        Analyzer/Core/config.cpp
         tests/tracker_test.cpp
 )
-target_link_libraries(tracker_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect onnxruntime)
+target_link_libraries(tracker_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect opencv_video opencv_videoio onnxruntime jsoncpp_lib)
 target_include_directories(tracker_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(tracker_test PRIVATE Analyzer/Core Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR}/eigen3)
 target_compile_definitions(tracker_test PRIVATE
@@ -214,6 +218,7 @@ set(source
         Analyzer/Core/video_processing/format_convertor.h
         Analyzer/Core/video_processing/frame_walk_time.h
         Analyzer/Core/video_processing/jpeg_encoder.h
+        Analyzer/Core/streamer.cpp
 )
 
 add_executable(Analyzer ${source})

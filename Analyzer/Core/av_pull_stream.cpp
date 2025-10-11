@@ -20,21 +20,20 @@ AvPullStream::~AvPullStream() {
   CloseConnect();
 }
 
-bool AvPullStream::Connect() {
+bool AvPullStream::Connect(bool file) {
   std::string_view stream_url = worker_->monitor_->stream_url;
 
-
   AVDictionary* fmt_options{};
-  av_dict_set(&fmt_options, "rtsp_transport", "tcp",
-              0);  // 设置rtsp底层网络协议 tcp or udp
-  av_dict_set(&fmt_options, "stimeout", "10000000",
-              0);  // 设置rtsp连接超时（单位 us）1秒=1000000
-  av_dict_set(&fmt_options, "rw_timeout", "1000000",
-              0);  // 设置rtmp/http-flv连接超时（单位 us）
+  if (!file) {
+    av_dict_set(&fmt_options, "rtsp_transport", "tcp",
+                0);  // 设置rtsp底层网络协议 tcp or udp
+    av_dict_set(&fmt_options, "stimeout", "10000000",
+                0);  // 设置rtsp连接超时（单位 us）1秒=1000000
+    av_dict_set(&fmt_options, "rw_timeout", "1000000",
+                0);  // 设置rtmp/http-flv连接超时（单位 us
+  }
 
   auto fmt = avformat_alloc_context();
-//  int ret = avformat_open_input(&fmt, "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/data/test.mp4", nullptr, nullptr);
-//  fmt_ctx.reset(fmt);
   int ret =
       avformat_open_input(&fmt, stream_url.data(), nullptr, &fmt_options);
   fmt_ctx.reset(fmt);
@@ -77,7 +76,7 @@ bool AvPullStream::Connect() {
     }
     // mVideoCodecCtx->thread_count = 1;
 
-    stream = fmt_ctx->streams[video_index];
+    file = fmt_ctx->streams[video_index];
     // TODO: video resize
     worker_->monitor_->video_width = video_codec_ctx->width;
     worker_->monitor_->video_height = video_codec_ctx->height;
@@ -106,7 +105,7 @@ bool AvPullStream::Connect() {
 bool AvPullStream::Reconnect() {
   if (connect_count <= 100) {
     CloseConnect();
-    if (Connect()) {
+    if (Connect(false)) {
       return true;
     } else {
       return false;

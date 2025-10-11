@@ -10,6 +10,11 @@
 
 namespace avs_analyzer {
 
+enum class LevelMode{
+  kNumPeople,
+  kDuration,
+};
+
 struct Monitor {
   // 布控请求必需参数
 
@@ -27,7 +32,7 @@ struct Monitor {
   std::vector<cv::Point> roi_points{};  // 算法识别区域
   // 通过计算获得的参数
 
-  int level_mode; // 0 -> number of people, 1 -> time
+  LevelMode level_mode; // 0 -> number of people, 1 -> time
   int64_t start_timestamp = 0;  // 执行器启动时毫秒级时间戳（13位）
   int video_width = 0;          // 布控视频流的像素宽
   int video_height = 0;         // 布控视频流的像素高

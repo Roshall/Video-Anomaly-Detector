@@ -18,7 +18,7 @@ class TrackAlgorithm: public Algorithm {
   Detection DetectObjects(const cv::Mat& image) override;
 
  private:
-  double min_frame_stride_;
+  int min_frame_stride_{30};
   byte_track::BYTETracker tracker_;
   std::shared_ptr<const YOLODetector> detector_;
 };

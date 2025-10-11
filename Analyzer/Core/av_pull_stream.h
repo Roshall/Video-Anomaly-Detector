@@ -21,7 +21,7 @@ class AvPullStream {
   AvPullStream(const AvPullStream&) = delete;
   AvPullStream operator=(const AvPullStream&) = delete;
 
-  bool Connect();       // 连接流媒体服务
+  bool Connect(bool file =false);       // 连接流媒体服务
   bool Reconnect();     // 重连流媒体服务
   void CloseConnect();
 

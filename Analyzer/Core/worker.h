@@ -8,8 +8,10 @@
 #include <queue>
 #include <thread>
 
+#include "event.h"
 #include "frame_walk_time.h"
 #include "helper.h"
+#include "jpeg_encoder.h"
 
 namespace avs_analyzer {
 class Scheduler;
@@ -47,6 +49,9 @@ class Worker {
   std::vector<std::unique_ptr<std::thread>> threads_;
 
   bool GrabFrame(AVFrame* frame) const;
+  void HandleAlarm(avs_analyzer::EventDetector& checker,
+                   avs_analyzer::JPEGEncoder& pict_writer, bool push);
+  void OfflineAnalyze();
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_WORKER_H

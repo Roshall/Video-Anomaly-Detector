@@ -39,7 +39,7 @@ void Scheduler::CleanUpLoop() {
     {
       std::unique_ptr<Alarm> alarm;
       while (alarm_queue_.try_dequeue(alarm)) {
-        alarm->Finalize(config_);
+        alarm->Finalize(config_.upload_dir, config_.admin_host);
       }
     }
     std::unique_ptr<Worker> worker;

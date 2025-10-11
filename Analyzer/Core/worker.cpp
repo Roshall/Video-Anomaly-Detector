@@ -19,6 +19,7 @@
 #include "frame_recorder.h"
 #include "jpeg_encoder.h"
 #include "scheduler.h"
+#include "streamer.h"
 
 extern "C" {
 #include <libavutil/imgutils.h>
@@ -54,8 +55,11 @@ Worker::~Worker() {
   // unique_ptr members will be automatically cleaned up
 }
 bool Worker::start(std::string& msg) {
+  if (monitor_->source_type == "file") {
+    OfflineAnalyze();
+  }
   in_stream = std::make_unique<AvPullStream>(this);
-  if (in_stream->Connect()) {
+  if (in_stream->Connect(false)) {
     if (monitor_->push_stream) {
       out_stream = std::make_unique<AvPushStream>(this);
       if (out_stream->Connect()) {
@@ -100,13 +104,124 @@ void Worker::remove() {
   scheduler->RemoveWorker(monitor_->code);
 }
 
+void Worker::OfflineAnalyze() {
+  auto in{Streamer(monitor_->stream_url)};
+  int width = in.width();
+  int height = in.height();
+  auto in_time_base = in.time_base;
+  VideoOverlay graph;
+  auto example = in.NextFrame();
+  EventDetector checker{EventDetectorConfig(),
+                        *analyzer,
+                        {width, height, in_stream->video_codec_ctx->pix_fmt,
+                         width, height},
+                        monitor_->roi_points,
+                        example};
+
+  while(!in.EoF()) {
+    auto frame = in.NextFrame();
+    auto timestamp = frame->best_effort_timestamp;
+
+    frame->time_base = in_time_base;
+    frame->pict_type = AV_PICTURE_TYPE_NONE;
+    // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
+    // to has 'ms' time base
+    auto state =
+        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
+                              frame});
+    JPEGEncoder pict_writer(width, height);
+    auto upload_dir = scheduler->GetConfig().upload_dir;
+
+    switch (state) {
+      case EventDetector::kEventStart: {
+        HandleAlarm(checker, pict_writer, false);
+        break;
+      }
+      case EventDetector::kEventSplit: {
+        HandleAlarm(checker, pict_writer, false);
+        auto event = checker.Flush();
+        assert(event && "event should exist");
+        g_th_pool.detach_task([ts=timer_.compute(event->start_timestamp),
+        code=monitor_->code, event= event.release(), width, height, upload_dir]{
+          Alarm alarm(ts, std::move(code), std::unique_ptr<Event>(event), width, height);
+          alarm.Finalize(upload_dir, "");
+        });
+        break;
+      }
+      case EventDetector::kEventEnd: {
+        auto event = checker.Flush();
+        assert(event && "event should exist");
+        g_th_pool.detach_task([ts=timer_.compute(event->start_timestamp),
+                               code=monitor_->code, event= event.release(), width, height, upload_dir]{
+          Alarm alarm(ts, std::move(code), std::unique_ptr<Event>(event), width, height);
+          alarm.Finalize(upload_dir, "");
+        });
+        break;
+      }
+      default:
+        break;
+    }
+
+  }
+}
+
+void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool push) {
+  auto ts = timer_.compute(checker.timestamp());
+  int num;
+  std::string_view level;
+  if (push) {
+    if (monitor_->level_mode == LevelMode::kNumPeople) {
+      num = checker.num_detection();
+    } else {
+      num = checker.event_duration();
+    }
+    int i = 0;
+    while (i <monitor_->levels.first.size() && monitor_->levels.first[i] < num) {++i;}
+    level = monitor_->levels.second[i];
+  }
+
+  g_th_pool.detach_task([&, this, ts, level, push,
+                         frame = checker.latest_frame().release()] {
+    std::unique_ptr<Frame> frame_p{frame};
+    auto& conf = scheduler->GetConfig();
+    auto time_str = FrameWallClock::to_iso8601_utc(ts);
+    auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
+                                monitor_->code, time_str);
+    std::filesystem::create_directories(std::filesystem::path(img_path));
+    int ret = pict_writer.saveFrame(
+        frame_p->data.get(),
+        std::format("{}/{}.jpg", img_path, time_str));
+    if (ret < 0) {
+      log_error("failed to save picture", ret);
+      return;
+    } else {
+      std::cout << "save alarm image to " << img_path;
+    }
+
+    if(push) {
+      std::string url = std::format("{}/api/postAlert", conf.admin_host);
+      Json::Value param;
+      param["control_code"] = monitor_->code;
+      param["desc"] = "";
+      param["img_path"] = img_path;
+      param["create_time"] = time_str;
+      param["level"] = level.data();
+
+      std::string data = param.toStyledString();
+      Request request;
+      std::string response;
+      request.post(url.data(), data.data(), response);
+      std::cout << "sent to " << conf.admin_host << std::endl;
+    }
+  });
+}
+
 void Worker::DecodeVideo() {
   int width = in_stream->video_codec_ctx->width;
   int height = in_stream->video_codec_ctx->height;
 
   AVFramePtr frame_yuv420p{av_frame_alloc()};  // pkt->解码->frame
 
-  std::vector<Detection> happen_detects;
   auto in_time_base = in_stream->stream->time_base;
   VideoOverlay graph;
   if (!GrabFrame(frame_yuv420p.get())) {
@@ -144,43 +259,11 @@ void Worker::DecodeVideo() {
     }
     switch (state) {
       case EventDetector::kEventStart: {
-        // TODO: save alarm img and fire an alarm start to server
-        auto ts = timer_.compute(checker.timestamp());
-        g_th_pool.detach_task([&, this, ts,
-                               frame = checker.latest_frame().release()] {
-          std::unique_ptr<Frame> frame_p{frame};
-          auto& conf = scheduler->GetConfig();
-          auto time_str = FrameWallClock::to_iso8601_utc(ts);
-          auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
-                                      monitor_->code, time_str);
-          std::filesystem::create_directories(std::filesystem::path(img_path));
-          int ret = pict_writer.saveFrame(
-              frame_p->data.get(),
-              std::format("{}/{}.jpg", img_path, time_str));
-          if (ret < 0) {
-            log_error("failed to save picture", ret);
-            return;
-          } else {
-            std::cout << "save alarm image to " << img_path;
-          }
-
-          std::string url = std::format("{}/api/postAlert", conf.admin_host);
-          Json::Value param;
-          param["control_code"] = monitor_->code;
-          param["desc"] = "";
-          param["img_path"] = img_path;
-          param["create_time"] = time_str;
-          param["level"] = "low";
-
-          std::string data = param.toStyledString();
-          Request request;
-          std::string response;
-          request.post(url.data(), data.data(), response);
-          std::cout << "sent to " << conf.admin_host;
-        });
+        HandleAlarm(checker, pict_writer, true);
         break;
       }
       case EventDetector::kEventSplit: {
+        HandleAlarm(checker, pict_writer, true);
         auto event = checker.Flush();
         assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
@@ -194,15 +277,6 @@ void Worker::DecodeVideo() {
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
-        // TODO: fire an alarm end to server
-        break;
-      }
-      case EventDetector::kEventActive: {
-        // TODO: check alert level by object num
-        auto num = checker.num_detection();
-        // TODO: check alert level by duration
-        auto duration = checker.event_duration();
-        // TODO: reset check's state when level is changed
         break;
       }
       default:

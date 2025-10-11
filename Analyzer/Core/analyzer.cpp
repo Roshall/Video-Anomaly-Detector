@@ -35,7 +35,7 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
 
 Analyzer::Analyzer(Scheduler* scheduler, Monitor* monitor)
     : scheduler_(scheduler), monitor_(monitor) {
-  if (monitor->level_mode == 0) {
+  if (monitor->level_mode == LevelMode::kNumPeople) {
     minimum_num = monitor->levels.first[0];
   }
   if (monitor->task == Task::kWandering) {

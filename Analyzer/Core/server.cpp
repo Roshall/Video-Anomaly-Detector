@@ -278,7 +278,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .roi_str = root["recognitionRegion"].asString(),
           .levels = parse_levels(root["levels"], mode),
       };
-      monitor.level_mode = mode;
+      monitor.level_mode = static_cast<LevelMode>(mode);
       if (monitor.ValidateAdd(result_msg)) {
         scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)), result_code, result_msg);
       } else {
