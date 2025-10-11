@@ -159,21 +159,24 @@ void Worker::DecodeVideo() {
               std::format("{}/{}.jpg", img_path, time_str));
           if (ret < 0) {
             log_error("failed to save picture", ret);
+            return;
           } else {
             std::cout << "save alarm image to " << img_path;
-            return;
           }
 
-          //          std::string url = std::format("{}/api/postAlert",
-          //          conf.admin_host); Json::Value param; param["control_code"]
-          //          = monitor_->code; param["desc"] = ""; param["img_path"] =
-          //          img_path; param["create_time"] = time_str;
-          //
-          //          std::string data = param.toStyledString();
-          //          Request request;
-          //          std::string response;
-          //          request.post(url.data(), data.data(), response);
-          //          std::cout << "sent to " << conf.admin_host;
+          std::string url = std::format("{}/api/postAlert", conf.admin_host);
+          Json::Value param;
+          param["control_code"] = monitor_->code;
+          param["desc"] = "";
+          param["img_path"] = img_path;
+          param["create_time"] = time_str;
+          param["level"] = "low";
+
+          std::string data = param.toStyledString();
+          Request request;
+          std::string response;
+          request.post(url.data(), data.data(), response);
+          std::cout << "sent to " << conf.admin_host;
         });
         break;
       }
