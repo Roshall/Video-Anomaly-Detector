@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include "Utils/log.h"
-
+#include <format>
 using namespace std::string_literals;
 
 namespace avs_analyzer {
@@ -24,13 +24,10 @@ Config::Config(const char* file) {
   Json::Value root;
 
   if (parseFromStream(builder, ifs, &root, &errs)) {
-    host = root["host"].asString();
-    admin_port = root["adminPort"].asInt();
-    admin_host =
-        "http://"s + this->host + ":"s + std::to_string(this->admin_port);
-    analyzer_port = root["analyzerPort"].asInt();
-    media_http_port = root["mediaHttpPort"].asInt();
-    media_rtsp_port = root["mediaRtspPort"].asInt();
+    admin_host = std::format("http://{}", root["adminHost"].asString());
+    analyzer_host = std::format("http://{}", root["analyzerHost"].asInt());
+    media_http_host = std::format("http://{}", root["mediaHttpHost"].asInt());
+    media_rtsp_host = std::format("http://{}", root["mediaRtspHost"].asInt());
 
     upload_dir = root["uploadDir"].asString();
     model_dir = root["modelDir"].asString();
@@ -53,11 +50,11 @@ Config::Config(const char* file) {
 }
 
 void Config::Show() {
-  printf("config.host=%s\n", host.data());
-  printf("config.adminPort=%d\n", admin_port);
-  printf("config.analyzerPort=%d\n", analyzer_port);
-  printf("config.mediaHttpPort=%d\n", media_http_port);
-  printf("config.mediaRtspPort=%d\n", media_rtsp_port);
+  printf("config.host=%s\n", admin_host.c_str());
+  printf("config.adminHost=%s\n", admin_host.c_str());
+  printf("config.analyzerHost=%s\n", analyzer_host.c_str());
+  printf("config.mediaHttpHost=%s\n", media_http_host.c_str());
+  printf("config.mediaRtspHost=%s\n", media_rtsp_host.c_str());
 
   printf("config.uploadDir=%s\n", upload_dir.data());
   printf("config.modelDir=%s\n", model_dir.data());
