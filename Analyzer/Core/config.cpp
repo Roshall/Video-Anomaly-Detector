@@ -24,13 +24,18 @@ Config::Config(const char* file) {
   Json::Value root;
 
   if (parseFromStream(builder, ifs, &root, &errs)) {
-    admin_host = std::format("http://{}", root["adminHost"].asString());
-    analyzer_host = std::format("http://{}", root["analyzerHost"].asInt());
-    media_http_host = std::format("http://{}", root["mediaHttpHost"].asInt());
-    media_rtsp_host = std::format("http://{}", root["mediaRtspHost"].asInt());
+    try {
+      admin_host = std::format("http://{}", root["adminHost"].asString());
+      analyzer_host = std::format("http://{}", root["analyzerHost"].asString());
+      media_http_host = std::format("http://{}", root["mediaHttpHost"].asString());
+      media_rtsp_host = std::format("http://{}", root["mediaRtspHost"].asString());
 
-    upload_dir = root["uploadDir"].asString();
-    model_dir = root["modelDir"].asString();
+      upload_dir = root["uploadDir"].asString();
+      model_dir = root["modelDir"].asString();
+    } catch (const Json::Exception& e) {
+      LOGE("Json parse error:%s", e.what());
+      return;
+    }
 
     std::filesystem::path path(upload_dir);
     try {

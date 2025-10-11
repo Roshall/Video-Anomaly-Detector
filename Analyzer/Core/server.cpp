@@ -287,7 +287,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       }
 
     } catch (const Json::Exception& e) {
-      LOGE("JOSOn parsing error:%s", e.what());
+      LOGE("Json parsing error:%s", e.what());
       return;
     }
 
