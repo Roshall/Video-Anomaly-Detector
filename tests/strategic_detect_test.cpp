@@ -8,15 +8,16 @@
 #include <vector>
 
 #include "../Analyzer/Core/event.h"
+#include "../Analyzer/Core/frame.h"
 
 // Shared queue for the simulation
-std::queue<Frame> g_frame_queue;
+std::queue<avs_analyzer::Frame> g_frame_queue;
 std::mutex g_queue_mutex;
 std::condition_variable g_queue_cv;
 bool g_producer_finished = false;
 
 // Simulates an object detection model by checking frame data.
-std::vector<Detection> Detect(const Frame& frame) {
+std::vector<Detection> Detect(const avs_analyzer::Frame& frame) {
   if (frame.data.find("object") != std::string::npos) {
     return {Detection{}};
   }
@@ -41,7 +42,7 @@ void FrameProducer() {
     double timestamp = std::chrono::duration<double>(now - start_time).count();
     if (timestamp > simulation_duration_s) break;
 
-    Frame new_frame;
+    avs_analyzer::Frame new_frame;
     new_frame.timestamp = timestamp;
     new_frame.data = "frame_" + std::to_string(frame_id++);
     if (should_have_object(timestamp)) {
@@ -70,9 +71,10 @@ int main() {
 
   std::jthread producer_thread(FrameProducer);
 
-  EventDetectorConfig config; // Use default config
-  EventDetector detector(config);
-  std::vector<Event> all_events;
+  avs_analyzer::EventDetectorConfig config; // Use default config
+  avs_analyzer::EventDetector detector(config, <#initializer #>, nullptr,
+                                       std::vector<cv::Point>(), nullptr);
+  std::vector<avs_analyzer::Event> all_events;
 
   while (true) {
     std::unique_lock<std::mutex> lock(g_queue_mutex);
@@ -85,12 +87,12 @@ int main() {
       break;
     }
 
-    Frame frame = g_frame_queue.front();
+    avs_analyzer::Frame frame = g_frame_queue.front();
     g_frame_queue.pop();
     lock.unlock();
 
     // Simulate detection
-    frame.has_object = !Detect(frame).empty();
+    frame.object_count = !Detect(frame).empty();
 
     if (auto event = detector.ProcessFrame(frame)) {
       all_events.push_back(*event);

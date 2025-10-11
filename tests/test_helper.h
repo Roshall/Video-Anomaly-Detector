@@ -22,7 +22,9 @@ class Streamer {
   [[nodiscard]] int width() const;
   [[nodiscard]] int height() const;
   [[nodiscard]] AVPixelFormat PixelFormat() const;
+  const AVCodecContext* codec() const { return codec_ctx_;}
   int fps{};
+  AVRational time_base{};
 
  private:
   AVFormatContext* fmt_ctx_{};

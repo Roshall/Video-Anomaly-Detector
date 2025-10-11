@@ -31,6 +31,7 @@ Streamer::Streamer(const std::string& url): fmt_ctx_(avformat_alloc_context()){
       return;
     }
     auto stream_p = fmt_ctx_->streams[index];
+    time_base = stream_p->time_base;
     fps = stream_p->avg_frame_rate.num / stream_p->avg_frame_rate.den;
     auto codec_param = stream_p->codecpar;
     const AVCodec* codec_p;
@@ -109,16 +110,15 @@ int runner(Streamer& input_stream,
            bool free_frame) {
 
   // --- Configuration ---
-  avs_analyzer::FrameRecorder::VideoConfig config{};
+  avs_analyzer::Recorder::VideoConfig config{};
   config.width = input_stream.width();
   config.height = input_stream.height();
   config.fps = 25;
-  config.bitrate = 20480 * 1000; // 20480 Kbps
 
   // --- Recorder Setup ---
-  avs_analyzer::FrameRecorder recorder("recording.ts", config);
-  if (!recorder.initialize()) {
-    std::cerr << "Failed to initialize recorder." << std::endl;
+  avs_analyzer::Recorder recorder(config);
+  if (!recorder.Initialize("test.ts", false)) {
+    std::cerr << "Failed to initialize recorder_." << std::endl;
     return 1;
   }
 
@@ -132,15 +132,14 @@ int runner(Streamer& input_stream,
       continue;
     }
     frame = func(frame, frame_count);
-    recorder.add_video_frame(frame);
+    frame->time_base = input_stream.time_base;
+    frame->pict_type = AV_PICTURE_TYPE_NONE;
+    recorder.AddVideoFrame(frame);
     if (free_frame) {
       av_frame_free(&frame);
     }
     // Simulate real-time delay
   }
-  // --- Finalization ---
-  recorder.finalize();
-
   std::cout << "Simulation finished." << std::endl;
   return 0;
 }
