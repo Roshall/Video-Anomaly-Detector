@@ -1,0 +1,8 @@
+//
+// Created by lg on 10/11/25.
+//
+
+#ifndef ANALYZER_YOLO_SINGLETON_H
+#define ANALYZER_YOLO_SINGLETON_H
+
+#endif  // ANALYZER_YOLO_SINGLETON_H
