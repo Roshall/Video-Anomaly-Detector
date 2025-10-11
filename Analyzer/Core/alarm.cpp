@@ -29,9 +29,10 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
       width(width),
       height(height),
       fps(fps) {}
-bool Alarm::Finalize(Config& config) {
+bool Alarm::Finalize(const std::string& upload_dir,
+                     const std::string& admin_host) {
   Recorder recorder({width, height, fps});
-  std::filesystem::path prefix_dir{config.upload_dir};
+  std::filesystem::path prefix_dir{upload_dir};
   std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
   prefix_dir = prefix_dir / "alarm" / control_code / start_time;
 
@@ -55,22 +56,25 @@ bool Alarm::Finalize(Config& config) {
   }
 
   // 上传报警信息start
-  std::string url = config.admin_host + "/api/postAddAlarmVideo";
-  Json::Value param;
-  param["control_code"] = control_code;
-  param["desc"] = "";
-  param["video_path"] = path;
-  param["create_time"] =   start_time;
+  if (!admin_host.empty()) {
+    std::string url = admin_host + "/api/postAddAlarmVideo";
+    Json::Value param;
+    param["control_code"] = control_code;
+    param["desc"] = "";
+    param["video_path"] = path;
+    param["create_time"] =   start_time;
 
-  std::string data = param.toStyledString();
-  Request request;
-  std::string response;
-  request.post(url.data(), data.data(), response);
+    std::string data = param.toStyledString();
+    Request request;
+    std::string response;
+    request.post(url.data(), data.data(), response);
 
-  LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
-  for (auto& frame : event->frames) {
-    recorder.AddVideoFrame(frame.get()->data.get());
+    LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
+    for (auto& frame : event->frames) {
+      recorder.AddVideoFrame(frame.get()->data.get());
+    }
   }
+
   return true;
 }
 }  // namespace avs_analyzer

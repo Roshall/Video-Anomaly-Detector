@@ -25,7 +25,7 @@ struct Alarm {
         int height, int fps = 25);
   ~Alarm() = default;
 
-  bool Finalize(Config& config);
+  bool Finalize(const std::string& upload_dir, const std::string& admin_host);
 
   std::chrono::time_point<std::chrono::system_clock> start_ts{};      // 发生事件的时间戳（毫秒级）
   std::string control_code;  // 布控编号
