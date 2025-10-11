@@ -20,6 +20,9 @@ class Analyzer {
  private:
   Scheduler* scheduler_;
   Monitor* monitor_;
+  std::unique_ptr<Algorithm> algorithm_;
+  int minimum_num{1};
+
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_ANALYZER_H

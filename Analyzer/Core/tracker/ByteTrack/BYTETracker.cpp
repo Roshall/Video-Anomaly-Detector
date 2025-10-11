@@ -18,8 +18,7 @@ byte_track::BYTETracker::BYTETracker(int frame_rate, int track_buffer,
 
 byte_track::BYTETracker::~BYTETracker() = default;
 
-std::vector<std::pair<size_t, int>>
-byte_track::BYTETracker::update(const std::vector<Object> &objects) {
+std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object> &objects) {
   ////////////////// Step 1: Get detections //////////////////
   frame_id_++;
 
@@ -179,10 +178,10 @@ byte_track::BYTETracker::update(const std::vector<Object> &objects) {
   tracked_stracks_ = tracked_stracks_out;
   lost_stracks_ = lost_stracks_out;
 
-  std::vector<std::pair<size_t, int>> output_stracks;
+  std::vector<byte_track::STrackPtr> output_stracks;
   for (const auto &track : tracked_stracks_) {
     if (track->isActivated()) {
-      output_stracks.push_back(track->result());
+      output_stracks.push_back(track);
     }
   }
 

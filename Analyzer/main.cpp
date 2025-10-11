@@ -58,10 +58,6 @@ int main(int argc, char** argv) {
   }
 
   Scheduler scheduler(config);
-
-  if (!scheduler.InitAlgorithm()) {
-    return -1;
-  }
   evthread_use_pthreads();
   event_config* evt_config = event_config_new();
   event_base* base = event_base_new_with_config(evt_config);

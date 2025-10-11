@@ -2,21 +2,22 @@
 // Created by lg on 9/28/25.
 //
 #include "event.h"
+#include "frame.h"
 
 #include "gtest/gtest.h"
 
 // Helper function to create frames for tests
-Frame CreateFrame(double timestamp, bool has_object) {
-  Frame f;
+avs_analyzer::Frame CreateFrame(double timestamp, bool has_object) {
+  avs_analyzer::Frame f;
   f.timestamp = timestamp;
-  f.has_object = has_object;
+  f.object_count = has_object;
   return f;
 }
 
 class EventDetectorTest : public ::testing::Test {
  protected:
-  EventDetectorConfig config;
-  std::unique_ptr<EventDetector> detector;
+  avs_analyzer::EventDetectorConfig config;
+  std::unique_ptr<avs_analyzer::EventDetector> detector;
 
   void SetUp() override {
     // A typical configuration for testing
@@ -27,7 +28,7 @@ class EventDetectorTest : public ::testing::Test {
     config.pre_event_buffer_s = 1.0;
     config.post_event_buffer_s = 1.0;
     config.max_event_duration_s = 5.0;
-    detector = std::make_unique<EventDetector>(config);
+    detector = std::make_unique<avs_analyzer::EventDetector>(config);
   }
 };
 
@@ -52,7 +53,7 @@ TEST_F(EventDetectorTest, VerificationFails) {
 }
 
 TEST_F(EventDetectorTest, SimpleEventDetectedAndEnds) {
-  std::optional<Event> final_event;
+  std::optional<avs_analyzer::Event> final_event;
   // --- Trigger event ---
   detector->ProcessFrame(CreateFrame(1.0, false));
   detector->ProcessFrame(CreateFrame(2.0, true));  // Major check -> switch to Minor
@@ -86,7 +87,7 @@ TEST_F(EventDetectorTest, SimpleEventDetectedAndEnds) {
 
 
 TEST_F(EventDetectorTest, MaxDurationSplitsEvent) {
-  std::optional<Event> first_event;
+  std::optional<avs_analyzer::Event> first_event;
 
   // Trigger event quickly
   detector->ProcessFrame(CreateFrame(1.0, true));

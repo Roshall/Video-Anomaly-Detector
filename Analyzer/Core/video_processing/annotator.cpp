@@ -17,6 +17,9 @@ extern "C" {
 
 #include <opencv2/opencv.hpp>
 
+#include <helper.h>
+#include <Utils/log.h>
+
 namespace avs_analyzer {
 // In video_overlay.cpp
 

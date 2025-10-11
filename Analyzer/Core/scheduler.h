@@ -36,7 +36,6 @@ class Scheduler {
   Scheduler operator=(const Scheduler&) = delete;
 
   Config& GetConfig() const;
-  bool InitAlgorithm();
   void CleanUpLoop();
   void SetState(bool state);
   bool GetState() const;
@@ -76,8 +75,6 @@ class Scheduler {
   std::mutex clean_up_mtx_;
   std::condition_variable clean_up_cv_;
 
-  std::mutex algorithm_mutex_;
-  std::unique_ptr<Algorithm> yolov8n_80_classes_{};
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_SCHEDULER_H

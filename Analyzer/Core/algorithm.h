@@ -25,13 +25,12 @@ cv::Mat static PadToSquare(const cv::Mat& source) {
 struct Detection {
   std::vector<cv::Rect> bbox;
   std::vector<float> confidences;
-  std::vector<int> class_id;
 };
 
 class Algorithm {
  public:
   Algorithm() = delete;
-  Algorithm(Config* config);
+  explicit Algorithm(Config* config);
   virtual ~Algorithm();
 
  public:

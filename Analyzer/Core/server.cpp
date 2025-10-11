@@ -14,6 +14,7 @@
 #include "scheduler.h"
 #include "Utils/common.h"
 #include "Utils/log.h"
+#include "task.h"
 
 using namespace avs_analyzer;
 
@@ -44,6 +45,56 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
 //    event_config_free(evt_config);
 //    event_base_free(base);
   });
+}
+
+static inline bool to_int(const std::string& s, int& out) {
+  auto* begin = s.data(); auto* end = s.data() + s.size();
+  auto rc = std::from_chars(begin, end, out);
+  return rc.ec == std::errc() && rc.ptr == end;
+}
+
+static inline int get_int_any(const Json::Value& v, int def = 0) {
+  if (v.isInt()) return v.asInt();
+  if (v.isUInt()) return static_cast<int>(v.asUInt());
+  if (v.isString()) { int x{}; if (to_int(v.asString(), x)) return x; }
+  if (v.isDouble()) return static_cast<int>(v.asDouble());
+  return def;
+}
+
+static inline std::string get_string(const Json::Value& v, const std::string& def = "") {
+  return v.isString() ? v.asString() : def;
+}
+
+static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const Json::Value& levelsNode, int& mode) {
+  std::vector<int> thresholds;
+  std::vector<std::string> levels;
+
+  if (!levelsNode || !levelsNode.isObject()) return { thresholds, levels};
+
+  // Iterate through all levels
+  std::vector<std::pair<int, std::string>> combined;
+  const auto keys = levelsNode.getMemberNames();
+  for (auto& name : keys) {
+    const Json::Value& lv = levelsNode[name];
+    if (!lv.isObject()) continue;
+
+    int threshold = get_int_any(lv["threshold"], 0);
+    mode = get_string(lv["unit"], "") == "seconds"? 1: 0;
+
+    combined.emplace_back(threshold, name);
+  }
+
+
+  // Sort by threshold
+  std::sort(combined.begin(), combined.end(), [](const auto& a, const auto& b) {
+    return a.first < b.first;  // Ascending order by threshold
+  });
+  for (const auto& [threshold, unit] : combined) {
+    thresholds.push_back(threshold);
+    levels.push_back(unit);
+  }
+
+  return { thresholds, levels};
 }
 
 void ApiIndex(evhttp_request* req, void* arg) {
@@ -109,12 +160,9 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
         result_data_item["streamUrl"] = monitor.stream_url.data();
         result_data_item["pushStream"] = monitor.push_stream;
         result_data_item["pushStreamUrl"] = monitor.push_stream_url.data();
-        result_data_item["algorithmCode"] = monitor.algorithm_code.data();
-        result_data_item["objectCode"] = monitor.object_code.data();
-        result_data_item["recognitionRegion"] =
-            monitor.roi_str.data();
-
-        result_data_item["checkFps"] = monitor.check_fps;
+        result_data_item["algorithmCode"] = toString(monitor.task);
+        result_data_item["recognitionRegion"] = monitor.roi_str.data();
+        result_data_item["sourceType"] = monitor.source_type;
         result_data_item["startTimestamp"] = startTimestamp;
         result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
 
@@ -165,7 +213,6 @@ void ApiMonitor(evhttp_request* req, void* arg) {
 
     if (monitor) {
       result_monitor["code"] = monitor->code;
-      result_monitor["checkFps"] = monitor->check_fps;
 
       result_code = 1000;
       result_msg = "success";
@@ -205,33 +252,37 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
 
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
-    const auto objects_str = root["objects"].asString();
-    const auto objects_v = split(objects_str, ",");
-    int64_t min_interval;
-    // TODO: min interval to be configurable
-    // 强制设置报警时间最大不能小于1分钟=60000毫秒
-    if (root["minInterval"].isString()) {
-      min_interval = std::max(stoi(root["minInterval"].asString()) * 1000,
-                              60000);  // 客户端传递过的该参数单位是秒
-    } else {
-      min_interval = 60000;
+    try {
+      auto task = root["algorithmCode"].asInt();
+      if (task < 0 || task >= 6) {
+        LOGE("wrong algorithm code: %d", task);
+        return;
+      }
+
+      int mode;
+      Monitor monitor{
+          .code = root["code"].asCString(),
+          .source_type = root["sourceType"].asCString(),
+          .stream_url = root["streamUrl"].asString(),
+          .push_stream = root["pushStream"].asBool(),
+          .push_stream_url = root["pushStreamUrl"].asString(),
+          .task = static_cast<Task>(task),
+          .roi_str = root["recognitionRegion"].asString(),
+          .levels = parse_levels(root["levels"], mode),
+      };
+      monitor.level_mode = mode;
+      if (monitor.ValidateAdd(result_msg)) {
+        scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)), result_code, result_msg);
+      } else {
+        LOGE("invalid message.");
+        return;
+      }
+
+    } catch (const Json::Exception& e) {
+      LOGE("JOSOn parsing error:%s", e.what());
+      return;
     }
 
-    Monitor monitor{root["code"].asCString(),
-                    root["streamUrl"].asString(),
-                    root["pushStream"].asBool(),
-                    root["pushStreamUrl"].asString(),
-                    root["algorithmCode"].asString(),
-                    objects_str,
-                    objects_v,
-                    static_cast<int>(objects_v.size()),
-                    root["objectCode"].asString(),
-                    root["recognitionRegion"].asString(),
-                    min_interval};
-
-    if (monitor.ValidateAdd(result_msg)) {
-      scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)), result_code, result_msg);
-    }
   } else {
     result_msg = "invalid request parameter";
   }

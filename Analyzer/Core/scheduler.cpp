@@ -6,7 +6,6 @@
 
 #include "Utils/log.h"
 #include "algorithm.h"
-#include "algorithm_on_yolo.h"
 #include "config.h"
 #include "control.h"
 #include "alarm.h"
@@ -23,47 +22,6 @@ Scheduler::Scheduler(Config& config) : config_(config){
 Scheduler::~Scheduler() = default;
 
 Config& Scheduler::GetConfig() const { return config_; }
-bool Scheduler::InitAlgorithm() {
-  LOGI("initAlgorithm() start");
-
-  // 初始化on-yolo8 80分类模型
-  LOGI("初始化on-yolo8 80分类模型");
-  std::string model_path = config_.model_dir + "/yolov8n.onnx";
-  std::vector<std::string> class_names = {
-      "person",        "bicycle",      "car",
-      "motorcycle",    "airplane",     "bus",
-      "train",         "truck",        "boat",
-      "traffic light", "fire hydrant", "stop sign",
-      "parking meter", "bench",        "bird",
-      "cat",           "dog",          "horse",
-      "sheep",         "cow",          "elephant",
-      "bear",          "zebra",        "giraffe",
-      "backpack",      "umbrella",     "handbag",
-      "tie",           "suitcase",     "frisbee",
-      "skis",          "snowboard",    "sports ball",
-      "kite",          "baseball bat", "baseball glove",
-      "skateboard",    "surfboard",    "tennis racket",
-      "bottle",        "wine glass",   "cup",
-      "fork",          "knife",        "spoon",
-      "bowl",          "banana",       "apple",
-      "sandwich",      "orange",       "broccoli",
-      "carrot",        "hot dog",      "pizza",
-      "donut",         "cake",         "chair",
-      "couch",         "potted plant", "bed",
-      "dining table",  "toilet",       "tv",
-      "laptop",        "mouse",        "remote",
-      "keyboard",      "cell phone",   "microwave",
-      "oven",          "toaster",      "sink",
-      "refrigerator",  "book",         "clock",
-      "vase",          "scissors",     "teddy bear",
-      "hair drier",    "toothbrush"};
-  yolov8n_80_classes_ =
-      std::make_unique<YoloAlgorithm>(&config_, model_path, class_names);
-
-
-  LOGI("initAlgorithm() end");
-  return true;
-}
 
 void Scheduler::CleanUpLoop() {
   // TODO: use thread pool to handle alarm and cleanup
