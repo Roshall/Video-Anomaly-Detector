@@ -18,7 +18,7 @@
 #include <sstream>
 
 int extract_port(const std::string& ip_address) {
-  std::string port_str = ip_address.substr(ip_address.find(':') + 1);
+  std::string port_str = ip_address.substr(ip_address.rfind(':') + 1);
   int port = 0;
   std::istringstream(port_str) >> port;
   return port;
