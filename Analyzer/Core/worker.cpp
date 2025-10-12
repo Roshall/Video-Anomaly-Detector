@@ -199,7 +199,7 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     }
 
     if(push) {
-      std::string url = std::format("{}/api/postAlert", conf.admin_host);
+      std::string url = std::format("{}/api/postAddAlarm", conf.admin_host);
       Json::Value param;
       param["control_code"] = monitor_->code;
       param["desc"] = "";

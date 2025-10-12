@@ -57,7 +57,7 @@ bool AvPullStream::Connect(bool file) {
   worker_->monitor_->video_index = video_index;
   stream = fmt_ctx->streams[video_index];
   if (video_index > -1) {
-    AVCodecParameters* videoCodecPar = fmt_ctx->streams[video_index]->codecpar;
+    AVCodecParameters* videoCodecPar = stream->codecpar;
 
     const AVCodec* video_codec = nullptr;
     video_codec = avcodec_find_decoder(videoCodecPar->codec_id);
