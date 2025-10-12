@@ -7,8 +7,6 @@ set(CMAKE_BUILD_TYPE DEBUG)
 SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb")
 SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer -g")
-
 set(ARCH_X86_64 "x86_64")
 set(ARCH_AARCH64 "aarch64")
 message(STATUS "System architecture: ${CMAKE_SYSTEM_PROCESSOR}")
