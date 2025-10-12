@@ -111,7 +111,7 @@ void Worker::OfflineAnalyze() {
   auto in_time_base = in.time_base;
   VideoOverlay graph;
   auto example = in.NextFrame();
-  EventDetector checker{EventDetectorConfig(),
+  EventDetector checker{EventDetectorConfig{.minor_stride_s=500,.min_vote=2},
                         *analyzer,
                         {width, height, in_stream->video_codec_ctx->pix_fmt,
                          width, height},
@@ -175,8 +175,10 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     } else {
       num = checker.event_duration();
     }
-    int i = 0;
-    while (i <monitor_->levels.first.size() && monitor_->levels.first[i] < num) {++i;}
+    size_t i = 0;
+    auto total_level = monitor_->levels.first.size();
+    while (i < total_level && monitor_->levels.first[i] < num) {++i;}
+    i = std::min(i, total_level);
     level = monitor_->levels.second[i];
   }
 
