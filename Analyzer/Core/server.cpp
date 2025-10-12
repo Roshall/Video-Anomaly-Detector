@@ -261,7 +261,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
     try {
-      auto task = root["algorithmCode"].asInt();
+      auto task = std::stoi(root["algorithmCode"].asCString());
       if (task < 0 || task >= 6) {
         LOGE("wrong algorithm code: %d", task);
         return;
@@ -286,7 +286,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
         return;
       }
 
-    } catch (const Json::Exception& e) {
+    } catch (const std::exception& e) {
       LOGE("Json parsing error:%s", e.what());
       return;
     }
