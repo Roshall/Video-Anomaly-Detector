@@ -55,6 +55,7 @@ bool AvPullStream::Connect(bool file) {
   auto video_index =
       av_find_best_stream(fmt_ctx.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   worker_->monitor_->video_index = video_index;
+  stream = fmt_ctx->streams[video_index];
   if (video_index > -1) {
     AVCodecParameters* videoCodecPar = fmt_ctx->streams[video_index]->codecpar;
 
