@@ -233,7 +233,7 @@ void Worker::DecodeVideo() {
   int out_width = monitor_->push_stream ? out_stream->width() : width;
   int out_height = monitor_->push_stream ? out_stream->height() : height;
 
-  EventDetector checker{EventDetectorConfig(),
+  EventDetector checker{EventDetectorConfig{.minor_stride_s=500,.min_vote=2},
                         *analyzer,
                         {width, height, in_stream->video_codec_ctx->pix_fmt,
                          out_width, out_height},
