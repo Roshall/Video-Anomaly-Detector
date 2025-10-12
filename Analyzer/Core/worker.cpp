@@ -178,7 +178,7 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     size_t i = 0;
     auto total_level = monitor_->levels.first.size();
     while (i < total_level && monitor_->levels.first[i] < num) {++i;}
-    i = std::min(i, total_level);
+    i = std::min(i, total_level-1);
     level = monitor_->levels.second[i];
   }
 
