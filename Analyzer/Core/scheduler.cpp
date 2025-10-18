@@ -173,9 +173,6 @@ void Scheduler::NotifyCleanUp() {
 
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
-  // TODO: alarm queue size to be configurable
-  const int kAlarmQueueSize = 100;
-
   std::unique_ptr<Alarm> old_alarm;
   alarm_queue_.enqueue(std::move(alarm));
   NotifyCleanUp();
