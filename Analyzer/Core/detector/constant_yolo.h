@@ -10,7 +10,8 @@
 namespace avs_analyzer {
 class YOLODetector;
 
-std::shared_ptr<const YOLODetector> GetDetector(Task task);
+std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
+                                                Task task);
 }
 
 #endif  // ANALYZER_CONSTANT_YOLO_H

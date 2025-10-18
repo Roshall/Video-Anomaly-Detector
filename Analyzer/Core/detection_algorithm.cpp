@@ -8,10 +8,11 @@
 #include "detector/yolo_detector_onnx.h"
 #include "detector/inference.h"
 #include "task.h"
+#include "config.h"
 
 namespace avs_analyzer {
 DetectionAlgorithm::DetectionAlgorithm(Config* config, Task task)
-    : Algorithm(config), detector_(GetDetector(task)) {
+    : Algorithm(config), detector_(GetDetector(config->model_dir, task)) {
 }
 Detection DetectionAlgorithm::DetectObjects(const cv::Mat& image) {
   std::vector<cv::Rect> bbox;

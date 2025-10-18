@@ -7,9 +7,10 @@
 #include "ByteTrack/Object.h"
 #include "ByteTrack/Rect.h"
 #include "task.h"
+#include "config.h"
 
 namespace avs_analyzer {
-TrackAlgorithm::TrackAlgorithm(Config* config): Algorithm(config), detector_(GetDetector(Task::kWandering)) {}
+TrackAlgorithm::TrackAlgorithm(Config* config): Algorithm(config), detector_(GetDetector(config->model_dir, Task::kWandering)) {}
 
 Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
   auto res = detector_->Run(image);

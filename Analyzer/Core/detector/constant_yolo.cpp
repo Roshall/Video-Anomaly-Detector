@@ -12,9 +12,10 @@
 
 namespace avs_analyzer{
 
-std::shared_ptr<const YOLODetector> GetDetector(Task task) {
+std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
+                                                Task task) {
   static ConstPool<std::string, YOLODetector> pool;
-  auto path_prefix = std::filesystem::current_path().parent_path() / "models";
+  auto path_prefix = std::filesystem::path(model_path);
   auto task_string{toString(task)};
   switch (task) {
     case Task::kBreakIn:
