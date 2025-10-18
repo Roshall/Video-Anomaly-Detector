@@ -37,8 +37,8 @@ bool Alarm::Finalize(const std::string& upload_dir,
   prefix_dir = prefix_dir / "alarm" / control_code / start_time;
 
 
-  if (event->more_segments || std::filesystem::exists(prefix_dir / "videos")) {
-    prefix_dir /= "videos";
+  prefix_dir /= "videos";
+  if (!std::filesystem::exists(prefix_dir)) {
     try {
       std::filesystem::create_directories(prefix_dir);
     } catch (std::filesystem::filesystem_error& e) {
