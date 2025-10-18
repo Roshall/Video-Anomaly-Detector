@@ -24,6 +24,7 @@ class FrameWallClock {
   void init(AVFormatContext* fmt, AVStream* stream) {
     if (!fmt) throw std::invalid_argument("fmt == nullptr");
 
+    time_base = stream->time_base;
     // Prefer real epoch start if provided (microseconds since Unix epoch).
     if (fmt->start_time_realtime != AV_NOPTS_VALUE) {
       m_epoch_anchor = std::chrono::system_clock::time_point{
@@ -49,6 +50,7 @@ class FrameWallClock {
   // Helper to stringify as ISO-8601 (UTC) "YYYY-mm-ddTHH:MM:SS.mmmuuuZ"
   static std::string to_iso8601_utc(sys_time t) {
     using namespace std::chrono;
+    t += hours(8); // (Beijing is UTC+8)
     auto us_since_epoch = duration_cast<microseconds>(t.time_since_epoch());
     auto s = duration_cast<seconds>(us_since_epoch);
     auto rem_us = us_since_epoch - s;
