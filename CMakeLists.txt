@@ -244,4 +244,4 @@ target_include_directories(Analyzer PRIVATE
         ${CURL_INCLUDE_DIRS}
 )
 
-target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR}/eigen3)
+target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR})
