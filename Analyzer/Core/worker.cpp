@@ -178,8 +178,8 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     size_t i = 0;
     auto total_level = monitor_->levels.first.size();
     while (i < total_level && monitor_->levels.first[i] < num) {++i;}
-    i = std::min(i, total_level-1);
-    level = monitor_->levels.second[i];
+    if (i == 0) return;
+    level = monitor_->levels.second[i-1];
   }
 
   g_th_pool.detach_task([&, this, ts, level, push,
@@ -190,14 +190,13 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
                                 monitor_->code, time_str);
     std::filesystem::create_directories(std::filesystem::path(img_path));
-    int ret = pict_writer.saveFrame(
-        frame_p->data.get(),
-        std::format("{}/{}.jpg", img_path, time_str));
+    auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
+    int ret = pict_writer.saveFrame(frame_p->data.get(), img_path_str);
     if (ret < 0) {
       log_error("failed to save picture", ret);
       return;
     } else {
-      std::cout << "save alarm image to " << img_path;
+      std::cout << "save alarm image to " << img_path_str;
     }
 
     if(push) {
@@ -205,7 +204,7 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
       Json::Value param;
       param["control_code"] = monitor_->code;
       param["desc"] = "";
-      param["img_path"] = img_path;
+      param["img_path"] = img_path_str;
       param["create_time"] = time_str;
       param["level"] = level.data();
 
@@ -213,7 +212,7 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
       Request request;
       std::string response;
       request.post(url.data(), data.data(), response);
-      std::cout << "sent to " << conf.admin_host << std::endl;
+      std::cout << "sent alam image to " << conf.admin_host << std::endl;
     }
   });
 }

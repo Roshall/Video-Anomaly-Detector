@@ -32,7 +32,7 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
                 0);  // 设置rtmp/http-flv连接超时
     av_dict_set(&fmt_options, "stimeout", "30000000", 0);  // 设置rtsp连接超时
     av_dict_set(&fmt_options, "rtsp_transport", "tcp", 0);
-    conf = {1, 0, "23", "ultrafast", "rtsp", fmt_options};
+    conf = {1, 0, "23", "ultrafast", "rtsp", AVDictionaryPtr(fmt_options)};
   }
   return OpenOutputSegment(conf);  // Start the first segment
 }
@@ -107,10 +107,10 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
       return false;
     }
   }
-  ret = avformat_write_header(output_ctx_.get(), &cconfig.fmt_options);
-  if (cconfig.fmt_options) {
-    av_dict_free(&cconfig.fmt_options);
-  }
+  auto fmt_options = cconfig.fmt_options.release();
+  // fmt_options will be destroyed after this call, so we don't need to free
+  // the dict manually.
+  ret = avformat_write_header(output_ctx_.get(), &fmt_options);
 
   if (ret < 0) {
     log_error("Could not write header", ret);

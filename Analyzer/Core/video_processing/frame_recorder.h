@@ -24,7 +24,7 @@ class Recorder {
     std::string crf{"28"};
     std::string preset{"faster"};
     const char* format_name{nullptr};
-    mutable AVDictionary* fmt_options{nullptr};
+    mutable AVDictionaryPtr fmt_options{};
   };
 
   explicit Recorder(VideoConfig config);

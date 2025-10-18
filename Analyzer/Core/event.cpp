@@ -32,17 +32,19 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
 std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
   auto it = std::find(object_votes_window_.cbegin(),
                       object_votes_window_.cend(), true);
-  const std::unique_ptr<Frame>* frame;
+  const Frame* frame{};
   if (it != object_votes_window_.cend()) {
     auto index = std::distance(object_votes_window_.cbegin(), it);
     // The frame_buffer_ contains more frames than the window, so we need to find the correct starting point.
     // The last frame in the buffer corresponds to the last vote in the window.
     if (frame_buffer_.size() > (object_votes_window_.size() - 1 - index)) {
-      frame = &frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +index];
+      frame = frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +index].get();
     }
   }
-  frame = &frame_buffer_.back();
-  return {(*frame)->timestamp, (*frame)->data->best_effort_timestamp};
+  if (!frame){
+    frame = frame_buffer_.back().get();
+  }
+  return {frame->timestamp, frame->data->best_effort_timestamp};
 }
 
 EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
