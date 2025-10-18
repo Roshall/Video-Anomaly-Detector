@@ -160,7 +160,6 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
     out_frame.reset(av_frame_alloc());
     av_frame_move_ref(out_frame.get(), frame.data);
   }
-  out_frame->best_effort_timestamp = frame.data->best_effort_timestamp;
   frame_buffer_.emplace_back(std::make_unique<Frame>(frame.timestamp, std::move(out_frame)));
   // Keep buffer size manageable. Max duration + buffers is a safe upper limit.
   if (frame_buffer_.size() > 10 &&
