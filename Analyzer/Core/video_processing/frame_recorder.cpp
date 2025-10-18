@@ -23,7 +23,6 @@ Recorder::~Recorder() { CloseOutputSegment(); }
 
 bool Recorder::Initialize(std::string_view file_path, bool file) {
   file_path_ = file_path;
-  dst_file_ = file;
   CodeConfig conf{};
 
   if (!file) {
@@ -32,7 +31,7 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
                 0);  // 设置rtmp/http-flv连接超时
     av_dict_set(&fmt_options, "stimeout", "30000000", 0);  // 设置rtsp连接超时
     av_dict_set(&fmt_options, "rtsp_transport", "tcp", 0);
-    conf = {1, 0, "23", "ultrafast", "rtsp", AVDictionaryPtr(fmt_options)};
+    conf = {1, 0, "25", "superfast", "rtsp", AVDictionaryPtr(fmt_options)};
   }
   return OpenOutputSegment(conf);  // Start the first segment
 }
@@ -40,9 +39,9 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
 bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   // set up codec
   // 1. Find the H.265 encoder
-  const AVCodec* codec = avcodec_find_encoder_by_name("libx265");
+  const AVCodec* codec = avcodec_find_encoder_by_name("libx264");
   if (!codec) {
-    std::cerr << "Codec 'libx265' not found. Please ensure FFmpeg is compiled "
+    std::cerr << "Codec 'libx264' not found. Please ensure FFmpeg is compiled "
                  "with support for it."
               << std::endl;
     return false;

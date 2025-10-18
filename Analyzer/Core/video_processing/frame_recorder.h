@@ -21,8 +21,8 @@ class Recorder {
   struct CodeConfig {
     int gop_size_scale{2};
     int max_b_frame{2};
-    std::string crf{"28"};
-    std::string preset{"faster"};
+    std::string crf{"20"};
+    std::string preset{"fast"};
     const char* format_name{nullptr};
     mutable AVDictionaryPtr fmt_options{};
   };
@@ -50,7 +50,6 @@ class Recorder {
 
   AVFormatContextPtr output_ctx_{};
   AVCodecContextPtr video_codec_ctx_{};
-  bool dst_file_{};
 };
 
 }  // namespace avs_analyzer
