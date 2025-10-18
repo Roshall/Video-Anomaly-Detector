@@ -19,7 +19,7 @@ Recorder::Recorder(VideoConfig config)
   }
 }
 
-Recorder::~Recorder() { CloseOutputSegment(); }
+Recorder::~Recorder() { if (initialized_) CloseOutputSegment(); }
 
 bool Recorder::Initialize(std::string_view file_path, bool file) {
   file_path_ = file_path;
@@ -115,6 +115,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
     log_error("Could not write header", ret);
     return false;
   }
+  initialized_ = true;
   return true;
 }
 
