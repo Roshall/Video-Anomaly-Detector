@@ -202,4 +202,5 @@ std::unique_ptr<Frame> EventDetector::latest_frame() {
 int64_t EventDetector::timestamp() const {
   return frame_buffer_.back()->data->best_effort_timestamp;
 }
+int64_t EventDetector::start_ts() const { return start_frame_ts_; }
 }

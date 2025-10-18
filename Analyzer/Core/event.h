@@ -65,6 +65,7 @@ class EventDetector {
       }
   };
   int64_t timestamp() const;
+  int64_t start_ts() const;
 
   // Flushes any pending event when the stream ends.
   std::unique_ptr<Event> Flush();
