@@ -19,7 +19,7 @@ Recorder::Recorder(VideoConfig config)
   }
 }
 
-Recorder::~Recorder() { if (initialized_) CloseOutputSegment(); }
+Recorder::~Recorder() {CloseOutputSegment(); }
 
 bool Recorder::Initialize(std::string_view file_path, bool file) {
   file_path_ = file_path;
@@ -120,7 +120,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
 }
 
 void Recorder::CloseOutputSegment() {
-  if (output_ctx_) {
+  if ( initialized_ && output_ctx_) {
     // Flush any remaining packets from the encoder
     EncodeAndWrite(nullptr);
 
