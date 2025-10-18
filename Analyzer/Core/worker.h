@@ -49,8 +49,8 @@ class Worker {
   std::vector<std::unique_ptr<std::thread>> threads_;
 
   bool GrabFrame(AVFrame* frame) const;
-  void HandleAlarm(avs_analyzer::EventDetector& checker,
-                   avs_analyzer::JPEGEncoder& pict_writer, bool push);
+  void AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
+                   FrameWallClock::sys_time start_ts, bool push) noexcept;
   void OfflineAnalyze();
 };
 }  // namespace avs_analyzer

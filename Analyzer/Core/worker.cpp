@@ -118,6 +118,7 @@ void Worker::OfflineAnalyze() {
                         monitor_->roi_points,
                         example};
 
+  JPEGEncoder pict_writer(width, height);
   while(!in.EoF()) {
     auto frame = in.NextFrame();
     auto timestamp = frame->best_effort_timestamp;
@@ -129,21 +130,23 @@ void Worker::OfflineAnalyze() {
     auto state =
         checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
                               frame});
-    JPEGEncoder pict_writer(width, height);
+
     auto upload_dir = scheduler->GetConfig().upload_dir;
 
     switch (state) {
       case EventDetector::kEventStart: {
-        HandleAlarm(checker, pict_writer, false);
+        AlarmImage(checker, pict_writer,
+                   timer_.compute(checker.start_ts()), false);
         break;
       }
       case EventDetector::kEventSplit: {
-        HandleAlarm(checker, pict_writer, false);
         auto event = checker.Flush();
         assert(event && "event should exist");
-        g_th_pool.detach_task([ts=timer_.compute(event->start_timestamp),
+        auto start_ts = timer_.compute(event->start_timestamp);
+        AlarmImage(checker, pict_writer, start_ts, false);
+        g_th_pool.detach_task([start_ts,
         code=monitor_->code, event= event.release(), width, height, upload_dir]{
-          Alarm alarm(ts, std::move(code), std::unique_ptr<Event>(event), width, height);
+          Alarm alarm(start_ts, std::move(code), std::unique_ptr<Event>(event), width, height);
           alarm.Finalize(upload_dir, "");
         });
         break;
@@ -165,7 +168,8 @@ void Worker::OfflineAnalyze() {
   }
 }
 
-void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool push) {
+void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
+                         FrameWallClock::sys_time start_ts, bool push) noexcept {
   auto ts = timer_.compute(checker.timestamp());
   int num;
   std::string_view level;
@@ -182,14 +186,14 @@ void Worker::HandleAlarm(EventDetector& checker, JPEGEncoder& pict_writer, bool 
     level = monitor_->levels.second[i-1];
   }
 
-  g_th_pool.detach_task([&, this, ts, level, push,
+  g_th_pool.detach_task([&, this, start_ts, ts, level, push,
                          frame = checker.latest_frame().release()] {
     std::unique_ptr<Frame> frame_p{frame};
     auto& conf = scheduler->GetConfig();
-    auto time_str = FrameWallClock::to_iso8601_utc(ts);
     auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
-                                monitor_->code, time_str);
+                                monitor_->code, FrameWallClock::to_iso8601_utc(start_ts));
     std::filesystem::create_directories(std::filesystem::path(img_path));
+    auto time_str = FrameWallClock::to_iso8601_utc(ts);
     auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
     int ret = pict_writer.saveFrame(frame_p->data.get(), img_path_str);
     if (ret < 0) {
@@ -260,13 +264,15 @@ void Worker::DecodeVideo() {
     }
     switch (state) {
       case EventDetector::kEventStart: {
-        HandleAlarm(checker, pict_writer, true);
+        AlarmImage(checker, pict_writer,
+                   timer_.compute(checker.start_ts()), true);
         break;
       }
       case EventDetector::kEventSplit: {
-        HandleAlarm(checker, pict_writer, true);
         auto event = checker.Flush();
         assert(event && "event should exist");
+        auto start_ts = timer_.compute(event->start_timestamp);
+        AlarmImage(checker, pict_writer, start_ts, true);
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
