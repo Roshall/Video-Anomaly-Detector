@@ -26,12 +26,11 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
   CodeConfig conf{};
 
   if (!file) {
-    AVDictionary* fmt_options = nullptr;
-    av_dict_set(&fmt_options, "rw_timeout", "30000000",
-                0);  // 设置rtmp/http-flv连接超时
-    av_dict_set(&fmt_options, "stimeout", "30000000", 0);  // 设置rtsp连接超时
-    av_dict_set(&fmt_options, "rtsp_transport", "tcp", 0);
-    conf = {1, 0, "25", "superfast", "rtsp", AVDictionaryPtr(fmt_options)};
+    AVDictionaryPtr fmt_options{};
+    fmt_options.set("rw_timeout", "30000000", 0);  // 设置rtmp/http-flv连接超时
+    fmt_options.set("stimeout", "30000000", 0);  // ns
+    fmt_options.set("rtsp_transport", "tcp", 0);
+    conf = {1, 0, "25", "superfast", "rtsp", std::move(fmt_options)};
   }
   return OpenOutputSegment(conf);  // Start the first segment
 }
@@ -106,10 +105,8 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
       return false;
     }
   }
-  auto fmt_options = cconfig.fmt_options.release();
-  // fmt_options will be destroyed after this call, so we don't need to free
-  // the dict manually.
-  ret = avformat_write_header(output_ctx_.get(), &fmt_options);
+
+  ret = avformat_write_header(output_ctx_.get(), cconfig.fmt_options.addr());
 
   if (ret < 0) {
     log_error("Could not write header", ret);
