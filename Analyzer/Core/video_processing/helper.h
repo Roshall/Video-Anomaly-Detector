@@ -66,13 +66,47 @@ struct AVFilterInOutDeleter {
   }
 };
 
-struct AVDictionaryDeleter {
-  void operator() (AVDictionary* ptr) const {
-    if(ptr) av_dict_free(&ptr);
-  }
+
+class AVDictionaryPtr {
+ public:
+  AVDictionaryPtr() noexcept = default;
+  explicit AVDictionaryPtr(AVDictionary* p) noexcept : p_(p) {}
+
+  // non-copyable
+  AVDictionaryPtr(const AVDictionaryPtr&) = delete;
+  AVDictionaryPtr& operator=(const AVDictionaryPtr&) = delete;
+
+  // movable
+  AVDictionaryPtr(AVDictionaryPtr&& other) noexcept;
+  AVDictionaryPtr& operator=(AVDictionaryPtr&& other) noexcept;
+
+  ~AVDictionaryPtr() { av_dict_free(&p_); }
+
+  // Accessors
+  [[nodiscard]] AVDictionary* get() const noexcept { return p_; }
+  AVDictionary** addr() noexcept { return &p_; }
+  explicit operator bool() const noexcept { return p_ != nullptr; }
+
+  // Replace owned pointer (frees the old one)
+  void reset(AVDictionary* np) noexcept;
+
+  // Release ownership to caller (won't free)
+  AVDictionary* release() noexcept;
+
+  // Clear and free
+  void clear() noexcept { reset(nullptr); }
+
+  // Swap
+  void swap(AVDictionaryPtr& other) noexcept { std::swap(p_, other.p_); }
+
+  // Convenience: set a key/value and keep unique ownership in sync
+  // (FFmpeg may allocate or reallocate the dict inside av_dict_set)
+  int set(const char* key, const char* val, int flags = 0);
+
+ private:
+  AVDictionary* p_{nullptr};
 };
 
-using AVDictionaryPtr = std::unique_ptr<AVDictionary, AVDictionaryDeleter>;
 using AVFilterInOutPtr = unique_ptr<AVFilterInOut, AVFilterInOutDeleter>;
 using AVFilterGraphPtr = unique_ptr<AVFilterGraph, AVFilterGraphDeleter>;
 using AVFramePtr = unique_ptr<AVFrame, AVFrameDeleter>;
