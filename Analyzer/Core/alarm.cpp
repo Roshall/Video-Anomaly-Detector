@@ -21,10 +21,10 @@ extern "C" {
 namespace avs_analyzer {
 
 Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
-             std::string_view controlCode, std::unique_ptr<Event> event,
+             std::string controlCode, std::unique_ptr<Event> event,
              int width, int height, int fps)
     : start_ts(happenTimestamp),
-      control_code(controlCode),
+      control_code(std::move(controlCode)),
       event(std::move(event)),
       width(width),
       height(height),
