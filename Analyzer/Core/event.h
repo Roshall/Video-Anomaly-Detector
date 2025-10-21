@@ -56,7 +56,7 @@ class EventDetector {
   State ProcessFrame(RawFrame frame);
 
   [[nodiscard]] std::unique_ptr<Frame> latest_frame();
-  int num_detection() const {return static_cast<int>(kept_bboxes_.size());}
+  int64_t num_detection() const {return static_cast<int>(kept_bboxes_.size());}
   [[nodiscard]] int64_t event_duration() const {
       if (current_state_ != InnerState::kEventActive) {
         return 0;
