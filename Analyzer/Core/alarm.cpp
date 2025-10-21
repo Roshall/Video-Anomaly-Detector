@@ -4,19 +4,11 @@
 
 #include <filesystem>
 #include <iostream>
-#include <opencv2/opencv.hpp>
 
-#include "Utils/common.h"
 #include "Utils/log.h"
 #include "Utils/request.h"
-#include "config.h"
 #include "frame_recorder.h"
 #include "frame_walk_time.h"
-extern "C" {
-// #include "libswscale/swscale.h"
-#include <libavutil/imgutils.h>
-// #include <libswresample/swresample.h>
-}
 
 namespace avs_analyzer {
 
@@ -47,8 +39,7 @@ bool Alarm::Finalize(const std::string& upload_dir,
       return false;
     }
   }
-  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".ts";
-  //    std::string image_path_abs = config.upload_dir + "/" + image_path;
+  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".mp4";
   std::string path = prefix_dir.c_str();
   if (!recorder.Initialize(path, true)) {
     std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
