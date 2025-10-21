@@ -10,7 +10,6 @@
 #include "alarm.h"
 #include "algorithm.h"
 #include "analyzer.h"
-#include "annotator.h"
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "config.h"
@@ -109,7 +108,6 @@ void Worker::OfflineAnalyze() {
   int width = in.width();
   int height = in.height();
   auto in_time_base = in.time_base;
-  VideoOverlay graph;
   auto example = in.NextFrame();
   EventDetector checker{EventDetectorConfig{.minor_stride_s=500,.min_vote=2},
                         *analyzer,
@@ -135,18 +133,17 @@ void Worker::OfflineAnalyze() {
 
     switch (state) {
       case EventDetector::kEventStart: {
-        AlarmImage(checker, pict_writer,
-                   timer_.compute(checker.start_ts()), false);
+        AlarmImage(checker, pict_writer, false);
         break;
       }
       case EventDetector::kEventSplit: {
+        AlarmImage(checker, pict_writer, false);
+        auto start_ts = timer_.compute(checker.start_ts());
         auto event = checker.Flush();
         assert(event && "event should exist");
-        auto start_ts = timer_.compute(event->start_timestamp);
-        AlarmImage(checker, pict_writer, start_ts, false);
         g_th_pool.detach_task([start_ts,
-        code=monitor_->code, event= event.release(), width, height, upload_dir]{
-          Alarm alarm(start_ts, std::move(code), std::unique_ptr<Event>(event), width, height);
+        code=monitor_->code, event=std::move(event), width, height, upload_dir]() mutable {
+          Alarm alarm(start_ts, std::move(code), std::move(event), width, height);
           alarm.Finalize(upload_dir, "");
         });
         break;
@@ -154,9 +151,10 @@ void Worker::OfflineAnalyze() {
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
         assert(event && "event should exist");
-        g_th_pool.detach_task([ts=timer_.compute(event->start_timestamp),
-                               code=monitor_->code, event= event.release(), width, height, upload_dir]{
-          Alarm alarm(ts, std::move(code), std::unique_ptr<Event>(event), width, height);
+        auto ts = timer_.compute(event->start_timestamp);
+        g_th_pool.detach_task([ts,
+                               code=monitor_->code, event= std::move(event), width, height, upload_dir]() mutable{
+          Alarm alarm(ts, std::move(code),std::move(event), width, height);
           alarm.Finalize(upload_dir, "");
         });
         break;
@@ -169,9 +167,9 @@ void Worker::OfflineAnalyze() {
 }
 
 void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
-                         FrameWallClock::sys_time start_ts, bool push) noexcept {
+                        bool push) noexcept {
   auto ts = timer_.compute(checker.timestamp());
-  int num;
+  int64_t num;
   std::string_view level;
   if (push) {
     if (monitor_->level_mode == LevelMode::kNumPeople) {
@@ -185,17 +183,15 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     if (i == 0) return;
     level = monitor_->levels.second[i-1];
   }
-
-  g_th_pool.detach_task([&, this, start_ts, ts, level, push,
-                         frame = checker.latest_frame().release()] {
-    std::unique_ptr<Frame> frame_p{frame};
+  g_th_pool.detach_task([&, this, start_ts = timer_.compute(checker.start_ts()), ts, level, push,
+                         frame = checker.latest_frame()] {
     auto& conf = scheduler->GetConfig();
     auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
                                 monitor_->code, FrameWallClock::to_iso8601_utc(start_ts));
     std::filesystem::create_directories(std::filesystem::path(img_path));
     auto time_str = FrameWallClock::to_iso8601_utc(ts);
     auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
-    int ret = pict_writer.saveFrame(frame_p->data.get(), img_path_str);
+    int ret = pict_writer.saveFrame(frame->data.get(), img_path_str);
     if (ret < 0) {
       log_error("failed to save picture", ret);
       return;
@@ -228,7 +224,6 @@ void Worker::DecodeVideo() {
   AVFramePtr frame_yuv420p{av_frame_alloc()};  // pkt->解码->frame
 
   auto in_time_base = in_stream->stream->time_base;
-  VideoOverlay graph;
   if (!GrabFrame(frame_yuv420p.get())) {
     LOGE("No data can be retrieve from stream. exist");
     return;
@@ -264,15 +259,13 @@ void Worker::DecodeVideo() {
     }
     switch (state) {
       case EventDetector::kEventStart: {
-        AlarmImage(checker, pict_writer,
-                   timer_.compute(checker.start_ts()), true);
+        AlarmImage(checker, pict_writer, true);
         break;
       }
       case EventDetector::kEventSplit: {
+        AlarmImage(checker, pict_writer, true);
         auto event = checker.Flush();
         assert(event && "event should exist");
-        auto start_ts = timer_.compute(event->start_timestamp);
-        AlarmImage(checker, pict_writer, start_ts, true);
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));

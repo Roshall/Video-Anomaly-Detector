@@ -50,7 +50,7 @@ class Worker {
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
-                   FrameWallClock::sys_time start_ts, bool push) noexcept;
+                  bool push) noexcept;
   void OfflineAnalyze();
 };
 }  // namespace avs_analyzer
