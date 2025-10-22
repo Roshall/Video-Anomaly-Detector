@@ -250,42 +250,43 @@ void Worker::DecodeVideo() {
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
     }
-  }
-  auto timestamp = frame_yuv420p->best_effort_timestamp;
+    auto timestamp = frame_yuv420p->best_effort_timestamp;
 
-  frame_yuv420p->time_base = in_time_base;
-  frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
-  // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
-  // to has 'ms' time base
-  auto state = checker.ProcessFrame(
-      {av_rescale_q(timestamp, in_time_base, {1, 1000}), frame_yuv420p.get()});
-  if (monitor_->push_stream) {
-    out_stream->AddVideoFrame(checker.latest_frame());
-  }
-  switch (state) {
-    case EventDetector::kEventStart: {
-      AlarmImage(checker, pict_writer, true);
-      break;
+    frame_yuv420p->time_base = in_time_base;
+    frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
+    // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
+    // to has 'ms' time base
+    auto state =
+        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
+                              frame_yuv420p.get()});
+    if (monitor_->push_stream) {
+      out_stream->AddVideoFrame(checker.latest_frame());
     }
-    case EventDetector::kEventSplit: {
-      AlarmImage(checker, pict_writer, true);
-      auto event = checker.Flush();
-      assert(event && "event should exist");
-      scheduler->AddAlarm(std::make_unique<Alarm>(
-          timer_.compute(event->start_timestamp), monitor_->code,
-          std::move(event), out_width, out_height));
-      break;
+    switch (state) {
+      case EventDetector::kEventStart: {
+        AlarmImage(checker, pict_writer, true);
+        break;
+      }
+      case EventDetector::kEventSplit: {
+        AlarmImage(checker, pict_writer, true);
+        auto event = checker.Flush();
+        assert(event && "event should exist");
+        scheduler->AddAlarm(std::make_unique<Alarm>(
+            timer_.compute(event->start_timestamp), monitor_->code,
+            std::move(event), out_width, out_height));
+        break;
+      }
+      case EventDetector::kEventEnd: {
+        auto event = checker.Flush();
+        assert(event && "event should exist");
+        scheduler->AddAlarm(std::make_unique<Alarm>(
+            timer_.compute(event->start_timestamp), monitor_->code,
+            std::move(event), out_width, out_height));
+        break;
+      }
+      default:
+        break;
     }
-    case EventDetector::kEventEnd: {
-      auto event = checker.Flush();
-      assert(event && "event should exist");
-      scheduler->AddAlarm(std::make_unique<Alarm>(
-          timer_.compute(event->start_timestamp), monitor_->code,
-          std::move(event), out_width, out_height));
-      break;
-    }
-    default:
-      break;
   }
 }
 
