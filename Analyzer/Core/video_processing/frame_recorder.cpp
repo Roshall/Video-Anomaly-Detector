@@ -89,7 +89,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
     return false;
   }
   stream_->id = output_ctx_->nb_streams - 1;
-  stream_->time_base = {1, 90000};
+  stream_->time_base = video_codec_ctx_->time_base;
 
   ret = avcodec_parameters_from_context(stream_->codecpar,
                                         video_codec_ctx_.get());
@@ -145,7 +145,6 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
       break;
     }
     reused_pkt_->stream_index = stream_->index;
-    av_packet_rescale_ts(reused_pkt_.get(), video_codec_ctx_->time_base, stream_->time_base);
     if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
         ret < 0) {
       get_frame = false;
@@ -160,7 +159,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
   frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
-                            stream_->time_base);
+                            {1, 90000});
   return EncodeAndWrite(frame);
 }
 }  // namespace avs_analyzer
