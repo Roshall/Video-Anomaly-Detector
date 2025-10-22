@@ -50,6 +50,7 @@ class Recorder {
 
   AVFormatContextPtr output_ctx_{};
   AVCodecContextPtr video_codec_ctx_{};
+  AVStream* stream_{};
 };
 
 }  // namespace avs_analyzer

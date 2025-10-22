@@ -56,8 +56,8 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   video_codec_ctx_->width = config.width;
   video_codec_ctx_->height = config.height;
   //  video_codec_ctx_->bit_rate = config.bitrate;
-  video_codec_ctx_->time_base = {1, 90000};
-  //  video_codec_ctx_->framerate = {config.fps, 1};
+  video_codec_ctx_->time_base = {1, config.fps};
+    video_codec_ctx_->framerate = {config.fps, 1};
   video_codec_ctx_->gop_size = config.fps * cconfig.gop_size_scale;
   video_codec_ctx_->max_b_frames = cconfig.max_b_frame;
   video_codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
@@ -83,15 +83,15 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   }
   output_ctx_.reset(fmt_ctx);
 
-  auto video_stream_ = avformat_new_stream(output_ctx_.get(), nullptr);
-  if (!video_stream_) {
+  stream_ = avformat_new_stream(output_ctx_.get(), nullptr);
+  if (!stream_) {
     std::cerr << "Failed to create new stream" << std::endl;
     return false;
   }
-  video_stream_->id = output_ctx_->nb_streams - 1;
-  video_stream_->time_base = video_codec_ctx_->time_base;
+  stream_->id = output_ctx_->nb_streams - 1;
+  stream_->time_base = {1, 90000};
 
-  ret = avcodec_parameters_from_context(video_stream_->codecpar,
+  ret = avcodec_parameters_from_context(stream_->codecpar,
                                         video_codec_ctx_.get());
   if (ret < 0) {
     log_error("Could not copy codec parameters", ret);
@@ -144,7 +144,8 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
       log_error("Error receiving packet from encoder", ret);
       break;
     }
-    reused_pkt_->stream_index = output_ctx_->streams[0]->index;
+    reused_pkt_->stream_index = stream_->index;
+    av_packet_rescale_ts(reused_pkt_.get(), video_codec_ctx_->time_base, stream_->time_base);
     if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
         ret < 0) {
       get_frame = false;
@@ -159,7 +160,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
   frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
-                            video_codec_ctx_->time_base);
+                            stream_->time_base);
   return EncodeAndWrite(frame);
 }
 }  // namespace avs_analyzer
