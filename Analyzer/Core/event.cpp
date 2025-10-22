@@ -24,9 +24,9 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
     : config_(config), painter_{roi_points, sample}, convertor_(std::move(convertor)), analyzer_(analyzer) {
   last_major_check_ts_ = -config_.major_stride_s;
   max_buffer_time_ = config_.pre_event_buffer_s +
-                     (config_.minor_stride_s * config_.window_size) +
-                     config_.post_event_buffer_s +
-                     1000;
+                     std::max(config.max_event_duration_s,
+                              (config_.minor_stride_s * config_.window_size)) +
+                     config_.post_event_buffer_s + 1000;
 }
 
 std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
