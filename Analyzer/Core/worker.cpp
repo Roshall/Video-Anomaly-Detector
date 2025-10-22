@@ -241,10 +241,6 @@ void Worker::DecodeVideo() {
   JPEGEncoder pict_writer(width, height);
 
   while (getState() && monitor_->video_index > -1) {
-    av_frame_unref(frame_yuv420p.get());
-    if (!GrabFrame(frame_yuv420p.get())) {
-      continue;
-    }
     auto timestamp = frame_yuv420p->best_effort_timestamp;
 
     frame_yuv420p->time_base = in_time_base;
@@ -281,6 +277,10 @@ void Worker::DecodeVideo() {
       }
       default:
         break;
+    }
+    av_frame_unref(frame_yuv420p.get());
+    if (!GrabFrame(frame_yuv420p.get())) {
+      continue;
     }
   }
 }

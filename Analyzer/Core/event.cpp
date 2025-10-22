@@ -20,8 +20,12 @@ namespace avs_analyzer {
 EventDetector::EventDetector(const EventDetectorConfig& config,
                              const Analyzer& analyzer,
                              FormatConvertor convertor,
-                             std::vector<cv::Point>& roi_points, AVFrame* sample)
-    : config_(config), painter_{roi_points, sample}, convertor_(std::move(convertor)), analyzer_(analyzer) {
+                             std::vector<cv::Point>& roi_points,
+                             AVFrame* sample)
+    : config_(config),
+      painter_{roi_points, sample},
+      convertor_(std::move(convertor)),
+      analyzer_(analyzer) {
   last_major_check_ts_ = -config_.major_stride_s;
   max_buffer_time_ = config_.pre_event_buffer_s +
                      std::max(config.max_event_duration_s,
@@ -35,13 +39,16 @@ std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
   const Frame* frame{};
   if (it != object_votes_window_.cend()) {
     auto index = std::distance(object_votes_window_.cbegin(), it);
-    // The frame_buffer_ contains more frames than the window, so we need to find the correct starting point.
-    // The last frame in the buffer corresponds to the last vote in the window.
+    // The frame_buffer_ contains more frames than the window, so we need to
+    // find the correct starting point. The last frame in the buffer corresponds
+    // to the last vote in the window.
     if (frame_buffer_.size() > (object_votes_window_.size() - 1 - index)) {
-      frame = frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +index].get();
+      frame = frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +
+                            index]
+                  .get();
     }
   }
-  if (!frame){
+  if (!frame) {
     frame = frame_buffer_.back().get();
   }
   return {frame->timestamp, frame->data->best_effort_timestamp};
@@ -84,8 +91,8 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
                       << "s <<<" << std::endl;
             current_state_ = InnerState::kEventActive;
             state = State::kEventStart;
-            // TODO: add cover page for the event
-            std::tie(active_event_start_ts_, start_frame_ts_) = FindFirstVoteTimestamp();
+            std::tie(active_event_start_ts_, start_frame_ts_) =
+                FindFirstVoteTimestamp();
           } else {
             std::cout << "[Minor] Verification failed. Votes: " << current_votes
                       << ". Back to MAJOR_CHECK." << std::endl;
@@ -126,9 +133,9 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       }
 
       // Check for max duration
-      int64_t start = last_spilt_time_ < 0 ? active_event_start_ts_: last_spilt_time_;
-      if (frame.timestamp - start >=
-          config_.max_event_duration_s) {
+      int64_t start =
+          last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
+      if (frame.timestamp - start >= config_.max_event_duration_s) {
         std::cout << "[Active] Event reached max duration at t="
                   << frame.timestamp << "s. Saving and splitting." << std::endl;
         state = State::kEventSplit;
@@ -137,9 +144,9 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       break;
     }
     case InnerState::kEventEnding: {
-      int64_t start = last_spilt_time_ < 0 ? active_event_start_ts_: last_spilt_time_;
-      if (frame.timestamp - start >=
-          config_.post_event_buffer_s) {
+      int64_t start =
+          last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
+      if (frame.timestamp - start >= config_.post_event_buffer_s) {
         // Finalize the event.
         current_state_ = InnerState::kMajorCheck;
         last_major_check_ts_ = frame.timestamp;
@@ -160,10 +167,11 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
     out_frame.reset(av_frame_alloc());
     av_frame_move_ref(out_frame.get(), frame.data);
   }
-  frame_buffer_.emplace_back(std::make_unique<Frame>(frame.timestamp, std::move(out_frame)));
+  frame_buffer_.emplace_back(
+      std::make_unique<Frame>(frame.timestamp, std::move(out_frame)));
   // Keep buffer size manageable. Max duration + buffers is a safe upper limit.
   if (frame_buffer_.size() > 10 &&
-         frame.timestamp - frame_buffer_.front()->timestamp > max_buffer_time_) {
+      frame.timestamp - frame_buffer_.front()->timestamp > max_buffer_time_) {
     frame_buffer_.pop_front();
   }
 
@@ -171,17 +179,20 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
 }
 
 std::unique_ptr<Event> EventDetector::Flush() {
-  if ((current_state_ == InnerState::kMajorCheck||
-       current_state_ == InnerState::kEventActive)
-      && !frame_buffer_.empty()) {
-    auto event = std::make_unique<Event>(start_frame_ts_, frame_buffer_.back()->data->best_effort_timestamp);
+  if ((current_state_ == InnerState::kMajorCheck ||
+       current_state_ == InnerState::kEventActive) &&
+      !frame_buffer_.empty()) {
+    auto event = std::make_unique<Event>(
+        start_frame_ts_, frame_buffer_.back()->data->best_effort_timestamp);
     // Find the start index for pre-buffering.
-    auto it_start = std::upper_bound(
-        frame_buffer_.begin(), frame_buffer_.end(),
-        active_event_start_ts_ - config_.pre_event_buffer_s,
-        [](int64_t ts, const std::unique_ptr<Frame>& f) { return ts < f->timestamp; });
+    auto it_start =
+        std::upper_bound(frame_buffer_.begin(), frame_buffer_.end(),
+                         active_event_start_ts_ - config_.pre_event_buffer_s,
+                         [](int64_t ts, const std::unique_ptr<Frame>& f) {
+                           return ts < f->timestamp;
+                         });
     event->frames.reserve(std::distance(it_start, frame_buffer_.end()));
-    for (;it_start < frame_buffer_.end(); ++it_start) {
+    for (; it_start < frame_buffer_.end(); ++it_start) {
       event->frames.emplace_back(std::move(*it_start));
     }
     event->more_segments = current_state_ == InnerState::kEventActive;
@@ -197,10 +208,11 @@ std::vector<cv::Rect> EventDetector::Detect(AVFrame* frame) {
 }
 std::unique_ptr<Frame> EventDetector::latest_frame() {
   auto& frame = frame_buffer_.back();
-  return std::make_unique<Frame>(frame->timestamp, AVFramePtr{av_frame_clone(frame->data.get())});
+  return std::make_unique<Frame>(frame->timestamp,
+                                 AVFramePtr{av_frame_clone(frame->data.get())});
 }
 int64_t EventDetector::timestamp() const {
   return frame_buffer_.back()->data->best_effort_timestamp;
 }
 int64_t EventDetector::start_ts() const { return start_frame_ts_; }
-}
+}  // namespace avs_analyzer
