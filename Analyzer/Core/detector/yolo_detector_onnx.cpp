@@ -23,10 +23,12 @@ std::vector<DL_RESULT> YOLODetector::Run(const cv::Mat& image) const {
   }
   return filtered;
 }
-YOLODetector::YOLODetector(std::string_view mode_path, int target_id)
+YOLODetector::YOLODetector(std::string_view mode_path, bool use_accelerator,
+                           int target_id)
     : params_(kDefaultParam), model_(std::make_unique<YOLOv8Detect>()) {
   params_.modelPath = mode_path;
   params_.target_id = target_id;
+  params_.cudaEnable = use_accelerator;
   model_->CreateSession(params_);
 }
 }

@@ -15,7 +15,8 @@ constexpr DL_INIT_PARAM kDefaultParam{};
 class YOLODetector {
  public:
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
-  explicit YOLODetector(std::string_view mode_path, int target_id = 0);
+  explicit YOLODetector(std::string_view mode_path,
+                        bool use_accelerator = false, int target_id = 0);
 
   [[nodiscard]] std::vector<DL_RESULT> Run(const cv::Mat& image) const;
 

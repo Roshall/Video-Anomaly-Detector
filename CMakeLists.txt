@@ -11,9 +11,11 @@ set(ARCH_X86_64 "x86_64")
 set(ARCH_AARCH64 "aarch64")
 message(STATUS "System architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 
+option(USE_CUDA "Enable CUDA support" ON)
+
 list(APPEND CMAKE_PREFIX_PATH
         "${CMAKE_SOURCE_DIR}/3rdparty"
-        "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-1.22.0"
+        "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
 )
 
 find_package(Threads REQUIRED)

@@ -13,7 +13,8 @@
 namespace avs_analyzer{
 
 std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
-                                                Task task) {
+                                                Task task,
+                                                bool use_accelerator) {
   static ConstPool<std::string, YOLODetector> pool;
   auto path_prefix = std::filesystem::path(model_path);
   auto task_string{toString(task)};
@@ -22,16 +23,16 @@ std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
     case Task::kWandering:
     case Task::kBunkOff:
       return pool.get_or_emplace(task_string,
-                                 (path_prefix / "yolov8n.onnx").string());
+                                 (path_prefix / "yolov8n.onnx").string(), use_accelerator);
     case Task::kSleepWork:
       return pool.get_or_emplace(task_string,
-                                 (path_prefix / "sleeping_n.onnx").string());
+                                 (path_prefix / "sleeping_n.onnx").string(), use_accelerator);
     case Task::kWallClimbing:
       return pool.get_or_emplace(task_string,
-                                 (path_prefix / "climbing_m.onnx").string(), 1);
+                                 (path_prefix / "climbing_m.onnx").string(), use_accelerator, 1);
     case Task::kPhonePlaying:
       return pool.get_or_emplace(
-          task_string, (path_prefix / "phone_playing_m.onnx").string(), 1);
+          task_string, (path_prefix / "phone_playing_m.onnx").string(), use_accelerator, 1);
     default:
       return nullptr;
   }

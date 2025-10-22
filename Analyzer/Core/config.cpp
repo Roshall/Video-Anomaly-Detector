@@ -32,6 +32,7 @@ Config::Config(const char* file) {
 
       upload_dir = root["uploadDir"].asString();
       model_dir = root["modelDir"].asString();
+      use_accelerator = root["acceleratorInference"].asBool();
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:%s", e.what());
       return;
@@ -60,7 +61,6 @@ void Config::Show() {
   printf("config.analyzerHost=%s\n", analyzer_host.c_str());
   printf("config.mediaHttpHost=%s\n", media_http_host.c_str());
   printf("config.mediaRtspHost=%s\n", media_rtsp_host.c_str());
-
   printf("config.uploadDir=%s\n", upload_dir.data());
   printf("config.modelDir=%s\n", model_dir.data());
 }
