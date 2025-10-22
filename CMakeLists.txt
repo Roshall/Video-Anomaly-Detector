@@ -12,6 +12,9 @@ set(ARCH_AARCH64 "aarch64")
 message(STATUS "System architecture: ${CMAKE_SYSTEM_PROCESSOR}")
 
 option(USE_CUDA "Enable CUDA support" ON)
+if(USE_CUDA)
+    add_compile_definitions(USE_CUDA)
+endif()
 
 list(APPEND CMAKE_PREFIX_PATH
         "${CMAKE_SOURCE_DIR}/3rdparty"
