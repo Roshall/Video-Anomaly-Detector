@@ -39,7 +39,7 @@ bool Alarm::Finalize(const std::string& upload_dir,
       return false;
     }
   }
-  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".mp4";
+  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".ts";
   std::string path = prefix_dir.c_str();
   if (!recorder.Initialize(path, true)) {
     std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
@@ -48,7 +48,7 @@ bool Alarm::Finalize(const std::string& upload_dir,
 
   // 上传报警信息start
   if (!admin_host.empty()) {
-    std::string url = admin_host + "/api/postAddAlarmVideo";
+    std::string url = std::format("{}/api/postAddAlarmVideo", admin_host );
     Json::Value param;
     param["control_code"] = control_code;
     param["desc"] = "";
