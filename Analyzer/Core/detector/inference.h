@@ -1,5 +1,6 @@
 // YOLOv8-detect ONNXRuntime C++20 (Linux-only, detect-only)
-
+#ifndef ANALYZER_INFERENCE_H
+#define ANALYZER_INFERENCE_H
 #include <onnxruntime_cxx_api.h>
 #include <opencv2/opencv.hpp>
 #include <array>
@@ -69,3 +70,4 @@ class YOLOv8Detect {
   std::array<int,2> img_size_{640, 640};
   bool cuda_ = false;
 };
+#endif
