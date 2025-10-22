@@ -61,6 +61,10 @@ class ConstPool {
     std::shared_lock lk(m_);
     return map_.size();
   }
+  void clear() {
+    std::unique_lock lk(m_);
+    map_.clear();
+  }
 
  private:
   mutable std::shared_mutex m_;

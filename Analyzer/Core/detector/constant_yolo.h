@@ -14,4 +14,6 @@ std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
                                                 Task task, bool use_accelerator);
 }
 
+void ClearYoloDetectorPool();
+
 #endif  // ANALYZER_CONSTANT_YOLO_H

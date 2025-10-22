@@ -8,6 +8,7 @@
 #include "Core/config.h"
 #include "Core/scheduler.h"
 #include "Core/server.h"
+#include "Core/detector/constant_yolo.h"
 using namespace avs_analyzer;
 
 
@@ -80,5 +81,6 @@ int main(int argc, char** argv) {
   event_base_free(base);
   event_config_free(evt_config);
   g_th_pool.wait();
+  ClearYoloDetectorPool();
   return 0;
 }

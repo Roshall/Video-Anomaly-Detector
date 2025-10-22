@@ -11,11 +11,12 @@
 #include "yolo_detector_onnx.h"
 
 namespace avs_analyzer{
+static ConstPool<std::string, YOLODetector> pool;
 
 std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
                                                 Task task,
                                                 bool use_accelerator) {
-  static ConstPool<std::string, YOLODetector> pool;
+
   auto path_prefix = std::filesystem::path(model_path);
   auto task_string{toString(task)};
   switch (task) {
@@ -36,5 +37,8 @@ std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
     default:
       return nullptr;
   }
+}
+void ClearYoloDetectorPool() {
+  pool.clear();
 }
 }
