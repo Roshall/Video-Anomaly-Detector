@@ -109,15 +109,15 @@ void Worker::OfflineAnalyze() {
   int height = in.height();
   auto in_time_base = in.time_base;
   auto example = in.NextFrame();
-  EventDetector checker{EventDetectorConfig{.minor_stride_s=500,.min_vote=2},
-                        *analyzer,
-                        {width, height, in_stream->video_codec_ctx->pix_fmt,
-                         width, height},
-                        monitor_->roi_points,
-                        example};
+  EventDetector checker{
+      EventDetectorConfig{.minor_stride_s = 500, .min_vote = 2},
+      *analyzer,
+      {width, height, in_stream->video_codec_ctx->pix_fmt, width, height},
+      monitor_->roi_points,
+      example};
 
   JPEGEncoder pict_writer(width, height);
-  while(!in.EoF()) {
+  while (!in.EoF()) {
     auto frame = in.NextFrame();
     auto timestamp = frame->best_effort_timestamp;
 
@@ -125,9 +125,8 @@ void Worker::OfflineAnalyze() {
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
     // to has 'ms' time base
-    auto state =
-        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
-                              frame});
+    auto state = checker.ProcessFrame(
+        {av_rescale_q(timestamp, in_time_base, {1, 1000}), frame});
 
     auto upload_dir = scheduler->GetConfig().upload_dir;
 
@@ -141,9 +140,11 @@ void Worker::OfflineAnalyze() {
         auto start_ts = timer_.compute(checker.start_ts());
         auto event = checker.Flush();
         assert(event && "event should exist");
-        g_th_pool.detach_task([start_ts,
-        code=monitor_->code, event=std::move(event), width, height, upload_dir]() mutable {
-          Alarm alarm(start_ts, std::move(code), std::move(event), width, height);
+        g_th_pool.detach_task([start_ts, code = monitor_->code,
+                               event = std::move(event), width, height,
+                               upload_dir]() mutable {
+          Alarm alarm(start_ts, std::move(code), std::move(event), width,
+                      height);
           alarm.Finalize(upload_dir, "");
         });
         break;
@@ -152,9 +153,10 @@ void Worker::OfflineAnalyze() {
         auto event = checker.Flush();
         assert(event && "event should exist");
         auto ts = timer_.compute(event->start_timestamp);
-        g_th_pool.detach_task([ts,
-                               code=monitor_->code, event= std::move(event), width, height, upload_dir]() mutable{
-          Alarm alarm(ts, std::move(code),std::move(event), width, height);
+        g_th_pool.detach_task([ts, code = monitor_->code,
+                               event = std::move(event), width, height,
+                               upload_dir]() mutable {
+          Alarm alarm(ts, std::move(code), std::move(event), width, height);
           alarm.Finalize(upload_dir, "");
         });
         break;
@@ -162,7 +164,6 @@ void Worker::OfflineAnalyze() {
       default:
         break;
     }
-
   }
 }
 
@@ -179,15 +180,18 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     }
     size_t i = 0;
     auto total_level = monitor_->levels.first.size();
-    while (i < total_level && monitor_->levels.first[i] < num) {++i;}
+    while (i < total_level && monitor_->levels.first[i] < num) {
+      ++i;
+    }
     if (i == 0) return;
-    level = monitor_->levels.second[i-1];
+    level = monitor_->levels.second[i - 1];
   }
-  g_th_pool.detach_task([&, this, start_ts = timer_.compute(checker.start_ts()), ts, level, push,
-                         frame = checker.latest_frame()] {
+  g_th_pool.detach_task([&, this, start_ts = timer_.compute(checker.start_ts()),
+                         ts, level, push, frame = checker.latest_frame()] {
     auto& conf = scheduler->GetConfig();
-    auto img_path = std::format("{}/alarm/{}/{}", conf.upload_dir,
-                                monitor_->code, FrameWallClock::to_iso8601_utc(start_ts));
+    auto img_path =
+        std::format("{}/alarm/{}/{}", conf.upload_dir, monitor_->code,
+                    FrameWallClock::to_iso8601_utc(start_ts));
     std::filesystem::create_directories(std::filesystem::path(img_path));
     auto time_str = FrameWallClock::to_iso8601_utc(ts);
     auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
@@ -199,7 +203,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       std::cout << "save alarm image to " << img_path_str;
     }
 
-    if(push) {
+    if (push) {
       std::string url = std::format("{}/api/postAddAlarm", conf.admin_host);
       Json::Value param;
       param["control_code"] = monitor_->code;
@@ -231,57 +235,57 @@ void Worker::DecodeVideo() {
   int out_width = monitor_->push_stream ? out_stream->width() : width;
   int out_height = monitor_->push_stream ? out_stream->height() : height;
 
-  EventDetector checker{EventDetectorConfig{.minor_stride_s=500,.min_vote=2},
-                        *analyzer,
-                        {width, height, in_stream->video_codec_ctx->pix_fmt,
-                         out_width, out_height},
-                        monitor_->roi_points,
-                        frame_yuv420p.get()};
+  EventDetector checker{
+      EventDetectorConfig{.minor_stride_s = 500, .min_vote = 2},
+      *analyzer,
+      {width, height, in_stream->video_codec_ctx->pix_fmt, out_width,
+       out_height},
+      monitor_->roi_points,
+      frame_yuv420p.get()};
 
   JPEGEncoder pict_writer(width, height);
 
   while (getState() && monitor_->video_index > -1) {
-    auto timestamp = frame_yuv420p->best_effort_timestamp;
-
-    frame_yuv420p->time_base = in_time_base;
-    frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
-    // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
-    // to has 'ms' time base
-    auto state =
-        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
-                              frame_yuv420p.get()});
-    if (monitor_->push_stream) {
-      out_stream->AddVideoFrame(checker.latest_frame());
-    }
-    switch (state) {
-      case EventDetector::kEventStart: {
-        AlarmImage(checker, pict_writer, true);
-        break;
-      }
-      case EventDetector::kEventSplit: {
-        AlarmImage(checker, pict_writer, true);
-        auto event = checker.Flush();
-        assert(event && "event should exist");
-        scheduler->AddAlarm(std::make_unique<Alarm>(
-            timer_.compute(event->start_timestamp), monitor_->code,
-            std::move(event), out_width, out_height));
-        break;
-      }
-      case EventDetector::kEventEnd: {
-        auto event = checker.Flush();
-        assert(event && "event should exist");
-        scheduler->AddAlarm(std::make_unique<Alarm>(
-            timer_.compute(event->start_timestamp), monitor_->code,
-            std::move(event), out_width, out_height));
-        break;
-      }
-      default:
-        break;
-    }
     av_frame_unref(frame_yuv420p.get());
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
     }
+  }
+  auto timestamp = frame_yuv420p->best_effort_timestamp;
+
+  frame_yuv420p->time_base = in_time_base;
+  frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
+  // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
+  // to has 'ms' time base
+  auto state = checker.ProcessFrame(
+      {av_rescale_q(timestamp, in_time_base, {1, 1000}), frame_yuv420p.get()});
+  if (monitor_->push_stream) {
+    out_stream->AddVideoFrame(checker.latest_frame());
+  }
+  switch (state) {
+    case EventDetector::kEventStart: {
+      AlarmImage(checker, pict_writer, true);
+      break;
+    }
+    case EventDetector::kEventSplit: {
+      AlarmImage(checker, pict_writer, true);
+      auto event = checker.Flush();
+      assert(event && "event should exist");
+      scheduler->AddAlarm(std::make_unique<Alarm>(
+          timer_.compute(event->start_timestamp), monitor_->code,
+          std::move(event), out_width, out_height));
+      break;
+    }
+    case EventDetector::kEventEnd: {
+      auto event = checker.Flush();
+      assert(event && "event should exist");
+      scheduler->AddAlarm(std::make_unique<Alarm>(
+          timer_.compute(event->start_timestamp), monitor_->code,
+          std::move(event), out_width, out_height));
+      break;
+    }
+    default:
+      break;
   }
 }
 
