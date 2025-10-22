@@ -1,4 +1,3 @@
-#pragma once
 // YOLOv8-detect ONNXRuntime C++20 (Linux-only, detect-only)
 
 #include <onnxruntime_cxx_api.h>
@@ -57,7 +56,6 @@ class YOLOv8Detect {
 
   // ORT
   Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "yolov8-detect"};
-  Ort::SessionOptions sess_opt_;
   std::unique_ptr<Ort::Session> session_;
   Ort::RunOptions run_opts_{nullptr};
 

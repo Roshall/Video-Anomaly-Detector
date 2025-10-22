@@ -171,21 +171,23 @@ const char* YOLOv8Detect::CreateSession(const DL_INIT_PARAM& p) {
   img_size_ = p.imgSize;
   cuda_     = p.cudaEnable;
 
-  sess_opt_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-  sess_opt_.SetIntraOpNumThreads(p.intraOpNumThreads);
-  sess_opt_.SetLogSeverityLevel(p.logSeverityLevel);
+  Ort::SessionOptions sess_opt{};
+
+  sess_opt.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+  sess_opt.SetIntraOpNumThreads(p.intraOpNumThreads);
+  sess_opt.SetLogSeverityLevel(p.logSeverityLevel);
 
 #ifdef USE_CUDA
   if (cuda_) {
       OrtCUDAProviderOptions cuda_opt{};
       cuda_opt.device_id = 0;
-      sess_opt_.AppendExecutionProvider_CUDA(cuda_opt);
+      sess_opt.AppendExecutionProvider_CUDA(cuda_opt);
     }
 #else
   (void)cuda_; // unused if not built with CUDA
 #endif
 
-  session_ = std::make_unique<Ort::Session>(env_, p.modelPath.c_str(), sess_opt_);
+  session_ = std::make_unique<Ort::Session>(env_, p.modelPath.c_str(), sess_opt);
 
   // cache IO names safely
   Ort::AllocatorWithDefaultOptions alloc;
