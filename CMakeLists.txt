@@ -62,6 +62,14 @@ else ()
     message(FATAL_ERROR "readerwriterqueue not found")
 endif ()
 
+# Find spdlog
+find_package(spdlog REQUIRED)
+if (spdlog_FOUND)
+    message(STATUS "spdlog found: ${spdlog_VERSION}")
+else ()
+    message(FATAL_ERROR "spdlog not found")
+endif ()
+
 # Find FFmpeg and curl using pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavcodec libavformat libavutil libswscale)
@@ -182,6 +190,13 @@ target_include_directories(tracker_test PRIVATE Analyzer/Core Analyzer/Core/trac
 target_compile_definitions(tracker_test PRIVATE
         __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
+add_executable(log_test
+        Analyzer/Core/Utils/log_formatter.cpp
+        tests/log_test.cpp
+)
+target_link_libraries(log_test PRIVATE spdlog::spdlog)
+target_include_directories(log_test PRIVATE Analyzer/Core/Utils)
+
 
 set(source
         Analyzer/main.cpp
@@ -222,6 +237,7 @@ set(source
         Analyzer/Core/video_processing/frame_walk_time.h
         Analyzer/Core/video_processing/jpeg_encoder.h
         Analyzer/Core/streamer.cpp
+        Analyzer/Core/Utils/log.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -240,6 +256,7 @@ target_link_libraries(Analyzer PRIVATE
         onnxruntime
         readerwriterqueue::readerwriterqueue
         concurrentqueue::concurrentqueue
+        spdlog::spdlog
 )
 
 # Include directories (if needed beyond what find_package provides)
@@ -250,3 +267,10 @@ target_include_directories(Analyzer PRIVATE
 )
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR})
+
+# Add log formatter source files
+set(log_formatter_source
+        Analyzer/Core/Utils/log_formatter.cpp
+)
+
+target_sources(Analyzer PRIVATE ${log_formatter_source})
