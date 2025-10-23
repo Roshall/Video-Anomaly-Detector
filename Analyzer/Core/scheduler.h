@@ -1,18 +1,19 @@
 ﻿#ifndef ANALYZER_SCHEDULER_H
 #define ANALYZER_SCHEDULER_H
 
-#include <concurrentqueue/moodycamel/concurrentqueue.h> // lock-free queue
+#include <concurrentqueue/moodycamel/concurrentqueue.h>  // lock-free queue
 
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <threadpool/BS_thread_pool.hpp>
 #include <unordered_map>
 #include <vector>
-#include <threadpool/BS_thread_pool.hpp>
 
 #include "analyzer.h"
+#include "event.h"
 
 using namespace moodycamel;
 
@@ -45,7 +46,9 @@ class Scheduler {
   // ApiServer 对应的函数 start
   std::vector<Monitor> GetAllMonitors();
   Monitor* GetMonitorByCode(const std::string& code);
-  void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code, std::string& result_msg);
+  void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
+                  std::string& result_msg,
+                  const EventDetectorConfig& event_cfg);
   void MonitorRemove(const std::string& code, int& result_code,
                      std::string& result_msg);
   // void StartAlarmThread();
