@@ -9,6 +9,7 @@
 #include "Core/scheduler.h"
 #include "Core/server.h"
 #include "Core/detector/constant_yolo.h"
+
 using namespace avs_analyzer;
 
 
@@ -43,20 +44,21 @@ int main(int argc, char** argv) {
   sigaddset(&mask, SIGINT);
   sigaddset(&mask, SIGTERM);
   if (pthread_sigmask(SIG_BLOCK, &mask, nullptr) != 0) {
-    LOGE("failed to install signal mask\n");
+    LOGE("failed to install signal mask");
     return -1;
   }
 
   if (file == nullptr) {
-    LOGE("failed to read config file\n");
+    LOGE("failed to read config file");
     return -1;
   }
 
   Config config(file);
   if (!config.state) {
-    LOGE("failed to read config file: %s\n", file);
+    LOGE("failed to read config file: {}", file);
     return -1;
   }
+  LoggerSingleton::instance().set_log_level(config.log_level);
 
   Scheduler scheduler(config);
   evthread_use_pthreads();
@@ -68,7 +70,7 @@ int main(int argc, char** argv) {
   LOGI("Start Success");
   int caught_signal = 0;
   if (sigwait(&mask, &caught_signal) != 0) {
-    LOGE("sigwait failed\n");
+    LOGE("sigwait failed");
   }
   if (base) {
     event_base_loopbreak(base);
