@@ -24,7 +24,8 @@ using namespace moodycamel;
 
 class Worker {
  public:
-  explicit Worker(Scheduler* scheduler, std::unique_ptr<Monitor> control);
+  Worker(Scheduler* scheduler, std::unique_ptr<Monitor> control,
+                  const EventDetectorConfig& event_cfg);
   ~Worker();
   Worker(const Worker& other) = delete;
   Worker operator= (const Worker& other) = delete;
@@ -45,6 +46,7 @@ class Worker {
 
  private:
   FrameWallClock timer_;
+  EventDetectorConfig event_cfg_;
   std::atomic<bool> state_{false};
   std::vector<std::unique_ptr<std::thread>> threads_;
 

@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "control.h"
+#include "event.h"
 #include "scheduler.h"
 #include "Utils/common.h"
 #include "Utils/log.h"
@@ -266,7 +267,13 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
         LOGE("wrong algorithm code: %d", task);
         return;
       }
-
+      auto ws = root["alertWindowSize"].asInt();
+      EventDetectorConfig event_cfg{
+          .major_stride_s = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
+          .minor_stride_s = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
+          .window_size = ws,
+          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100)
+      };
       int mode;
       Monitor monitor{
           .code = root["code"].asCString(),
@@ -277,17 +284,20 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .task = static_cast<Task>(task),
           .roi_str = root["recognitionRegion"].asString(),
           .levels = parse_levels(root["levels"], mode),
+          .level_mode = static_cast<LevelMode>(mode)
       };
-      monitor.level_mode = static_cast<LevelMode>(mode);
       if (monitor.ValidateAdd(result_msg)) {
-        scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)), result_code, result_msg);
+        scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)),
+                              result_code, result_msg, event_cfg);
       } else {
         LOGE("invalid message.");
         return;
       }
 
-    } catch (const std::exception& e) {
-      LOGE("Json parsing error:%s", e.what());
+    } catch (const Json::Exception& e){
+      LOGE("Json parsing error when adding monitor: %s", e.what());
+    }catch (const std::exception& e) {
+      LOGE("runtime error when adding monitor: %s", e.what());
       return;
     }
 

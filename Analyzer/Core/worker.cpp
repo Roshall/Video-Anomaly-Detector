@@ -27,8 +27,9 @@ extern "C" {
 
 namespace avs_analyzer {
 
-Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor)
-    : monitor_(std::move(monitor)), scheduler(scheduler) {
+Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
+               const EventDetectorConfig& event_cfg)
+    : monitor_(std::move(monitor)), scheduler(scheduler), event_cfg_(event_cfg) {
   if (monitor_) {
     monitor_->start_timestamp = getCurTimestamp();
   }
@@ -236,7 +237,7 @@ void Worker::DecodeVideo() {
   int out_height = monitor_->push_stream ? out_stream->height() : height;
 
   EventDetector checker{
-      EventDetectorConfig{.minor_stride_s = 500, .min_vote = 2},
+      event_cfg_,
       *analyzer,
       {width, height, in_stream->video_codec_ctx->pix_fmt, out_width,
        out_height},

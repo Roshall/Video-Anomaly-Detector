@@ -30,9 +30,10 @@ Config::Config(const char* file) {
       media_http_host = std::format("http://{}", root["mediaHttpHost"].asString());
       media_rtsp_host = std::format("http://{}", root["mediaRtspHost"].asString());
 
-      upload_dir = root["uploadDir"].asString();
-      model_dir = root["modelDir"].asString();
+      upload_dir = root["uploadDir"].asCString();
+      model_dir = root["modelDir"].asCString();
       use_accelerator = root["acceleratorInference"].asBool();
+      log_level = root["logLevel"].asCString();
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:%s", e.what());
       return;

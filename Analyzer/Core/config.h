@@ -21,6 +21,7 @@ struct Config {
   std::string upload_dir{};
   std::string model_dir{};
   bool use_accelerator{false};
+  std::string log_level{"info"};
   // std::string video_file_name_format{};//%Y%m%d%H%M%S
 };
 }  // namespace avs_analyzer

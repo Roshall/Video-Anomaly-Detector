@@ -33,12 +33,12 @@ struct Event {
 // Configuration for the EventDetector.
 struct EventDetectorConfig { // all time in base ms
   int64_t major_stride_s{2000};
-  int64_t minor_stride_s{200};
+  int64_t minor_stride_s{250};
   int window_size{5}; // not time but count
   int min_vote{3}; // not time but count
+  int64_t max_event_duration_s{60000};
   int64_t pre_event_buffer_s{1000};
   int64_t post_event_buffer_s{1000};
-  int64_t max_event_duration_s{60000};
 };
 
 // Processes a stream of frames to detect events based on object presence.
