@@ -31,7 +31,7 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
     fmt_options.set("rw_timeout", "30000000", 0);  // 设置rtmp/http-flv连接超时
     fmt_options.set("stimeout", "30000000", 0);  // ns
     fmt_options.set("rtsp_transport", "tcp", 0);
-    conf = {1, 0, "25", "superfast", "rtsp", std::move(fmt_options)};
+    conf = {1, 0, "25", "ultrafast", "rtsp", std::move(fmt_options)};
   }
   return OpenOutputSegment(conf);  // Start the first segment
 }
@@ -146,6 +146,8 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
       break;
     }
     reused_pkt_->stream_index = stream_->index;
+    av_packet_rescale_ts(reused_pkt_.get(), video_codec_ctx_->time_base,
+                         stream_->time_base);
     if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
         ret < 0) {
       get_frame = false;
@@ -162,7 +164,7 @@ bool Recorder::AddVideoFrame(AVFrame* frame) {
   auto pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
                             video_codec_ctx_->time_base);
   if (pts <= last_pts_) {
-    std::cout << std::format("recoder->throw frame because of pts: {} <= {}",  pts, last_pts_);
+    std::cout << std::format("recoder->throw frame because of pts: {} <= {}",  pts, last_pts_) << std::endl;
     return true;
   } else {
     last_pts_ = frame->pts = pts;
