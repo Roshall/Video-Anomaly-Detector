@@ -182,6 +182,7 @@ const char* YOLOv8Detect::CreateSession(const DL_INIT_PARAM& p) {
       OrtCUDAProviderOptions cuda_opt{};
       cuda_opt.device_id = 0;
       sess_opt.AppendExecutionProvider_CUDA(cuda_opt);
+      sess_opt.SetIntraOpNumThreads(1);
     }
 #else
   (void)cuda_; // unused if not built with CUDA
