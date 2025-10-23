@@ -151,6 +151,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         current_state_ = InnerState::kMajorCheck;
         last_major_check_ts_ = frame.timestamp;
         object_votes_window_.clear();
+        kept_bboxes_.clear();
         state = State::kEventEnd;
         last_spilt_time_ = -1;
       }
