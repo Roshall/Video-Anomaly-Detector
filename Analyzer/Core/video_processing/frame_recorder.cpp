@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <format>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -158,8 +159,14 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
 
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
-  frame->pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
-                            {1, 90000});
+  auto pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
+                            video_codec_ctx_->time_base);
+  if (pts <= last_pts_) {
+    std::cout << std::format("recoder->throw frame because of pts: {} <= {}",  pts, last_pts_);
+    return true;
+  } else {
+    last_pts_ = frame->pts = pts;
+  }
   return EncodeAndWrite(frame);
 }
 }  // namespace avs_analyzer
