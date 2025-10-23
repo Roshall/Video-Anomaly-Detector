@@ -45,7 +45,7 @@ class Recorder {
   bool EncodeAndWrite(AVFrame* frame);
 
   bool initialized_{false};
-  int64_t last_pts_{-1};
+  int64_t last_pts_{std::numeric_limits<int64_t>::min()};
   AVPacketPtr reused_pkt_;
   std::string file_path_{};
 
