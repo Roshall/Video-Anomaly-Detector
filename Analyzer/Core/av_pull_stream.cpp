@@ -88,7 +88,7 @@ bool AvPullStream::Connect(bool file) {
     }
 
   } else {
-    LOGE("av_find_best_stream video error videoIndex=%d",
+    LOGE("av_find_best_stream video error videoIndex={}",
          worker_->monitor_->video_index);
     return false;
   }
@@ -152,14 +152,14 @@ void AvPullStream::Read() {
       // TODO: timeout reconnect to be configurable
       if (continuity_error_count > 5) {  // 大于5秒重启拉流连接
 
-        LOGE("av_read_frame error, continuity_error_count = %d (s)",
+        LOGE("av_read_frame error, continuity_error_count = {} (s)",
              continuity_error_count);
 
         if (Reconnect()) {
           continuity_error_count = 0;
-          LOGI("reConnect success : mConnectCount=%d", connect_count);
+          LOGI("reConnect success : mConnectCount={}", connect_count);
         } else {
-          LOGI("reConnect error : mConnectCount=%d", connect_count);
+          LOGI("reConnect error : mConnectCount={}", connect_count);
           worker_->remove();
         }
       } else {

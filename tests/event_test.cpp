@@ -21,13 +21,13 @@ class EventDetectorTest : public ::testing::Test {
 
   void SetUp() override {
     // A typical configuration for testing
-    config.major_stride_s = 1.0;
-    config.minor_stride_s = 0.2;
+    config.major_stride_ms = 1.0;
+    config.minor_stride_ms = 0.2;
     config.window_size = 5;
     config.min_vote = 3;
-    config.pre_event_buffer_s = 1.0;
-    config.post_event_buffer_s = 1.0;
-    config.max_event_duration_s = 5.0;
+    config.pre_event_buffer_ms = 1.0;
+    config.post_event_buffer_ms = 1.0;
+    config.max_event_duration_ms = 5.0;
     detector = std::make_unique<avs_analyzer::EventDetector>(config);
   }
 };
@@ -111,5 +111,5 @@ TEST_F(EventDetectorTest, MaxDurationSplitsEvent) {
   // Event start time should be the first frame with an object
   EXPECT_NEAR(first_event->start_timestamp, 1.0, 0.01);
   // Event should last for max_duration
-  EXPECT_NEAR(first_event->GetDuration(), config.max_event_duration_s, 0.2);
+  EXPECT_NEAR(first_event->GetDuration(), config.max_event_duration_ms, 0.2);
 }

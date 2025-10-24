@@ -51,7 +51,7 @@ bool Request::get(const char* url, std::string& response) {
     CURLcode code = curl_easy_perform(curl);
 
     if (code != CURLE_OK) {
-      LOGE("curl_easy_strerror: %s", curl_easy_strerror(code));
+      LOGE("curl_easy_strerror: {}", curl_easy_strerror(code));
       result = false;
     } else {
       result = true;
@@ -106,7 +106,7 @@ bool Request::post(const char* url, const char* data, std::string& response) {
     CURLcode code = curl_easy_perform(curl);
 
     if (code != CURLE_OK) {
-      LOGE("curl_easy_strerror: url=%s, %s", url, curl_easy_strerror(code));
+      LOGE("curl_easy_strerror: url={}, {}", url, curl_easy_strerror(code));
       result = false;
     } else {
       result = true;
@@ -114,7 +114,7 @@ bool Request::post(const char* url, const char* data, std::string& response) {
     curl_slist_free_all(headers);  // 清理headers,防止内存泄漏
 
   } else {
-    LOGE("curl_easy_init error: url=%s", url);
+    LOGE("curl_easy_init error: url={}", url);
     result = false;
   }
   curl_easy_cleanup(curl);

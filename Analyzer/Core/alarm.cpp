@@ -60,7 +60,7 @@ bool Alarm::Finalize(const std::string& upload_dir,
     std::string response;
     request.post(url.data(), data.data(), response);
 
-    LOGI("\n \t request:%s \n \t response:%s", url.data(), response.data());
+    LOGI("\n \t request:{} \n \t response:{}", url.data(), response.data());
     for (auto& frame : event->frames) {
       recorder.AddVideoFrame(frame.get()->data.get());
     }

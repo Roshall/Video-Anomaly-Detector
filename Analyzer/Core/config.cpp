@@ -15,7 +15,7 @@ Config::Config(const char* file) {
   std::ifstream ifs(file, std::ios::binary);
 
   if (!ifs.is_open()) {
-    LOGE("open %s error", file);
+    LOGE("open {} error", file);
     return;
   }
   Json::CharReaderBuilder builder;
@@ -35,7 +35,7 @@ Config::Config(const char* file) {
       use_accelerator = root["acceleratorInference"].asBool();
       log_level = root["logLevel"].asCString();
     } catch (const Json::Exception& e) {
-      LOGE("Json parse error:%s", e.what());
+      LOGE("Json parse error:{}", e.what());
       return;
     }
 
@@ -51,18 +51,18 @@ Config::Config(const char* file) {
     }
 
   } else {
-    LOGE("parse %s error", file);
+    LOGE("parse {} error", file);
   }
   ifs.close();
 }
 
 void Config::Show() {
-  printf("config.host=%s\n", admin_host.c_str());
-  printf("config.adminHost=%s\n", admin_host.c_str());
-  printf("config.analyzerHost=%s\n", analyzer_host.c_str());
-  printf("config.mediaHttpHost=%s\n", media_http_host.c_str());
-  printf("config.mediaRtspHost=%s\n", media_rtsp_host.c_str());
-  printf("config.uploadDir=%s\n", upload_dir.data());
-  printf("config.modelDir=%s\n", model_dir.data());
+  printf("config.host={}\n", admin_host.c_str());
+  printf("config.adminHost={}\n", admin_host.c_str());
+  printf("config.analyzerHost={}\n", analyzer_host.c_str());
+  printf("config.mediaHttpHost={}\n", media_http_host.c_str());
+  printf("config.mediaRtspHost={}\n", media_rtsp_host.c_str());
+  printf("config.uploadDir={}\n", upload_dir.data());
+  printf("config.modelDir={}\n", model_dir.data());
 }
 }  // namespace avs_analyzer

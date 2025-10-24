@@ -32,7 +32,7 @@ constexpr int kRecvBufMaxSize = 1024 * 8;
 std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base) {
   int port = extract_port(scheduler.GetConfig().analyzer_host);
   return std::thread([&, base, port]() {
-    LOGI("启动分析器服务：http://0.0.0.0:%d", port);
+    LOGI("启动分析器服务：http://0.0.0.0:{}", port);
 //    event_config* evt_config = event_config_new();
 //    event_base* base = event_base_new_with_config(evt_config);
     evhttp* http = evhttp_new(base);
@@ -240,7 +240,7 @@ void ApiMonitor(evhttp_request* req, void* arg) {
   result["msg"] = result_msg;
   result["code"] = result_code;
 
-  LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(),
+  LOGI("\n \t request:{} \n \t response:{}", root.toStyledString().data(),
        result.toStyledString().data());
 
   evbuffer* buff = evbuffer_new();
@@ -266,7 +266,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
     try {
       auto task = std::stoi(root["algorithmCode"].asCString());
       if (task < 0 || task >= 6) {
-        LOGE("wrong algorithm code: %d", task);
+        LOGE("wrong algorithm code: {}", task);
         return;
       }
 
@@ -302,9 +302,9 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       }
 
     } catch (const Json::Exception& e){
-      LOGE("Json parsing error when adding monitor: %s", e.what());
+      LOGE("Json parsing error when adding monitor: {}", e.what());
     }catch (const std::exception& e) {
-      LOGE("runtime error when adding monitor: %s", e.what());
+      LOGE("runtime error when adding monitor: {}", e.what());
       return;
     }
 
@@ -316,7 +316,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
   result["msg"] = result_msg;
   result["code"] = result_code;
 
-  LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(),
+  LOGI("\n \t request:{} \n \t response:{}", root.toStyledString().data(),
        result.toStyledString().data());
 
   evbuffer* buff = evbuffer_new();
@@ -360,7 +360,7 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
   result["msg"] = result_msg;
   result["code"] = result_code;
 
-  LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(),
+  LOGI("\n \t request:{} \n \t response:{}", root.toStyledString().data(),
        result.toStyledString().data());
 
   evbuffer* buff = evbuffer_new();
