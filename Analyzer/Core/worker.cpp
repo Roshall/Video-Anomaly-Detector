@@ -73,7 +73,7 @@ bool Worker::start(std::string& msg, float conf_th) {
     msg = "pull stream connect error";
     return false;
   }
-  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th);
+  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in_stream->GetFps());
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 
@@ -109,7 +109,7 @@ void Worker::OfflineAnalyze() {
   auto in_time_base = in.time_base;
   auto example = in.NextFrame();
   EventDetector checker{
-      EventDetectorConfig{.minor_stride_s = 500, .min_vote = 2},
+      EventDetectorConfig{.minor_stride_ms = 500, .min_vote = 2},
       *analyzer,
       {width, height, in_stream->video_codec_ctx->pix_fmt, width, height},
       monitor_->roi_points,

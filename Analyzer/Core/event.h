@@ -32,13 +32,15 @@ struct Event {
 
 // Configuration for the EventDetector.
 struct EventDetectorConfig { // all time in base ms
-  int64_t major_stride_s{2000};
-  int64_t minor_stride_s{250};
+  int64_t major_stride_ms{2000};
+  int64_t minor_stride_ms{250};
   int window_size{5}; // not time but count
   int min_vote{3}; // not time but count
-  int64_t max_event_duration_s{60000};
-  int64_t pre_event_buffer_s{1000};
-  int64_t post_event_buffer_s{1000};
+  int64_t max_event_duration_ms{60000};
+  int64_t pre_event_buffer_ms{1000};
+  int64_t post_event_buffer_ms{1000};
+  int64_t latest_duration_ms{};
+  bool defer_start() const;
 };
 
 // Processes a stream of frames to detect events based on object presence.
@@ -71,7 +73,8 @@ class EventDetector {
   std::unique_ptr<Event> Flush();
 
  private:
-  enum class InnerState { kMajorCheck, kMinorCheck, kEventActive, kEventEnding };
+  enum class InnerState { kMajorCheck, kMinorCheck,
+    kDurationCheck, kEventActive, kEventEnding };
 
 
   std::vector<cv::Rect> Detect(AVFrame* frame);

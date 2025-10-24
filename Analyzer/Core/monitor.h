@@ -40,27 +40,15 @@ struct Monitor {
 
   bool ParseRecognitionRegion() {
     bool res = false;
-    std::vector<double> roi_vector;
     if (video_width > 0 && video_height > 0) {
       std::vector<std::string> xys = split(roi_str, ",");
-      int lineCount = xys.size() / 2;  // 多边形边数
+      size_t lineCount = xys.size() / 2;  // 多边形边数
       if (lineCount > 3) {
-        int x_index;
-        int y_index;
-        int x;
-        int y;
-
-        for (int i = 0; i < lineCount; i++) {
-          x_index = i * 2;
-          y_index = x_index + 1;
-          x = stof(xys[x_index]) * video_width;
-          y = stof(xys[y_index]) * video_height;
-
-          roi_vector.push_back(x);
-          roi_vector.push_back(y);
-
-          cv::Point p(x, y);
-          roi_points.push_back(p);
+        for (size_t i = 0; i < lineCount; i++) {
+          size_t x_index = i * 2;
+          double x = stod(xys[x_index]) * video_width;
+          double y = stod(xys[x_index + 1]) * video_height;
+          roi_points.emplace_back(x, y);
         }
         res = true;
       }

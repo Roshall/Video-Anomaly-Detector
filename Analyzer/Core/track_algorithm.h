@@ -15,13 +15,13 @@ namespace avs_analyzer {
 struct Config;
 class TrackAlgorithm: public Algorithm {
  public:
-  explicit TrackAlgorithm(const Config& config);
+  explicit TrackAlgorithm(const Config& config, int frame_stride);
   Detection DetectObjects(const cv::Mat& image) override;
 
  private:
-  int min_frame_stride_{30};
   byte_track::BYTETracker tracker_;
   std::shared_ptr<const YOLODetector> detector_;
+  int min_frame_stride_{30};
 };
 }  // namespace avs_analyzer
 

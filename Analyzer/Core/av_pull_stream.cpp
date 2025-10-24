@@ -173,5 +173,12 @@ void AvPullStream::CloseConnect() {
   SignalShutdown();
 //  fmt_ctx.reset();
 }
+float AvPullStream::GetFps() const {
+  if (stream->avg_frame_rate.num && stream->avg_frame_rate.den) {
+    return static_cast<float>(stream->avg_frame_rate.num) / stream->avg_frame_rate.den;
+  } else {
+    return 25.0f;
+  }
+}
 }
 // namespace avs_analyzer

@@ -26,11 +26,12 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
       painter_{roi_points, sample},
       convertor_(std::move(convertor)),
       analyzer_(analyzer) {
-  last_major_check_ts_ = -config_.major_stride_s;
-  max_buffer_time_ = config_.pre_event_buffer_s +
-                     std::max(config.max_event_duration_s,
-                              (config_.minor_stride_s * config_.window_size)) +
-                     config_.post_event_buffer_s + 1000;
+  last_major_check_ts_ = -config_.major_stride_ms;
+  max_buffer_time_ = config_.pre_event_buffer_ms +
+                     std::max(std::max(config.max_event_duration_ms,
+                              (config_.minor_stride_ms * config_.window_size)),
+                              config.latest_duration_ms) +
+                     config_.post_event_buffer_ms + 1000;
 }
 
 std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
@@ -56,15 +57,16 @@ std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
 
 EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
   State state{State::kNoEvent};
+  auto current_ts = frame.timestamp;
   switch (current_state_) {
     case InnerState::kMajorCheck: {
-      if (frame.timestamp - last_major_check_ts_ >= config_.major_stride_s) {
-        last_major_check_ts_ = frame.timestamp;
+      if (current_ts - last_major_check_ts_ >= config_.major_stride_ms) {
+        last_major_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         if (not bboxes.empty()) {
-          LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.", frame.timestamp);
+          LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.", current_ts);
           current_state_ = InnerState::kMinorCheck;
-          last_minor_check_ts_ = frame.timestamp;
+          last_minor_check_ts_ = current_ts;
           object_votes_window_.push_back(true);
           kept_bboxes_ = std::move(bboxes);
         }
@@ -73,9 +75,8 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
     }
 
     case InnerState::kMinorCheck: {
-      if (frame.timestamp - last_minor_check_ts_ >= config_.minor_stride_s) {
-        last_minor_check_ts_ = frame.timestamp;
-
+      if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
+        last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         object_votes_window_.push_back(not bboxes.empty());
         if (not bboxes.empty()) {
@@ -86,11 +87,15 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
           int current_votes = std::accumulate(object_votes_window_.begin(),
                                               object_votes_window_.end(), 0);
           if (current_votes >= config_.min_vote) {
-            LOGD(">>> EVENT DETECTED at t = {}s <<<", frame.timestamp);
-            current_state_ = InnerState::kEventActive;
-            state = State::kEventStart;
             std::tie(active_event_start_ts_, start_frame_ts_) =
                 FindFirstVoteTimestamp();
+            if (config_.defer_start()) {
+              current_state_ = InnerState::kDurationCheck;
+            } else {
+              LOGD(">>> EVENT DETECTED at t = {}s <<<", current_ts);
+              current_state_ = InnerState::kEventActive;
+              state = State::kEventStart;
+            }
           } else {
             LOGD("[Minor] Verification failed. Votes: {}. Back to MAJOR_CHECK.", current_votes);
             current_state_ = InnerState::kMajorCheck;
@@ -101,27 +106,50 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       }
       break;
     }
+    case InnerState::kDurationCheck: {
+      if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
+        last_minor_check_ts_ = current_ts;
+        auto bboxes = Detect(frame.data);
+        object_votes_window_.push_back(not bboxes.empty());
+        if (not bboxes.empty()) {
+          kept_bboxes_ = std::move(bboxes);
+        }
+      }
+      object_votes_window_.pop_front();
+      int current_votes = std::accumulate(object_votes_window_.begin(),
+                                          object_votes_window_.end(), 0);
+      if (current_votes >= config_.min_vote) {
+        if (current_ts - start_frame_ts_ >= config_.latest_duration_ms) {
+          LOGD(">>> EVENT DETECTED at t = {}s <<<", current_ts);
+          current_state_ = InnerState::kEventActive;
+          state = State::kEventStart;
+        }
+      } else {
+        LOGD("[Duration Check] Verification failed. Votes: {}. Back to MAJOR_CHECK.", current_votes);
+        current_state_ = InnerState::kMajorCheck;
+        kept_bboxes_.clear();
+        object_votes_window_.clear();
+      }
+      break;
+    }
 
     case InnerState::kEventActive: {
-      if (frame.timestamp - last_minor_check_ts_ >= config_.minor_stride_s) {
-        last_minor_check_ts_ = frame.timestamp;
+      if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
+        last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         object_votes_window_.push_back(not bboxes.empty());
         if (not bboxes.empty()) {
           kept_bboxes_ = std::move(bboxes);
         }
 
-        if (object_votes_window_.size() > config_.window_size) {
-          object_votes_window_.pop_front();
-        }
-
+        object_votes_window_.pop_front();
         int current_votes = std::accumulate(object_votes_window_.begin(),
                                             object_votes_window_.end(), 0);
 
         state = State::kEventActive;
         // Check for event end condition
         if (current_votes < config_.min_vote) {
-          LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.", frame.timestamp, current_votes);
+          LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.", current_ts, current_votes);
           // Prepare for next event search
           current_state_ = InnerState::kEventEnding;
         }
@@ -130,20 +158,20 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       // Check for max duration
       int64_t start =
           last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
-      if (frame.timestamp - start >= config_.max_event_duration_s) {
-        LOGE("[Active] Event reached max duration at t = {}s. Saving and splitting.", frame.timestamp);
+      if (current_ts - start >= config_.max_event_duration_ms) {
+        LOGE("[Active] Event reached max duration at t = {}s. Saving and splitting.", current_ts);
         state = State::kEventSplit;
-        last_spilt_time_ = frame.timestamp;
+        last_spilt_time_ = current_ts;
       }
       break;
     }
     case InnerState::kEventEnding: {
       int64_t start =
           last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
-      if (frame.timestamp - start >= config_.post_event_buffer_s) {
+      if (current_ts - start >= config_.post_event_buffer_ms) {
         // Finalize the event.
         current_state_ = InnerState::kMajorCheck;
-        last_major_check_ts_ = frame.timestamp;
+        last_major_check_ts_ = current_ts;
         object_votes_window_.clear();
         kept_bboxes_.clear();
         state = State::kEventEnd;
@@ -163,10 +191,10 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
     av_frame_move_ref(out_frame.get(), frame.data);
   }
   frame_buffer_.emplace_back(
-      std::make_unique<Frame>(frame.timestamp, std::move(out_frame)));
+      std::make_unique<Frame>(current_ts, std::move(out_frame)));
   // Keep buffer size manageable. Max duration + buffers is a safe upper limit.
   if (frame_buffer_.size() > 10 &&
-      frame.timestamp - frame_buffer_.front()->timestamp > max_buffer_time_) {
+      current_ts - frame_buffer_.front()->timestamp > max_buffer_time_) {
     frame_buffer_.pop_front();
   }
 
@@ -182,7 +210,7 @@ std::unique_ptr<Event> EventDetector::Flush() {
     // Find the start index for pre-buffering.
     auto it_start =
         std::upper_bound(frame_buffer_.begin(), frame_buffer_.end(),
-                         active_event_start_ts_ - config_.pre_event_buffer_s,
+                         active_event_start_ts_ - config_.pre_event_buffer_ms,
                          [](int64_t ts, const std::unique_ptr<Frame>& f) {
                            return ts < f->timestamp;
                          });
@@ -209,4 +237,5 @@ int64_t EventDetector::timestamp() const {
   return frame_buffer_.back()->data->best_effort_timestamp;
 }
 int64_t EventDetector::start_ts() const { return start_frame_ts_; }
+bool EventDetectorConfig::defer_start() const { return minor_stride_ms * window_size < latest_duration_ms; }
 }  // namespace avs_analyzer

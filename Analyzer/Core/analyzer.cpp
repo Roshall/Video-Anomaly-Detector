@@ -31,13 +31,16 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
   return {minX, minY, maxX - minX, maxY - minY};
 }
 
-Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
+Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th,
+                   double fps)
     : monitor_(monitor), conf_th_(conf_th) {
   if (monitor->level_mode == LevelMode::kNumPeople) {
     minimum_num_ = monitor->levels.first[0];
   }
   if (monitor->task == Task::kWandering) {
-    algorithm_ = std::make_unique<TrackAlgorithm>(config);
+    auto duration = monitor->levels.first[0];
+
+    algorithm_ = std::make_unique<TrackAlgorithm>(config, std::ceil(duration * fps / 1000));
   } else {
     algorithm_ = std::make_unique<DetectionAlgorithm>(config, monitor->task);
   }

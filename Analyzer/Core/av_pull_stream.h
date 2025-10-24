@@ -33,6 +33,7 @@ class AvPullStream {
   AVCodecContextPtr video_codec_ctx;
   AVStream* stream = nullptr;
   AVPacketPtr GetVideoPkt();
+  float GetFps() const;
 
   // 拉流媒体流
   void Read();

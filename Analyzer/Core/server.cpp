@@ -86,8 +86,12 @@ static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const 
     if (!lv.isObject()) continue;
 
     int threshold = get_int_any(lv["threshold"], 0);
-    mode = get_string(lv["unit"], "") == "seconds"? 1: 0;
-
+    if (get_string(lv["unit"], "") == "seconds") {
+      mode = LevelMode::kDuration;
+      threshold *= 1000;
+    } else {
+      mode = LevelMode::kNumPeople;
+    }
     combined.emplace_back(threshold, name);
   }
 
@@ -265,15 +269,8 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
         LOGE("wrong algorithm code: %d", task);
         return;
       }
-      auto ws = root["alertWindowSize"].asInt();
-      EventDetectorConfig event_cfg{
-          .major_stride_s = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
-          .minor_stride_s = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
-          .window_size = ws,
-          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100),
-          .max_event_duration_s = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000)
-      };
-      int mode;
+
+      LevelMode mode;
       Monitor monitor{
           .code = root["code"].asCString(),
           .source_type = root["sourceType"].asCString(),
@@ -283,7 +280,17 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .task = static_cast<Task>(task),
           .roi_str = root["recognitionRegion"].asString(),
           .levels = parse_levels(root["levels"], mode),
-          .level_mode = static_cast<LevelMode>(mode)
+          .level_mode = mode
+      };
+      auto ws = root["alertWindowSize"].asInt();
+      auto duration = mode == LevelMode::kDuration ? monitor.levels.first[0] : 0;
+      EventDetectorConfig event_cfg{
+          .major_stride_ms = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
+          .minor_stride_ms = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
+          .window_size = ws,
+          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100),
+          .max_event_duration_ms = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000),
+          .latest_duration_ms = duration
       };
       float conf_th = root["modelConfidenceThreshold"].asFloat();
       if (monitor.ValidateAdd(result_msg)) {
