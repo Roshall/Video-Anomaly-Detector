@@ -270,7 +270,8 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .major_stride_s = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
           .minor_stride_s = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
           .window_size = ws,
-          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100)
+          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100),
+          .max_event_duration_s = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000)
       };
       int mode;
       Monitor monitor{
@@ -284,9 +285,10 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .levels = parse_levels(root["levels"], mode),
           .level_mode = static_cast<LevelMode>(mode)
       };
+      float conf_th = root["modelConfidenceThreshold"].asFloat();
       if (monitor.ValidateAdd(result_msg)) {
         scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)),
-                              result_code, result_msg, event_cfg);
+                              result_code, result_msg, event_cfg, conf_th);
       } else {
         LOGE("invalid message.");
         return;

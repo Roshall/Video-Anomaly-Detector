@@ -33,11 +33,10 @@ Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
   if (monitor_) {
     monitor_->start_timestamp = getCurTimestamp();
   }
-  LOGI("");
 }
 
 Worker::~Worker() {
-  LOGI("code=%s,streamUrl=%s finished.", monitor_->code.data(),
+  LOGI("code={},streamUrl={} finished.", monitor_->code.data(),
        monitor_->stream_url.data());
   state_.store(false);  // Signal threads to stop
   // Wake up any sleeping threads (important for queues with
@@ -54,7 +53,7 @@ Worker::~Worker() {
   threads_.clear();
   // unique_ptr members will be automatically cleaned up
 }
-bool Worker::start(std::string& msg) {
+bool Worker::start(std::string& msg, float conf_th) {
   if (monitor_->source_type == "file") {
     OfflineAnalyze();
   }
@@ -201,7 +200,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       LOGE_FFMPEG("failed to save picture", ret);
       return;
     } else {
-      std::cout << "save alarm image to " << img_path_str;
+      LOGI("save alarm image to {}", img_path_str);
     }
 
     if (push) {

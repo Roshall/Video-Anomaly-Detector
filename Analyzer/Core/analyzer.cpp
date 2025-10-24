@@ -30,18 +30,18 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
   }
 
   // Return the bounding box as a cv::Rect.
-  return cv::Rect(minX, minY, maxX - minX, maxY - minY);
+  return {minX, minY, maxX - minX, maxY - minY};
 }
 
-Analyzer::Analyzer(Scheduler* scheduler, Monitor* monitor)
-    : scheduler_(scheduler), monitor_(monitor) {
+Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
+    : monitor_(monitor), conf_th_(conf_th) {
   if (monitor->level_mode == LevelMode::kNumPeople) {
-    minimum_num = monitor->levels.first[0];
+    minimum_num_ = monitor->levels.first[0];
   }
   if (monitor->task == Task::kWandering) {
-    algorithm_ = std::make_unique<TrackAlgorithm>(&scheduler->GetConfig());
+    algorithm_ = std::make_unique<TrackAlgorithm>(config);
   } else {
-    algorithm_ = std::make_unique<DetectionAlgorithm>(&scheduler->GetConfig(), monitor->task);
+    algorithm_ = std::make_unique<DetectionAlgorithm>(config, monitor->task);
   }
 }
 
@@ -71,7 +71,7 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
     }
   } else if (!det.bbox.empty()) {
     for (size_t i = 0; i < det.confidences.size(); ++i) {
-      if (det.confidences[i] < 0.3) {
+      if (det.confidences[i] < conf_th_) {
         continue;
       }
       auto [x, y, w, h] = det.bbox[i];
@@ -83,7 +83,7 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
         detection_results.push_back(det.bbox[i]);
       }
     }
-    if (detection_results.size() < minimum_num) {
+    if (detection_results.size() < minimum_num_) {
       detection_results.clear();
     }
   }

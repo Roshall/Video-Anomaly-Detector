@@ -12,13 +12,12 @@ struct Detection;
 
 class Analyzer {
  public:
-  explicit Analyzer(Scheduler* scheduler, Monitor* monitor);
+  Analyzer(Monitor* monitor, const Config& config, float conf_th);
   ~Analyzer() = default;
 
   std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;
 
  private:
-  Scheduler* scheduler_;
   Monitor* monitor_;
   std::unique_ptr<Algorithm> algorithm_;
   int minimum_num{1};

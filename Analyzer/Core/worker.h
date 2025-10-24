@@ -33,7 +33,7 @@ class Worker {
   // （线程）解码视频帧和实时分析视频帧
   void DecodeVideo();
 
-  bool start(std::string& msg);
+  bool start(std::string& msg, float conf_th);
 
   bool getState() const;
   void remove();
