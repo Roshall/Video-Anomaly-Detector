@@ -22,7 +22,8 @@ class Analyzer {
   std::unique_ptr<Algorithm> algorithm_;
   int minimum_num_{1};
   float conf_th_;
-
+  double roi_area_;
+  cv::Rect roi_bbox_;
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_ANALYZER_H

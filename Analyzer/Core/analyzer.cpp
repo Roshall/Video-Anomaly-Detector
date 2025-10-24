@@ -33,7 +33,7 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
 
 Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th,
                    double fps)
-    : monitor_(monitor), conf_th_(conf_th) {
+    : monitor_(monitor), conf_th_(conf_th), roi_area_(cv::contourArea(monitor->roi_points)),roi_bbox_(computeBoundingBox(monitor_->roi_points)){
   if (monitor->level_mode == LevelMode::kNumPeople) {
     minimum_num_ = monitor->levels.first[0];
   }
@@ -50,8 +50,6 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
   std::vector<cv::Rect> detection_results;
   Detection det = algorithm_->DetectObjects(image);
   if (monitor_->task == Task::kBunkOff) {
-    auto roi_area = cv::contourArea(monitor_->roi_points);
-    auto roi_bbox = computeBoundingBox(monitor_->roi_points);
     if (!det.bbox.empty()) {
       bool work{false};
       for (size_t i = 0; i < det.confidences.size(); ++i) {
@@ -63,14 +61,14 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
         auto x2 = x + w;
         auto y2 = y + h;
         auto interaction_area = cv::intersectConvexConvex(monitor_->roi_points, std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}}, intersectionPoly);
-        auto min_area = std::min(roi_area, static_cast<double>(w * h));
+        auto min_area = std::min(roi_area_, static_cast<double>(w * h));
         if (interaction_area / min_area > 0.3) {
           work = true;
           break;
         }
       }
       if (not work) {
-        detection_results.push_back(roi_bbox);
+        detection_results.push_back(roi_bbox_);
       }
     }
   } else if (!det.bbox.empty()) {
