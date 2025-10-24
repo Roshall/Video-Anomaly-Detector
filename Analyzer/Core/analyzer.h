@@ -15,12 +15,13 @@ class Analyzer {
   Analyzer(Monitor* monitor, const Config& config, float conf_th);
   ~Analyzer() = default;
 
-  std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;
+  [[nodiscard]] std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;
 
  private:
   Monitor* monitor_;
   std::unique_ptr<Algorithm> algorithm_;
-  int minimum_num{1};
+  int minimum_num_{1};
+  float conf_th_;
 
 };
 }  // namespace avs_analyzer

@@ -49,24 +49,27 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
   std::vector<cv::Rect> detection_results;
   Detection det = algorithm_->DetectObjects(image);
   if (monitor_->task == Task::kBunkOff) {
+    auto roi_area = cv::contourArea(monitor_->roi_points);
+    auto roi_bbox = computeBoundingBox(monitor_->roi_points);
     if (!det.bbox.empty()) {
       bool work{false};
       for (size_t i = 0; i < det.confidences.size(); ++i) {
-        if (det.confidences[i] < 0.3) {
+        if (det.confidences[i] < conf_th_) {
           continue;
         }
         auto [x, y, w, h] = det.bbox[i];
-        float m_x = static_cast<float >(w)/2 + static_cast<float >(x);
-        auto m_y = static_cast<float >(y + h);
-
-        auto point_to_polygon = cv::pointPolygonTest(monitor_->roi_points, {m_x, m_y}, false);
-        if (point_to_polygon > 0) {
+        std::vector<cv::Point2f> intersectionPoly;
+        auto x2 = x + w;
+        auto y2 = y + h;
+        auto interaction_area = cv::intersectConvexConvex(monitor_->roi_points, std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}}, intersectionPoly);
+        auto min_area = std::min(roi_area, static_cast<double>(w * h));
+        if (interaction_area / min_area > 0.3) {
           work = true;
           break;
         }
       }
       if (not work) {
-        detection_results.push_back(computeBoundingBox(monitor_->roi_points));
+        detection_results.push_back(roi_bbox);
       }
     }
   } else if (!det.bbox.empty()) {
