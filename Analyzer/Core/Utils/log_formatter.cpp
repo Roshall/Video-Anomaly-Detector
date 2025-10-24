@@ -1,13 +1,8 @@
 #include "log_formatter.h"
-#include <spdlog/spdlog.h>
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/details/os.h>
-#include <spdlog/details/fmt_helper.h>
 #include <memory>
-#include <chrono>
-#include <iomanip>
 #include <sstream>
-#include <ctime>
 
 namespace avs_analyzer {
 

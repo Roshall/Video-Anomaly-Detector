@@ -69,6 +69,7 @@ if (spdlog_FOUND)
 else ()
     message(FATAL_ERROR "spdlog not found")
 endif ()
+add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 
 # Find FFmpeg and curl using pkg-config
 find_package(PkgConfig REQUIRED)
@@ -192,6 +193,7 @@ target_compile_definitions(tracker_test PRIVATE
 
 add_executable(log_test
         Analyzer/Core/Utils/log_formatter.cpp
+        Analyzer/Core/Utils/log.cpp
         tests/log_test.cpp
 )
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
