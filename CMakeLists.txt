@@ -213,7 +213,6 @@ set(source
         Analyzer/Core/detector/constant_yolo.cpp
         Analyzer/Core/detector/inference.cpp
         Analyzer/Core/event.cpp
-        Analyzer/Core/frame.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
         Analyzer/Core/task.cpp
