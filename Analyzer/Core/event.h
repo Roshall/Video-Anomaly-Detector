@@ -101,6 +101,7 @@ class EventDetector {
   int64_t active_event_start_ts_{0};
   int64_t max_buffer_time_{0};
   int64_t start_frame_ts_{};
+  int votes_{0};
 };
 }
 #endif  // ANALYZER_EVENT_H

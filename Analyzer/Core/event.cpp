@@ -68,6 +68,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
           current_state_ = InnerState::kMinorCheck;
           last_minor_check_ts_ = current_ts;
           object_votes_window_.push_back(true);
+          votes_ += 1;
           kept_bboxes_ = std::move(bboxes);
         }
       }
@@ -78,15 +79,15 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
-        object_votes_window_.push_back(not bboxes.empty());
-        if (not bboxes.empty()) {
+        auto has_obj = not bboxes.empty();
+        object_votes_window_.push_back(has_obj);
+        votes_ += has_obj;
+        if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
         }
 
         if (object_votes_window_.size() == config_.window_size) {
-          int current_votes = std::accumulate(object_votes_window_.begin(),
-                                              object_votes_window_.end(), 0);
-          if (current_votes >= config_.min_vote) {
+          if (votes_ >= config_.min_vote) {
             std::tie(active_event_start_ts_, start_frame_ts_) =
                 FindFirstVoteTimestamp();
             if (config_.defer_start()) {
@@ -97,10 +98,11 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
               state = State::kEventStart;
             }
           } else {
-            LOGD("[Minor] Verification failed. Votes: {}. Back to MAJOR_CHECK.", current_votes);
+            LOGD("[Minor] Verification failed. Votes: {}. Back to MAJOR_CHECK.", votes_);
             current_state_ = InnerState::kMajorCheck;
             kept_bboxes_.clear();
             object_votes_window_.clear();
+            votes_ = 0;
           }
         }
       }
@@ -110,25 +112,27 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
-        object_votes_window_.push_back(not bboxes.empty());
-        if (not bboxes.empty()) {
+        auto has_obj = not bboxes.empty();
+        object_votes_window_.push_back(has_obj);
+        votes_ += has_obj;
+        if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
         }
       }
+      votes_ -= object_votes_window_.front();
       object_votes_window_.pop_front();
-      int current_votes = std::accumulate(object_votes_window_.begin(),
-                                          object_votes_window_.end(), 0);
-      if (current_votes >= config_.min_vote) {
+      if (votes_ >= config_.min_vote) {
         if (current_ts - start_frame_ts_ >= config_.latest_duration_ms) {
           LOGD(">>> EVENT DETECTED at t = {}s <<<", current_ts);
           current_state_ = InnerState::kEventActive;
           state = State::kEventStart;
         }
       } else {
-        LOGD("[Duration Check] Verification failed. Votes: {}. Back to MAJOR_CHECK.", current_votes);
+        LOGD("[Duration Check] Verification failed. Votes: {}. Back to MAJOR_CHECK.", votes_);
         current_state_ = InnerState::kMajorCheck;
         kept_bboxes_.clear();
         object_votes_window_.clear();
+        votes_ = 0;
       }
       break;
     }
@@ -137,19 +141,20 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
-        object_votes_window_.push_back(not bboxes.empty());
-        if (not bboxes.empty()) {
+        auto has_obj = not bboxes.empty();
+        object_votes_window_.push_back(has_obj);
+        votes_ += has_obj;
+        if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
         }
 
+        votes_ - object_votes_window_.front();
         object_votes_window_.pop_front();
-        int current_votes = std::accumulate(object_votes_window_.begin(),
-                                            object_votes_window_.end(), 0);
 
         state = State::kEventActive;
         // Check for event end condition
-        if (current_votes < config_.min_vote) {
-          LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.", current_ts, current_votes);
+        if (votes_ < config_.min_vote) {
+          LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.", current_ts, votes_);
           // Prepare for next event search
           current_state_ = InnerState::kEventEnding;
         }
@@ -173,6 +178,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         current_state_ = InnerState::kMajorCheck;
         last_major_check_ts_ = current_ts;
         object_votes_window_.clear();
+        votes_ = 0;
         kept_bboxes_.clear();
         state = State::kEventEnd;
         last_spilt_time_ = -1;
