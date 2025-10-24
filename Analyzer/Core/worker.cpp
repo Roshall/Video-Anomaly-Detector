@@ -73,7 +73,7 @@ bool Worker::start(std::string& msg, float conf_th) {
     msg = "pull stream connect error";
     return false;
   }
-  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in_stream->GetFps());
+  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in_stream->GetFps()/event_cfg_.minor_stride_ms);
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 
@@ -215,7 +215,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       Request request;
       std::string response;
       request.post(url.data(), data.data(), response);
-      std::cout << "sent alam image to " << conf.admin_host << std::endl;
+      LOGI("sent alarm image to {}", conf.admin_host);
     }
   });
 }
