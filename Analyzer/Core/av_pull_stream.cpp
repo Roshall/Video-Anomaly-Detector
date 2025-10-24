@@ -5,7 +5,7 @@
 #include "Utils/log.h"
 #include "worker.h"
 #include "video_processing/helper.h"
-#include "control.h"
+#include "monitor.h"
 
 extern "C" {
 #include <libavutil/dict.h>
