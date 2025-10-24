@@ -51,8 +51,6 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
     event_base_dispatch(base);
 
     evhttp_free(http);
-//    event_config_free(evt_config);
-//    event_base_free(base);
   });
 }
 

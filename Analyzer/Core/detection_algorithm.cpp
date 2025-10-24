@@ -11,8 +11,8 @@
 #include "config.h"
 
 namespace avs_analyzer {
-DetectionAlgorithm::DetectionAlgorithm(Config* config, Task task)
-    : Algorithm(config), detector_(GetDetector(config->model_dir, task, config->use_accelerator)) {
+DetectionAlgorithm::DetectionAlgorithm(const Config& config, Task task)
+    :detector_(GetDetector(config.model_dir, task, config.use_accelerator)) {
 }
 Detection DetectionAlgorithm::DetectObjects(const cv::Mat& image) {
   std::vector<cv::Rect> bbox;

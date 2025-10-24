@@ -10,9 +10,10 @@
 
 namespace avs_analyzer {
 class YOLODetector;
+struct Config;
 class DetectionAlgorithm: public Algorithm {
  public:
-  DetectionAlgorithm(Config* config, Task task);
+  DetectionAlgorithm(const Config &config, Task task);
   Detection DetectObjects(const cv::Mat &image) override;
  private:
   std::shared_ptr<const YOLODetector> detector_;

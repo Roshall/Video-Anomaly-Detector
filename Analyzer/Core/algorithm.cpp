@@ -5,9 +5,7 @@
 #include "Utils/log.h"
 
 namespace avs_analyzer {
-Algorithm::Algorithm(Config* config) : config_(config) {}
-
-Algorithm::~Algorithm() {}
-bool Algorithm::CreateState() { return create_state_; }
+Algorithm::~Algorithm() = default;
+bool Algorithm::CreateState() const { return create_state_; }
 
 }  // namespace avs_analyzer

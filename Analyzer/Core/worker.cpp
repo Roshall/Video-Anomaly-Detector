@@ -75,7 +75,7 @@ bool Worker::start(std::string& msg) {
     msg = "pull stream connect error";
     return false;
   }
-  analyzer = std::make_unique<Analyzer>(scheduler, monitor_.get());
+  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th);
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 

@@ -47,8 +47,8 @@ class Scheduler {
   std::vector<Monitor> GetAllMonitors();
   Monitor* GetMonitorByCode(const std::string& code);
   void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
-                  std::string& result_msg,
-                  const EventDetectorConfig& event_cfg);
+                  std::string& result_msg, const EventDetectorConfig& event_cfg,
+                  float conf_th);
   void MonitorRemove(const std::string& code, int& result_code,
                      std::string& result_msg);
   // void StartAlarmThread();

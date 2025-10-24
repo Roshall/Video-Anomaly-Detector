@@ -72,7 +72,8 @@ Monitor* Scheduler::GetMonitorByCode(const std::string& code) {
 
 void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
                            std::string& result_msg,
-                           const EventDetectorConfig& event_cfg) {
+                           const EventDetectorConfig& event_cfg,
+                           float conf_th) {
   const std::string& code = monitor->code;
   if (Contains(code)) {
     result_msg = "the control is running";
@@ -81,7 +82,7 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
   }
 
   auto worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg);
-  if (worker->start(result_msg)) {
+  if (worker->start(result_msg, conf_th)) {
     if (AddWorker(std::move(worker))) {
       result_msg = "add success";
       result_code = 1000;

@@ -12,9 +12,10 @@
 #include "tracker/ByteTrack/BYTETracker.h"
 
 namespace avs_analyzer {
+struct Config;
 class TrackAlgorithm: public Algorithm {
  public:
-  explicit TrackAlgorithm(Config* config);
+  explicit TrackAlgorithm(const Config& config);
   Detection DetectObjects(const cv::Mat& image) override;
 
  private:

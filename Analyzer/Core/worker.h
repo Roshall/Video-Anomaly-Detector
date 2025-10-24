@@ -24,7 +24,7 @@ using namespace moodycamel;
 
 class Worker {
  public:
-  Worker(Scheduler* scheduler, std::unique_ptr<Monitor> control,
+  Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
                   const EventDetectorConfig& event_cfg);
   ~Worker();
   Worker(const Worker& other) = delete;

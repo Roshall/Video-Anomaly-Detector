@@ -10,7 +10,7 @@
 #include "config.h"
 
 namespace avs_analyzer {
-TrackAlgorithm::TrackAlgorithm(Config* config): Algorithm(config), detector_(GetDetector(config->model_dir, Task::kWandering, config->use_accelerator)) {}
+TrackAlgorithm::TrackAlgorithm(const Config& config): detector_(GetDetector(config.model_dir, Task::kWandering, config.use_accelerator)) {}
 
 Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
   auto res = detector_->Run(image);

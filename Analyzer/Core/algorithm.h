@@ -6,22 +6,6 @@
 #include <vector>
 
 namespace avs_analyzer {
-class Config;
-
-static const std::vector<cv::Scalar> kDetectionColors = {
-    cv::Scalar(0, 0, 255),    cv::Scalar(0, 255, 0),
-    cv::Scalar(255, 0, 0),    cv::Scalar(255, 100, 50),
-    cv::Scalar(50, 100, 255), cv::Scalar(255, 50, 100)};
-
-cv::Mat static PadToSquare(const cv::Mat& source) {
-  int col = source.cols;
-  int row = source.rows;
-  int _max = MAX(col, row);
-  cv::Mat result = cv::Mat::zeros(_max, _max, CV_8UC3);
-  source.copyTo(result(cv::Rect(0, 0, col, row)));
-  return result;
-};
-
 struct Detection {
   std::vector<cv::Rect> bbox;
   std::vector<float> confidences;
@@ -29,17 +13,15 @@ struct Detection {
 
 class Algorithm {
  public:
-  Algorithm() = delete;
-  explicit Algorithm(Config* config);
+  Algorithm() = default;
   virtual ~Algorithm();
 
  public:
   virtual Detection DetectObjects(const cv::Mat& image) = 0;
-  bool CreateState();
+  bool CreateState() const;
 
  protected:
-  Config* config_;
-  bool create_state_ = false;  // 创建状态，默认false
+  bool create_state_{false};  // 创建状态，默认false
 };
 
 }  // namespace avs_analyzer
