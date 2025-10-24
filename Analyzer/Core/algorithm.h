@@ -16,7 +16,6 @@ class Algorithm {
   Algorithm() = default;
   virtual ~Algorithm();
 
- public:
   virtual Detection DetectObjects(const cv::Mat& image) = 0;
   bool CreateState() const;
 

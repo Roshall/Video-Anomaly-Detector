@@ -18,7 +18,7 @@
 #include "task.h"
 #include <sstream>
 
-int extract_port(const std::string& ip_address) {
+static int extract_port(const std::string& ip_address) {
   std::string port_str = ip_address.substr(ip_address.rfind(':') + 1);
   int port = 0;
   std::istringstream(port_str) >> port;
@@ -72,7 +72,7 @@ static inline std::string get_string(const Json::Value& v, const std::string& de
   return v.isString() ? v.asString() : def;
 }
 
-static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const Json::Value& levelsNode, int& mode) {
+static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const Json::Value& levelsNode, LevelMode& mode) {
   std::vector<int> thresholds;
   std::vector<std::string> levels;
 
@@ -104,7 +104,7 @@ static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const 
   return { thresholds, levels};
 }
 
-void ApiIndex(evhttp_request* req, void* arg) {
+void ApiIndex(evhttp_request* req, void*) {
   Json::Value result_urls;
   result_urls["/api"] = "this api version 1.0";
   result_urls["/api/health"] = "check health";
@@ -122,7 +122,7 @@ void ApiIndex(evhttp_request* req, void* arg) {
   evhttp_send_reply(req, HTTP_OK, nullptr, buff);
   evbuffer_free(buff);
 }
-void ApiHealth(evhttp_request* req, void* arg) {
+void ApiHealth(evhttp_request* req, void*) {
   int result_code = 0;
   std::string result_msg = "error";
 
