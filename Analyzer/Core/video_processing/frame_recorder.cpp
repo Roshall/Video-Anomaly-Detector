@@ -16,7 +16,7 @@ namespace avs_analyzer {
 Recorder::Recorder(VideoConfig config)
     : config(config), reused_pkt_(av_packet_alloc()) {
   if (!reused_pkt_) {
-    log_error("Failed to allocate packet", AVERROR(ENOMEM));
+    LOGE_FFMPEG("Failed to allocate packet", AVERROR(ENOMEM));
   }
 }
 
@@ -71,7 +71,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   // 3. Open the codec
   int ret = avcodec_open2(video_codec_ctx_.get(), codec, nullptr);
   if (ret < 0) {
-    log_error("Could not open codec", ret);
+    LOGE_FFMPEG("Could not open codec", ret);
     return false;
   }
   // set up output stream
@@ -79,7 +79,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   ret = avformat_alloc_output_context2(&fmt_ctx, nullptr, cconfig.format_name,
                                        file_path_.c_str());
   if (ret < 0) {
-    log_error("Could not create output context", ret);
+    LOGE_FFMPEG("Could not create output context", ret);
     return false;
   }
   output_ctx_.reset(fmt_ctx);
@@ -95,14 +95,14 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   ret = avcodec_parameters_from_context(stream_->codecpar,
                                         video_codec_ctx_.get());
   if (ret < 0) {
-    log_error("Could not copy codec parameters", ret);
+    LOGE_FFMPEG("Could not copy codec parameters", ret);
     return false;
   }
 
   if (!(output_ctx_->oformat->flags & AVFMT_NOFILE)) {
     ret = avio_open(&output_ctx_->pb, file_path_.c_str(), AVIO_FLAG_WRITE);
     if (ret < 0) {
-      log_error("Could not open output file", ret);
+      LOGE_FFMPEG("Could not open output file", ret);
       return false;
     }
   }
@@ -110,7 +110,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   ret = avformat_write_header(output_ctx_.get(), cconfig.fmt_options.addr());
 
   if (ret < 0) {
-    log_error("Could not write header", ret);
+    LOGE_FFMPEG("Could not write header", ret);
     return false;
   }
   initialized_ = true;
@@ -131,7 +131,7 @@ void Recorder::CloseOutputSegment() {
 bool Recorder::EncodeAndWrite(AVFrame* frame) {
   int ret = avcodec_send_frame(video_codec_ctx_.get(), frame);
   if (ret < 0) {
-    log_error("Error sending frame to encoder", ret);
+    LOGE_FFMPEG("Error sending frame to encoder", ret);
     return false;
   }
 
@@ -142,7 +142,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
       break;
     } else if (ret < 0) {
       get_frame = false;
-      log_error("Error receiving packet from encoder", ret);
+      LOGE_FFMPEG("Error receiving packet from encoder", ret);
       break;
     }
     reused_pkt_->stream_index = stream_->index;
@@ -151,7 +151,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
         ret < 0) {
       get_frame = false;
-      log_error("Error writing frame to output", ret);
+      LOGE_FFMPEG("Error writing frame to output", ret);
       break;
     }
     av_packet_unref(reused_pkt_.get());

@@ -24,7 +24,6 @@ Scheduler::~Scheduler() = default;
 Config& Scheduler::GetConfig() const { return config_; }
 
 void Scheduler::CleanUpLoop() {
-  // TODO: use thread pool to handle alarm and cleanup
   while (state_) {
     {
       std::unique_lock lk(clean_up_mtx_);
@@ -35,7 +34,6 @@ void Scheduler::CleanUpLoop() {
       });
     }
     if (!state_) break;
-//    PullAndGenAlarm();
     {
       std::unique_ptr<Alarm> alarm;
       while (alarm_queue_.try_dequeue(alarm)) {

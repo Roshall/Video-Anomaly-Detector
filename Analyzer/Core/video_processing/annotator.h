@@ -16,14 +16,16 @@ struct AVFilterContext;
 namespace avs_analyzer {
 
 struct Point;
-// Simplified struct for rectangles, color is always red
+// rectangles, color is always red
 struct SimpleRect { int x, y, w, h, thickness; };
 
 class VideoOverlay {
  public:
   VideoOverlay() = default;
   VideoOverlay(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame) {
-    init(polygon_vertices, frame);
+    if (init(polygon_vertices, frame) < 0) {
+      std::runtime_error("could not initialize overlay");
+    }
   }
 
   // Initializes the filter graph with a fixed polygon.

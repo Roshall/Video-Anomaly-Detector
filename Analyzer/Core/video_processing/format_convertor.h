@@ -13,20 +13,14 @@
 struct SwsContext;
 
 namespace avs_analyzer {
-struct AVBufferDeleter {
-  void operator()(uint8_t * ptr) const {
-    av_free(ptr);
-  }
-};
 
-using AVBufferPtr = std::unique_ptr<uint8_t, AVBufferDeleter>;
 class FormatConvertor {
  public:
   FormatConvertor(int in_width, int in_height, AVPixelFormat in_fmt, int out_width, int out_height);
   FormatConvertor(FormatConvertor& other) = delete;
   cv::Mat operator() (AVFrame* original_frame);
   FormatConvertor(FormatConvertor&& other) noexcept ;
-//  AVFramePtr CopyCurrentFrame();
+
  private:
   int width_;
   int height_;

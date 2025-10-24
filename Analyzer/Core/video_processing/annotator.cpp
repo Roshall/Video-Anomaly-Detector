@@ -325,12 +325,12 @@ AVFrame* create_polygon_overlay(int width, int height,
 
 int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
                        AVFrame* frame) {
-  // 1. Create the polygon overlay frame first
+  // Create the polygon overlay frame first
   YUVAColor red = {76, 84, 255, 255};  // Opaque Red in YUVA
   polygon_overlay_frame.reset(create_polygon_overlay(
       frame->width, frame->height, polygon_vertices, red));
   if (!polygon_overlay_frame) {
-    std::cerr << "Failed to create polygon overlay" << std::endl;
+    LOGE("Failed to create polygon overlay");
     return AVERROR(ENOMEM);
   }
   int width = frame->width, height = frame->height;
@@ -363,22 +363,29 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   const AVFilter* buffersrc = avfilter_get_by_name("buffer");
   const AVFilter* buffersink = avfilter_get_by_name("buffersink");
 
-  int ret = 0;
+  int ret;
   ret = avfilter_graph_create_filter(&buffersrc_ctx_main, buffersrc, "in",
                                      args_main.c_str(), nullptr,
                                      filter_graph.get());
-  if (ret < 0)
-    throw std::runtime_error("Cannot create buffer source for main.");
+  if (ret < 0) {
+    LOGE_FFMPEG("Cannot create buffer source.", ret);
+    return ret;
+  }
 
   ret = avfilter_graph_create_filter(&buffersrc_ctx_overlay, buffersrc, "poly",
                                      args_overlay.c_str(), nullptr,
                                      filter_graph.get());
-  if (ret < 0)
-    throw std::runtime_error("Cannot create buffer source for overlay.");
+  if (ret < 0) {
+    LOGE_FFMPEG("Cannot create buffer source for overlay.", ret);
+    return ret;
+  }
 
   ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",
                                      nullptr, nullptr, filter_graph.get());
-  if (ret < 0) throw std::runtime_error("Cannot create buffer sink.");
+  if (ret < 0) {
+    LOGE_FFMPEG("Cannot create buffer sink.", ret);
+    return ret;
+  }
 
   static const AVPixelFormat sink_pix_fmts[] = {format, AV_PIX_FMT_NONE};
   av_opt_set_int_list(buffersink_ctx, "pix_fmts", sink_pix_fmts,
@@ -404,10 +411,16 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   auto outputs_raw = outputs.release();
   ret = avfilter_graph_parse_ptr(filter_graph.get(), filter_descr.c_str(),
                                  &inputs_raw, &outputs_raw, nullptr);
-  if (ret < 0) throw std::runtime_error("Cannot parse filter graph.");
+  if (ret < 0) {
+    LOGE_FFMPEG("Cannot parse filter graph.", ret);
+    return ret;
+  }
 
   ret = avfilter_graph_config(filter_graph.get(), nullptr);
-  if (ret < 0) throw std::runtime_error("Cannot configure filter graph.");
+  if (ret < 0) {
+    LOGE_FFMPEG("Cannot configure filter graph.", ret);
+    return ret;
+  }
   return 0;
 }
 
@@ -419,7 +432,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   // Make sure the cloned frame is writable
   int ret = av_frame_make_writable(in_frame);
   if (ret < 0) {
-    log_error("Cloned frame is not writable", ret);
+    LOGE_FFMPEG("Cloned frame is not writable", ret);
     return nullptr;
   }
 
@@ -435,7 +448,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_main, in_frame,
                                      AV_BUFFERSRC_FLAG_KEEP_REF);
   if (ret < 0) {
-    log_error("Error adding main frame to buffer source", ret);
+    LOGE_FFMPEG("Error adding main frame to buffer source", ret);
     return nullptr;
   }
 
@@ -444,7 +457,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
                                      polygon_overlay_frame.get(),
                                      AV_BUFFERSRC_FLAG_KEEP_REF);
   if (ret < 0) {
-    log_error("Error adding overlay frame to buffer source", ret);
+    LOGE_FFMPEG("Error adding overlay frame to buffer source", ret);
     return nullptr;
   }
 
@@ -455,7 +468,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   ret = av_buffersink_get_frame(buffersink_ctx, out_frame.get());
   if (ret < 0) {
     if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
-      log_error("Error getting frame from buffer sink", ret);
+      LOGE_FFMPEG("Error getting frame from buffer sink", ret);
     }
     return nullptr;
   }

@@ -198,7 +198,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
     int ret = pict_writer.saveFrame(frame->data.get(), img_path_str);
     if (ret < 0) {
-      log_error("failed to save picture", ret);
+      LOGE_FFMPEG("failed to save picture", ret);
       return;
     } else {
       std::cout << "save alarm image to " << img_path_str;
@@ -301,13 +301,13 @@ bool Worker::GrabFrame(AVFrame* frame) const {
       if (ret =
               avcodec_send_packet(in_stream->video_codec_ctx.get(), pkg.get());
           ret < 0) {
-        log_error("worker cannot send a packet:", ret);
+        LOGE_FFMPEG("worker cannot send a packet:", ret);
         return false;
       }
       continue;  // Go back to try receiving again
     } else if (ret < 0) {
       // A real error
-      log_error("worker cannot decode a packet:", ret);
+      LOGE_FFMPEG("worker cannot decode a packet:", ret);
       return false;
     }
     return true;

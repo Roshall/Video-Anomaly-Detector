@@ -25,16 +25,16 @@ LevelBasedFormatter::LevelBasedFormatter() {
 
   // 1. INFO Level: SHORT message + Fixed Beijing Time Offset (+0800)
   // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 Message
-  std::string info_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S +0800 %v";
+  std::string info_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S %v";
 
   // 2. WARNING Level: Adds Source File
   // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 [Source File] Message
-  std::string warn_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S +0800 [%s] %v";
+  std::string warn_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S [%s] %v";
 
   // 3. DEBUG/ERROR/TRACE/CRITICAL Level: Adds File, Line, Function, Thread ID [Ti]
   // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 [File:Line] [Function] [Ti:ThreadID] Message
   // %s = source file, %# = line number, %! = function name, %t = thread id
-  std::string detail_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S +0800 [%s:%#] [%!] [Ti:%t] %v";
+  std::string detail_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S [%s:%#] [%!] [Ti:%t] %v";
 
   // --- Initialize Formatters ---
 

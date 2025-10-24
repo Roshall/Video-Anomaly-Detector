@@ -72,7 +72,7 @@ class JPEGEncoder {
     // Intra-only codec, no gop/bframes needed
     int ret;
     if (ret = avcodec_open2(ctx.get(), codec, nullptr); ret < 0){
-      log_error("Failed to open MJPEG encoder", ret);
+      LOGE_FFMPEG("Failed to open MJPEG encoder", ret);
       throw std::runtime_error("Failed to open MJPEG encoder");
     }
 

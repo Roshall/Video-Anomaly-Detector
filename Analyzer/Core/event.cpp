@@ -62,8 +62,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         last_major_check_ts_ = frame.timestamp;
         auto bboxes = Detect(frame.data);
         if (not bboxes.empty()) {
-          std::cout << "[Major] Object found at t=" << frame.timestamp
-                    << "s. Switching to MINOR_CHECK." << std::endl;
+          LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.", frame.timestamp);
           current_state_ = InnerState::kMinorCheck;
           last_minor_check_ts_ = frame.timestamp;
           object_votes_window_.push_back(true);
@@ -87,15 +86,13 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
           int current_votes = std::accumulate(object_votes_window_.begin(),
                                               object_votes_window_.end(), 0);
           if (current_votes >= config_.min_vote) {
-            std::cout << ">>> EVENT DETECTED at t=" << frame.timestamp
-                      << "s <<<" << std::endl;
+            LOGD(">>> EVENT DETECTED at t = {}s <<<", frame.timestamp);
             current_state_ = InnerState::kEventActive;
             state = State::kEventStart;
             std::tie(active_event_start_ts_, start_frame_ts_) =
                 FindFirstVoteTimestamp();
           } else {
-            std::cout << "[Minor] Verification failed. Votes: " << current_votes
-                      << ". Back to MAJOR_CHECK." << std::endl;
+            LOGD("[Minor] Verification failed. Votes: {}. Back to MAJOR_CHECK.", current_votes);
             current_state_ = InnerState::kMajorCheck;
             kept_bboxes_.clear();
             object_votes_window_.clear();
@@ -124,9 +121,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         state = State::kEventActive;
         // Check for event end condition
         if (current_votes < config_.min_vote) {
-          std::cout << "[Active] Event ending at t=" << frame.timestamp
-                    << "s. Votes dropped to " << current_votes << "."
-                    << std::endl;
+          LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.", frame.timestamp, current_votes);
           // Prepare for next event search
           current_state_ = InnerState::kEventEnding;
         }
@@ -136,8 +131,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       int64_t start =
           last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
       if (frame.timestamp - start >= config_.max_event_duration_s) {
-        std::cout << "[Active] Event reached max duration at t="
-                  << frame.timestamp << "s. Saving and splitting." << std::endl;
+        LOGE("[Active] Event reached max duration at t = {}s. Saving and splitting.", frame.timestamp);
         state = State::kEventSplit;
         last_spilt_time_ = frame.timestamp;
       }
@@ -197,8 +191,7 @@ std::unique_ptr<Event> EventDetector::Flush() {
       event->frames.emplace_back(std::move(*it_start));
     }
     event->more_segments = current_state_ == InnerState::kEventActive;
-    std::cout << "[Saved] Event package ends at t="
-              << event->frames.back()->timestamp << std::endl;
+    LOGI("[Saved] Event package ends at t = {}",  event->frames.back()->timestamp);
     frame_buffer_.clear();
     return event;
   }

@@ -42,12 +42,12 @@ bool AvPullStream::Connect(bool file) {
     fmt_options = nullptr;
   }
   if (ret != 0) {
-    log_error(std::format("avformat_open_input error: url={}", stream_url), ret);
+    LOGE_FFMPEG(std::format("avformat_open_input error: url={}", stream_url), ret);
     return false;
   }
 
   if (ret = avformat_find_stream_info(fmt_ctx.get(), nullptr); ret < 0) {
-    log_error("avformat_find_stream_info error", ret);
+    LOGE_FFMPEG("avformat_find_stream_info error", ret);
     return false;
   }
 
@@ -68,11 +68,11 @@ bool AvPullStream::Connect(bool file) {
 
     video_codec_ctx.reset(avcodec_alloc_context3(video_codec));
     if (ret = avcodec_parameters_to_context(video_codec_ctx.get(), videoCodecPar); ret < 0) {
-      log_error("avcodec_parameters_to_context error", ret);
+      LOGE_FFMPEG("avcodec_parameters_to_context error", ret);
       return false;
     }
     if (ret = avcodec_open2(video_codec_ctx.get(), video_codec, nullptr); ret < 0) {
-      log_error("avcodec_open2 error", ret);
+      LOGE_FFMPEG("avcodec_open2 error", ret);
       return false;
     }
     // mVideoCodecCtx->thread_count = 1;
@@ -147,7 +147,7 @@ void AvPullStream::Read() {
         pkt.reset(av_packet_alloc());
       }
     } else {
-      log_error("av_read_frame in pull stream failed", ret);
+      LOGE_FFMPEG("av_read_frame in pull stream failed", ret);
       continuity_error_count++;
       // TODO: timeout reconnect to be configurable
       if (continuity_error_count > 5) {  // 大于5秒重启拉流连接
