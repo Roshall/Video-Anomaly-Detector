@@ -186,7 +186,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     if (i == 0) return;
     level = monitor_->levels.second[i - 1];
   }
-  g_th_pool.detach_task([&, this, start_ts = timer_.compute(checker.start_ts()),
+  g_th_pool.detach_task([&pict_writer, this, start_ts = timer_.compute(checker.start_ts()),
                          ts, level, push, frame = checker.latest_frame()] {
     auto& conf = scheduler->GetConfig();
     auto img_path =
