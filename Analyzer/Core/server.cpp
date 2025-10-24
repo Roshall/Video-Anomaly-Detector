@@ -10,7 +10,7 @@
 #include <thread>
 
 #include "config.h"
-#include "control.h"
+#include "monitor.h"
 #include "event.h"
 #include "scheduler.h"
 #include "Utils/common.h"

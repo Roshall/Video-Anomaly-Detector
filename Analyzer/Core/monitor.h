@@ -1,5 +1,5 @@
-﻿#ifndef ANALYZER_CONTROL_H
-#define ANALYZER_CONTROL_H
+﻿#ifndef ANALYZER_MONITOR_H
+#define ANALYZER_MONITOR_H
 
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -93,4 +93,4 @@ struct Monitor {
   }
 };
 }  // namespace avs_analyzer
-#endif  // ANALYZER_CONTROL_H
+#endif  // ANALYZER_MONITOR_H

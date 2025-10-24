@@ -4,13 +4,11 @@
 
 #include <fstream>
 
-#include "Utils/base64.h"
-#include "Utils/img_processing.h"
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "algorithm.h"
 #include "config.h"
-#include "control.h"
+#include "monitor.h"
 #include "detection_algorithm.h"
 #include "scheduler.h"
 #include "track_algorithm.h"
