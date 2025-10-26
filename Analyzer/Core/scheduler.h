@@ -24,7 +24,6 @@ class Config;
 class Worker;
 class Algorithm;
 struct Monitor;
-struct AlarmImage;
 struct Alarm;
 
 class Scheduler {

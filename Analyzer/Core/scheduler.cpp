@@ -5,19 +5,16 @@
 #include <string>
 
 #include "Utils/log.h"
+#include "alarm.h"
 #include "algorithm.h"
 #include "config.h"
 #include "monitor.h"
-#include "alarm.h"
 #include "worker.h"
-
-
 
 namespace avs_analyzer {
 BS::thread_pool<0> g_th_pool{3};
 
-Scheduler::Scheduler(Config& config) : config_(config){
-}
+Scheduler::Scheduler(Config& config) : config_(config) {}
 
 Scheduler::~Scheduler() = default;
 
@@ -28,8 +25,7 @@ void Scheduler::CleanUpLoop() {
     {
       std::unique_lock lk(clean_up_mtx_);
       clean_up_cv_.wait(lk, [this] {
-        return !this->state_ ||
-               this->alarm_queue_.size_approx() > 0 ||
+        return !this->state_ || this->alarm_queue_.size_approx() > 0 ||
                this->to_be_deleted_workers_queue_.size_approx() > 0;
       });
     }
@@ -80,9 +76,14 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
     result_code = 1000;
     return;
   }
-
+  auto file = monitor->source_type == "file";
   auto worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg);
-  if (worker->start(result_msg, conf_th)) {
+  if (file) {
+    g_th_pool.detach_task(
+        [&worker, conf_th] { worker->OfflineAnalyze(conf_th); });
+    result_msg = "add sucess";
+    result_code = 1000;
+  }else if (worker->start(result_msg, conf_th)) {
     if (AddWorker(std::move(worker))) {
       result_msg = "add success";
       result_code = 1000;
@@ -150,7 +151,6 @@ void Scheduler::RemoveWorker(const std::string& code) {
     }
   }
   if (result) {
-
     to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
     NotifyCleanUp();
   }
@@ -170,7 +170,6 @@ void Scheduler::NotifyCleanUp() {
   std::lock_guard lock(clean_up_mtx_);
   clean_up_cv_.notify_one();
 }
-
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
   std::unique_ptr<Alarm> old_alarm;
