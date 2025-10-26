@@ -288,7 +288,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .major_stride_ms = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
           .minor_stride_ms = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
           .window_size = ws,
-          .min_vote = static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100),
+          .min_vote = std::max(static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100), 1),
           .max_event_duration_ms = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000),
           .latest_duration_ms = duration
       };
