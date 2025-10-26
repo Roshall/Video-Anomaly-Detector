@@ -27,8 +27,8 @@ extern "C" {
 namespace avs_analyzer {
 
 Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
-               const EventDetectorConfig& event_cfg)
-    : monitor_(std::move(monitor)), scheduler(scheduler), event_cfg_(event_cfg) {
+               const EventDetectorConfig& event_cfg, bool file)
+    : monitor_(std::move(monitor)), scheduler(scheduler), event_cfg_(event_cfg), file_{file} {
   if (monitor_) {
     monitor_->start_timestamp = getCurTimestamp();
   }
@@ -37,25 +37,23 @@ Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
 Worker::~Worker() {
   LOGI("code={},streamUrl={} finished.", monitor_->code.data(),
        monitor_->stream_url.data());
-  state_.store(false);  // Signal threads to stop
-  // Wake up any sleeping threads (important for queues with
-  // timeouts/semaphores)
-  if (in_stream) in_stream->CloseConnect();  // This should unblock GetVideoPkt
-  if (out_stream)
-    out_stream->CloseConnect();  // This should unblock PopVideoFrame
+  if (not file_) {
+    state_.store(false);  // Signal threads to stop
+    // Wake up any sleeping threads (important for queues with
+    // timeouts/semaphores)
+    if (in_stream) in_stream->CloseConnect();  // This should unblock GetVideoPkt
+    if (out_stream)
+      out_stream->CloseConnect();  // This should unblock PopVideoFrame
 
-  for (auto& thread : threads_) {
-    if (thread && thread->joinable()) {
-      thread->join();  // Wait for the thread to finish
+    for (auto& thread : threads_) {
+      if (thread && thread->joinable()) {
+        thread->join();  // Wait for the thread to finish
+      }
     }
+    threads_.clear();
   }
-  threads_.clear();
-  // unique_ptr members will be automatically cleaned up
 }
 bool Worker::start(std::string& msg, float conf_th) {
-  if (monitor_->source_type == "file") {
-    OfflineAnalyze();
-  }
   in_stream = std::make_unique<AvPullStream>(this);
   if (in_stream->Connect(false)) {
     if (monitor_->push_stream) {
@@ -102,12 +100,16 @@ void Worker::remove() {
   scheduler->RemoveWorker(monitor_->code);
 }
 
-void Worker::OfflineAnalyze() {
+void Worker::OfflineAnalyze(float conf_th) {
   auto in{Streamer(monitor_->stream_url)};
   int width = in.width();
   int height = in.height();
   auto in_time_base = in.time_base;
   auto example = in.NextFrame();
+  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in_stream->GetFps()/event_cfg_.minor_stride_ms);
+
+  timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
+
   EventDetector checker{
       EventDetectorConfig{.minor_stride_ms = 500, .min_vote = 2},
       *analyzer,
@@ -179,7 +181,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     }
     size_t i = 0;
     auto total_level = monitor_->levels.first.size();
-    while (i < total_level && monitor_->levels.first[i] < num) {
+    while (i < total_level && monitor_->levels.first[i] <= num) {
       ++i;
     }
     if (i == 0) return;

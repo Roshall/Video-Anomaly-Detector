@@ -25,7 +25,7 @@ using namespace moodycamel;
 class Worker {
  public:
   Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
-                  const EventDetectorConfig& event_cfg);
+         const EventDetectorConfig& event_cfg, bool file);
   ~Worker();
   Worker(const Worker& other) = delete;
   Worker operator= (const Worker& other) = delete;
@@ -37,6 +37,7 @@ class Worker {
 
   bool getState() const;
   void remove();
+  void OfflineAnalyze(float conf_th);
 
   std::unique_ptr<Monitor> monitor_;
   Scheduler* scheduler;
@@ -49,11 +50,11 @@ class Worker {
   EventDetectorConfig event_cfg_;
   std::atomic<bool> state_{false};
   std::vector<std::unique_ptr<std::thread>> threads_;
+  bool file_{false};
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
                   bool push) noexcept;
-  void OfflineAnalyze();
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_WORKER_H
