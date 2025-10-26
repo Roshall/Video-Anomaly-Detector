@@ -25,7 +25,8 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
     : config_(config),
       painter_{roi_points, sample},
       convertor_(std::move(convertor)),
-      analyzer_(analyzer) {
+      analyzer_(analyzer),
+      object_votes_window_(config.window_size) {
   last_major_check_ts_ = -config_.major_stride_ms;
   max_buffer_time_ =
       config_.pre_event_buffer_ms +
@@ -36,18 +37,14 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
 }
 
 std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
-  auto it = std::find(object_votes_window_.cbegin(),
-                      object_votes_window_.cend(), true);
   const Frame* frame{};
-  if (it != object_votes_window_.cend()) {
-    auto index = std::distance(object_votes_window_.cbegin(), it);
+  auto rpos = object_votes_window_.first_votes_reserve_pos();
+  if (rpos > 0) {
     // The frame_buffer_ contains more frames than the window, so we need to
     // find the correct starting point. The last frame in the buffer corresponds
     // to the last vote in the window.
-    if (frame_buffer_.size() > (object_votes_window_.size() - 1 - index)) {
-      frame = frame_buffer_[frame_buffer_.size() - object_votes_window_.size() +
-                            index]
-                  .get();
+    if (frame_buffer_.size() >= rpos) {
+      frame = frame_buffer_[frame_buffer_.size() - rpos].get();
     }
   }
   if (!frame) {
@@ -69,8 +66,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
                current_ts);
           current_state_ = InnerState::kMinorCheck;
           last_minor_check_ts_ = current_ts;
-          object_votes_window_.push_back(true);
-          votes_ += 1;
+          object_votes_window_.slide(true);
           kept_bboxes_ = std::move(bboxes);
         }
       }
@@ -82,14 +78,13 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         auto has_obj = not bboxes.empty();
-        object_votes_window_.push_back(has_obj);
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
-          ++votes_;
         }
-
-        if (object_votes_window_.size() == config_.window_size) {
-          if (votes_ >= config_.min_vote) {
+        object_votes_window_.slide(has_obj);
+        if (object_votes_window_.full()) {
+          auto votes = object_votes_window_.votes();
+          if (votes >= config_.min_vote) {
             std::tie(active_event_start_ts_, start_frame_ts_) =
                 FindFirstVoteTimestamp();
             if (config_.defer_start()) {
@@ -101,11 +96,10 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
             }
           } else {
             LOGD("[Minor] Verification failed. Votes: {}. Back to MAJOR_CHECK.",
-                 votes_);
+                 votes);
             current_state_ = InnerState::kMajorCheck;
             kept_bboxes_.clear();
             object_votes_window_.clear();
-            votes_ = 0;
           }
         }
       }
@@ -116,15 +110,13 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         auto has_obj = not bboxes.empty();
-        object_votes_window_.push_back(has_obj);
+        object_votes_window_.slide(has_obj);
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
-          ++votes_;
         }
 
-        votes_ -= object_votes_window_.front();
-        object_votes_window_.pop_front();
-        if (votes_ >= config_.min_vote) {
+        auto votes = object_votes_window_.votes();
+        if (votes >= config_.min_vote) {
           if (current_ts - active_event_start_ts_ >= config_.latest_duration_ms) {
             LOGD(">>> EVENT DETECTED at t = {}s <<<", current_ts);
             current_state_ = InnerState::kEventActive;
@@ -134,11 +126,10 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
           LOGD(
               "[Duration Check] Verification failed. Votes: {}. Back to "
               "MAJOR_CHECK.",
-              votes_);
+              votes);
           current_state_ = InnerState::kMajorCheck;
           kept_bboxes_.clear();
           object_votes_window_.clear();
-          votes_ = 0;
         }
       }
       break;
@@ -149,20 +140,17 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
         auto has_obj = not bboxes.empty();
-        object_votes_window_.push_back(has_obj);
+        object_votes_window_.slide(has_obj);
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
-          ++votes_;
         }
-
-        votes_ - object_votes_window_.front();
-        object_votes_window_.pop_front();
 
         state = State::kEventActive;
         // Check for event end condition
-        if (votes_ < config_.min_vote) {
+        auto votes = object_votes_window_.votes();
+        if (votes < config_.min_vote) {
           LOGD("[Active] Event ending at t = {}s. Votes dropped to {}.",
-               current_ts, votes_);
+               current_ts, votes);
           // Prepare for next event search
           current_state_ = InnerState::kEventEnding;
         }
@@ -172,7 +160,7 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
       int64_t start =
           last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
       if (current_ts - start >= config_.max_event_duration_ms) {
-        LOGE(
+        LOGI(
             "[Active] Event reached max duration at t = {}s. Saving and "
             "splitting.",
             current_ts);
@@ -189,7 +177,6 @@ EventDetector::State EventDetector::ProcessFrame(RawFrame frame) {
         current_state_ = InnerState::kMajorCheck;
         last_major_check_ts_ = current_ts;
         object_votes_window_.clear();
-        votes_ = 0;
         kept_bboxes_.clear();
         state = State::kEventEnd;
         last_spilt_time_ = -1;

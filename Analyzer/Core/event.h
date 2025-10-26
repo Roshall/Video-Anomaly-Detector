@@ -31,11 +31,11 @@ struct Event {
 };
 
 // Configuration for the EventDetector.
-struct EventDetectorConfig { // all time in base ms
+struct EventDetectorConfig {  // all time in base ms
   int64_t major_stride_ms{2000};
   int64_t minor_stride_ms{250};
-  int window_size{5}; // not time but count
-  int min_vote{3}; // not time but count
+  int window_size{5};  // not time but count
+  int min_vote{3};     // not time but count
   int64_t max_event_duration_ms{60000};
   int64_t pre_event_buffer_ms{1000};
   int64_t post_event_buffer_ms{1000};
@@ -47,24 +47,31 @@ struct EventDetectorConfig { // all time in base ms
 class EventDetector {
  public:
   enum State {
-    kNoEvent, kEventStart, kEventActive, kEventSplit, kEventEnd,
+    kNoEvent,
+    kEventStart,
+    kEventActive,
+    kEventSplit,
+    kEventEnd,
   };
 
   EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
                 FormatConvertor convertor, std::vector<cv::Point>& roi_points,
                 AVFrame* sample);
 
-  // Processes a single frame and returns an Event if one has just been completed.
+  // Processes a single frame and returns an Event if one has just been
+  // completed.
   State ProcessFrame(RawFrame frame);
 
   [[nodiscard]] std::unique_ptr<Frame> latest_frame();
-  int64_t num_detection() const {return static_cast<int>(kept_bboxes_.size());}
+  int64_t num_detection() const {
+    return static_cast<int>(kept_bboxes_.size());
+  }
   [[nodiscard]] int64_t event_duration() const {
-      if (current_state_ != InnerState::kEventActive) {
-        return 0;
-      } else {
-        return frame_buffer_.back()->timestamp - active_event_start_ts_;
-      }
+    if (current_state_ != InnerState::kEventActive) {
+      return 0;
+    } else {
+      return frame_buffer_.back()->timestamp - active_event_start_ts_;
+    }
   };
   int64_t timestamp() const;
   int64_t start_ts() const;
@@ -73,14 +80,47 @@ class EventDetector {
   std::unique_ptr<Event> Flush();
 
  private:
-  enum class InnerState { kMajorCheck, kMinorCheck,
-    kDurationCheck, kEventActive, kEventEnding };
+  enum class InnerState {
+    kMajorCheck,
+    kMinorCheck,
+    kDurationCheck,
+    kEventActive,
+    kEventEnding
+  };
+  class VotesWindow {
+   public:
+    explicit VotesWindow(size_t max_i) : max_item_(max_i) {}
+    // return whether window is full
+    void slide(bool item) {
+      object_votes_window_.push_back(item);
+      votes_ += item;
+      if (object_votes_window_.size() > max_item_) {
+        votes_ -= object_votes_window_.front();
+        object_votes_window_.pop_front();
+      }
+    }
+    [[nodiscard]] bool full() const { return object_votes_window_.size() == max_item_; }
+    void clear() {
+      object_votes_window_.clear();
+      votes_ = 0;
+    }
+    [[nodiscard]] long first_votes_reserve_pos() const {
+      return std::distance(object_votes_window_.end(),
+                           std::find(object_votes_window_.cbegin(),
+                                     object_votes_window_.cend(), true));
+    }
+    [[nodiscard]] int votes() const { return votes_; }
 
+   private:
+    size_t max_item_;
+    std::deque<bool> object_votes_window_{};
+    int votes_{0};
+  };
 
   std::vector<cv::Rect> Detect(AVFrame* frame);
 
   // Helper to find the timestamp of the first positive vote in the window.
-  std::pair<int64_t, int64_t> FindFirstVoteTimestamp() const;
+  [[nodiscard]] std::pair<int64_t, int64_t> FindFirstVoteTimestamp() const;
 
   const EventDetectorConfig config_;
   InnerState current_state_{InnerState::kMajorCheck};
@@ -89,19 +129,18 @@ class EventDetector {
   FormatConvertor convertor_;
   const Analyzer& analyzer_;
 
-  int64_t last_major_check_ts_{-2000};  // Initialized to allow first frame check.
+  int64_t last_major_check_ts_{-2000};
   int64_t last_minor_check_ts_{0};
 
   // Buffer for all recent frames, used to construct events.
   std::deque<std::unique_ptr<Frame>> frame_buffer_;
   // Sliding window to track object presence for voting.
-  std::deque<bool> object_votes_window_;
+  VotesWindow object_votes_window_;
   std::vector<cv::Rect> kept_bboxes_{};
   int64_t last_spilt_time_{-1};
   int64_t active_event_start_ts_{0};
   int64_t max_buffer_time_{0};
   int64_t start_frame_ts_{};
-  int votes_{0};
 };
-}
+}  // namespace avs_analyzer
 #endif  // ANALYZER_EVENT_H
