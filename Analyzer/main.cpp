@@ -76,13 +76,17 @@ int main(int argc, char** argv) {
     event_base_loopbreak(base);
   }
 
+  ClearYoloDetectorPool();
+
   scheduler.SetState(false);
   scheduler.NotifyCleanUp();
+  scheduler.ClearWorker();
   scheduler_cleanup_thread.join();
-  ClearYoloDetectorPool();
+
   server_thread.join();
   event_base_free(base);
   event_config_free(evt_config);
+
   g_th_pool.wait();
   return 0;
 }
