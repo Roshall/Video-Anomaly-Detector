@@ -22,14 +22,7 @@ Config& Scheduler::GetConfig() const { return config_; }
 
 void Scheduler::CleanUpLoop() {
   while (state_) {
-    {
-      std::unique_lock lk(clean_up_mtx_);
-      clean_up_cv_.wait(lk, [this] {
-        return !this->state_ || this->alarm_queue_.size_approx() > 0 ||
-               this->to_be_deleted_workers_queue_.size_approx() > 0;
-      });
-    }
-    if (!state_) break;
+    clean_up_cs_.acquire();
     {
       std::unique_ptr<Alarm> alarm;
       while (alarm_queue_.try_dequeue(alarm)) {
@@ -44,14 +37,11 @@ void Scheduler::CleanUpLoop() {
 
 std::vector<Monitor> Scheduler::GetAllMonitors() {
   std::vector<Monitor> monitors;
-  {
-    std::lock_guard lock(worker_map_mutex_);
-    monitors.reserve(worker_map_.size());
-    for (auto& pair : worker_map_) {
-      monitors.push_back(*pair.second->monitor_.get());
-    }
+  std::lock_guard lock(worker_map_mutex_);
+  monitors.reserve(worker_map_.size());
+  for (auto& pair : worker_map_) {
+    monitors.push_back(*pair.second->monitor_);
   }
-
   return monitors;
 }
 Monitor* Scheduler::GetMonitorByCode(const std::string& code) {
@@ -77,7 +67,7 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
     return;
   }
   auto file = monitor->source_type == "file";
-  auto worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg);
+  auto worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, file);
   if (file) {
     g_th_pool.detach_task(
         [&worker, conf_th] { worker->OfflineAnalyze(conf_th); });
@@ -167,13 +157,15 @@ Worker* Scheduler::GetWorkerByCode(const std::string& code) {
 }
 
 void Scheduler::NotifyCleanUp() {
-  std::lock_guard lock(clean_up_mtx_);
-  clean_up_cv_.notify_one();
+  clean_up_cs_.release();
 }
 
 void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
   std::unique_ptr<Alarm> old_alarm;
   alarm_queue_.enqueue(std::move(alarm));
   NotifyCleanUp();
+}
+void Scheduler::ClearWorker() {
+  worker_map_.clear();
 }
 }  // namespace avs_analyzer

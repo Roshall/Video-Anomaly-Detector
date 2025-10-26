@@ -54,6 +54,7 @@ class Scheduler {
   // ApiServer 对应的函数 end
   void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
   void NotifyCleanUp();
+  void ClearWorker();
 
  private:
   Config& config_;
@@ -74,8 +75,7 @@ class Scheduler {
 
   ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
 
-  std::mutex clean_up_mtx_;
-  std::condition_variable clean_up_cv_;
+  std::counting_semaphore<> clean_up_cs_{0};
 
 };
 }  // namespace avs_analyzer
