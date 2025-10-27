@@ -239,6 +239,7 @@ set(source
         Analyzer/Core/video_processing/jpeg_encoder.h
         Analyzer/Core/streamer.cpp
         Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/bas64.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -248,6 +249,7 @@ target_link_libraries(Analyzer PRIVATE
         opencv_imgproc
         opencv_dnn
         opencv_imgcodecs
+        opencv_videoio
         libevent::core
         libevent::pthreads
         libevent::extra

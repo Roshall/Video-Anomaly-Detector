@@ -13,6 +13,7 @@
 #include "monitor.h"
 #include "event.h"
 #include "scheduler.h"
+#include "Utils/base64.h"
 #include "Utils/common.h"
 #include "Utils/log.h"
 #include "task.h"
@@ -46,6 +47,7 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
     evhttp_set_cb(http, "/api/control", ApiMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
+    evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
 
     evhttp_bind_socket(http, "0.0.0.0", port);
     event_base_dispatch(base);
@@ -54,13 +56,13 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
   });
 }
 
-static inline bool to_int(const std::string& s, int& out) {
+static bool to_int(const std::string& s, int& out) {
   auto* begin = s.data(); auto* end = s.data() + s.size();
   auto rc = std::from_chars(begin, end, out);
   return rc.ec == std::errc() && rc.ptr == end;
 }
 
-static inline int get_int_any(const Json::Value& v, int def = 0) {
+static int get_int_any(const Json::Value& v, int def = 0) {
   if (v.isInt()) return v.asInt();
   if (v.isUInt()) return static_cast<int>(v.asUInt());
   if (v.isString()) { int x{}; if (to_int(v.asString(), x)) return x; }
@@ -68,7 +70,7 @@ static inline int get_int_any(const Json::Value& v, int def = 0) {
   return def;
 }
 
-static inline std::string get_string(const Json::Value& v, const std::string& def = "") {
+static std::string get_string(const Json::Value& v, const std::string& def = "") {
   return v.isString() ? v.asString() : def;
 }
 
@@ -107,7 +109,102 @@ static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const 
 
   return { thresholds, levels};
 }
+void send_json(evhttp_request* req, int code, const std::string& json) {
+  evbuffer* out = evbuffer_new();
+  if (!out) {
+    evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
+    return;
+  }
+  evbuffer_add(out, json.data(), json.size());
+  evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type", "application/json; charset=utf-8");
+  // (Optional) CORS
+  evhttp_add_header(evhttp_request_get_output_headers(req), "Access-Control-Allow-Origin", "*");
+  evhttp_send_reply(req, code, nullptr, out);
+  evbuffer_free(out);
+}
 
+std::string escape_json(const std::string& s) {
+  std::ostringstream os;
+  for (unsigned char c : s) {
+    switch (c) {
+      case '\"': os << "\\\""; break;
+      case '\\': os << "\\\\"; break;
+      case '\b': os << "\\b"; break;
+      case '\f': os << "\\f"; break;
+      case '\n': os << "\\n"; break;
+      case '\r': os << "\\r"; break;
+      case '\t': os << "\\t"; break;
+      default:
+        if (c < 0x20) { os << "\\u" << std::hex << std::uppercase << (int)c; }
+        else { os << c; }
+    }
+  }
+  return os.str();
+}
+
+bool get_request_json(const evhttp_request* req, Json::Value& root) {
+  char buf[kRecvBufMaxSize];
+  ParsePostRequest(req, buf);
+
+  const Json::CharReaderBuilder builder;
+  const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+  JSONCPP_STRING errs;
+  if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
+      errs.empty()) {
+    return true;
+  }
+  return false;
+}
+
+
+void ApiSnapShot(evhttp_request* req, void*) {
+  Json::Value json_req;
+  if (get_request_json(req, json_req)) {
+    std::string path;
+    try {
+      path = json_req["videoPath"].asString();
+    }catch (const Json::Exception& e) {
+      LOGE("failed to parse json: {}", e.what());
+    }
+    // Open video
+    cv::VideoCapture cap;
+    if (!cap.open(path)) {
+      std::string msg = R"({"error":"failed to open video","path":")" + escape_json(path) + "\"}";
+      send_json(req, HTTP_BADREQUEST, msg);
+      return;
+    }
+
+    // Read first frame
+    cv::Mat frame;
+    if (!cap.read(frame) || frame.empty()) {
+      std::string msg = R"({{ {"error":"failed to read first frame","path":" {} } }})" + escape_json(path);
+      send_json(req, HTTP_BADREQUEST, msg);
+      return;
+    }
+
+    // Encode to JPEG bytes
+    std::vector<unsigned char> jpeg;
+    std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 90 };
+    if (!cv::imencode(".jpg", frame, jpeg, params)) {
+      send_json(req, HTTP_SERVUNAVAIL, R"({"error":"JPEG encode failed"})");
+      return;
+    }
+
+    // Base64 encode (cpp-base64: base64_encode(unsigned char const*, unsigned int, bool url=false))
+    const std::string b64 = base64_encode(jpeg.data(),
+                                          static_cast<unsigned int>(jpeg.size()),
+                                          false /*url*/);
+
+    // JSON response
+    Json::Value json;
+    json["mime"] = "image/jpeg";
+    json["data"] = b64;
+
+    send_json(req, HTTP_OK, json.toStyledString());
+  } else {
+    LOGE("failed to parse json");
+  }
+}
 void ApiIndex(evhttp_request* req, void*) {
   Json::Value result_urls;
   result_urls["/api"] = "this api version 1.0";
@@ -189,8 +286,7 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
   } else {
     result_msg = "invalid request parameter";
   }
-  result["msg"] = result_msg;
-  result["code"] = result_code;
+  result["msg"] = result_msg;  result["code"] = result_code;
 
   // LOGI("\n \t request:%s \n \t response:%s", root.toStyledString().data(),
   // result.toStyledString().data());
