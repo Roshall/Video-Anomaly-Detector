@@ -13,9 +13,10 @@
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "config.h"
-#include "monitor.h"
 #include "event.h"
+#include "format_convertor.h"
 #include "jpeg_encoder.h"
+#include "monitor.h"
 #include "scheduler.h"
 #include "streamer.h"
 
@@ -102,31 +103,36 @@ void Worker::remove() {
 
 void Worker::OfflineAnalyze(float conf_th) {
   auto in{Streamer(monitor_->stream_url)};
+  if (!in.Valid()) return;
+
   int width = in.width();
   int height = in.height();
-  auto in_time_base = in.time_base;
-  auto example = in.NextFrame();
-  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in_stream->GetFps()/event_cfg_.minor_stride_ms);
+  const auto in_time_base = in.time_base;
+  const auto example = in.NextFrame();
+  if (!example) {
+    return;
+  }
+  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in.GetFps()/event_cfg_.minor_stride_ms);
 
-  timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
+  timer_.init(in.format_context(), in.stream());
 
   EventDetector checker{
       EventDetectorConfig{.minor_stride_ms = 500, .min_vote = 2},
       *analyzer,
-      {width, height, in_stream->video_codec_ctx->pix_fmt, width, height},
+      {width, height, in.PixelFormat(), width, height},
       monitor_->roi_points,
       example};
 
   JPEGEncoder pict_writer(width, height);
   while (!in.EoF()) {
-    auto frame = in.NextFrame();
-    auto timestamp = frame->best_effort_timestamp;
+    const auto frame = in.NextFrame();
+    const auto timestamp = frame->best_effort_timestamp;
 
     frame->time_base = in_time_base;
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
     // to has 'ms' time base
-    auto state = checker.ProcessFrame(
+    const auto state = checker.ProcessFrame(
         {av_rescale_q(timestamp, in_time_base, {1, 1000}), frame});
 
     auto upload_dir = scheduler->GetConfig().upload_dir;
@@ -205,7 +211,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     }
 
     if (push) {
-      std::string url = std::format("{}/api/postAddAlarm", conf.admin_host);
+      const std::string url = std::format("{}/api/postAddAlarm", conf.admin_host);
       Json::Value param;
       param["control_code"] = monitor_->code;
       param["desc"] = "";
@@ -213,7 +219,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       param["create_time"] = time_str;
       param["level"] = level.data();
 
-      std::string data = param.toStyledString();
+      const std::string data = param.toStyledString();
       Request request;
       std::string response;
       request.post(url.data(), data.data(), response);
