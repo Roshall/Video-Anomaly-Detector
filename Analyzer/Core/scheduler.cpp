@@ -70,7 +70,7 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
   auto worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, file);
   if (file) {
     g_th_pool.detach_task(
-        [&worker, conf_th] { worker->OfflineAnalyze(conf_th); });
+        [worker= std::move(worker), conf_th] { worker->OfflineAnalyze(conf_th); });
     result_msg = "add sucess";
     result_code = 1000;
   }else if (worker->start(result_msg, conf_th)) {
