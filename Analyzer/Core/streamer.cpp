@@ -8,10 +8,13 @@
 namespace avs_analyzer{
 
 Streamer::Streamer(const std::string& url){
-    Init(url);
+    if (!Init(url)) {
+      fmt_ctx_.reset();
+      codec_ctx_.reset();
+    }
 }
 Streamer::~Streamer() =default;
-bool Streamer::Valid() {
+bool Streamer::Valid() const {
   return fmt_ctx_ && codec_ctx_;
 }
 AVFrame* Streamer::NextFrame() {
@@ -52,17 +55,24 @@ int Streamer::height() const {
   return codec_ctx_->height;
 }
 AVPixelFormat Streamer::PixelFormat() const { return codec_ctx_->pix_fmt; }
+float Streamer::GetFps() const {
+  if (stream_->avg_frame_rate.num && stream_->avg_frame_rate.den) {
+    return static_cast<float>(stream_->avg_frame_rate.num) / stream_->avg_frame_rate.den;
+  }
+  return 25.0f;
+}
 bool Streamer::Init(const std::string& url) {
   fmt_ctx_.reset(avformat_alloc_context());
   if(!fmt_ctx_) {
     return false;
   }
   int ret;
-  auto ctx = fmt_ctx_.get();
+  auto ctx = fmt_ctx_.release();
   if ((ret = avformat_open_input(&ctx, url.c_str(), nullptr, nullptr)) < 0) {
     LOGE_FFMPEG("Could not open input stream:", ret);
     return false;
   }
+  fmt_ctx_.reset(ctx);
 
   if ((ret = avformat_find_stream_info(fmt_ctx_.get(), nullptr)) < 0) {
     LOGE_FFMPEG("Could not find stream information:", ret);
@@ -70,16 +80,16 @@ bool Streamer::Init(const std::string& url) {
   }
 
   av_dump_format(fmt_ctx_.get(), 0, url.c_str(), 0);
-  LOGE_FFMPEG("Successfully opened stream.", ret);
-  auto index = av_find_best_stream(fmt_ctx_.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+  LOGI("Successfully opened stream: {}", url);
+  const auto index = av_find_best_stream(fmt_ctx_.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   if (index < 0) {
     LOGE_FFMPEG("Could not find video stream", ret);
     return false;
   }
-  auto stream_p = fmt_ctx_->streams[index];
+  const auto stream_p = fmt_ctx_->streams[index];
   time_base = stream_p->time_base;
-  fps = stream_p->avg_frame_rate.num / stream_p->avg_frame_rate.den;
-  auto codec_param = stream_p->codecpar;
+  const auto codec_param = stream_p->codecpar;
+  stream_ = stream_p;
   const AVCodec* codec_p;
   if ((codec_p = avcodec_find_decoder(codec_param->codec_id))== nullptr){
     LOGE_FFMPEG("Could not find the codec", ret);
