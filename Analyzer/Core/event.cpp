@@ -8,6 +8,7 @@
 #include <numeric>
 
 #include "Utils/log.h"
+#include "format_convertor.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -20,7 +21,7 @@ namespace avs_analyzer {
 EventDetector::EventDetector(const EventDetectorConfig& config,
                              const Analyzer& analyzer,
                              FormatConvertor convertor,
-                             std::vector<cv::Point>& roi_points,
+                             const std::vector<cv::Point>& roi_points,
                              AVFrame* sample)
     : config_(config),
       painter_{roi_points, sample},
@@ -38,13 +39,12 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
 
 std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
   const Frame* frame{};
-  auto rpos = object_votes_window_.first_votes_reserve_pos();
-  if (rpos > 0) {
+  if (const auto pos_r = object_votes_window_.first_votes_reserve_pos(); pos_r > 0) {
     // The frame_buffer_ contains more frames than the window, so we need to
     // find the correct starting point. The last frame in the buffer corresponds
     // to the last vote in the window.
-    if (frame_buffer_.size() >= rpos) {
-      frame = frame_buffer_[frame_buffer_.size() - rpos].get();
+    if (frame_buffer_.size() >= pos_r) {
+      frame = frame_buffer_[frame_buffer_.size() - pos_r].get();
     }
   }
   if (!frame) {
@@ -233,8 +233,8 @@ std::unique_ptr<Event> EventDetector::Flush() {
 std::vector<cv::Rect> EventDetector::Detect(AVFrame* frame) {
   return analyzer_.ProcessVideoFrame(convertor_(frame));
 }
-std::unique_ptr<Frame> EventDetector::latest_frame() {
-  auto& frame = frame_buffer_.back();
+std::unique_ptr<Frame> EventDetector::latest_frame() const {
+  const auto& frame = frame_buffer_.back();
   return std::make_unique<Frame>(frame->timestamp,
                                  AVFramePtr{av_frame_clone(frame->data.get())});
 }

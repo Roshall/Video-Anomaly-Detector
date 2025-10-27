@@ -21,7 +21,7 @@ class FrameWallClock {
   using sys_time = std::chrono::time_point<std::chrono::system_clock>;
 
 
-  void init(AVFormatContext* fmt, AVStream* stream) {
+  void init(const AVFormatContext* fmt, const AVStream* stream) {
     if (!fmt) throw std::invalid_argument("fmt == nullptr");
 
     time_base = stream->time_base;

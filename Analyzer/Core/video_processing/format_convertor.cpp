@@ -28,9 +28,9 @@ FormatConvertor::FormatConvertor(int in_width, int in_height,
   if (!sws_context_) {
     throw std::runtime_error("sws_getContext() failed");
   }
-  auto buff_size =
+  const auto buff_size =
       av_image_get_buffer_size(AV_PIX_FMT_BGR24, out_width, out_height, 1);
-  bgr_buffer_.reset(reinterpret_cast<uint8_t*>(av_malloc(buff_size)));
+  bgr_buffer_.reset(static_cast<uint8_t*>(av_malloc(buff_size)));
   if (!bgr_buffer_) {
     throw std::runtime_error("av_malloc() failed for bgr buffer");
   }

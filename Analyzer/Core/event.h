@@ -55,15 +55,16 @@ class EventDetector {
   };
 
   EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
-                FormatConvertor convertor, std::vector<cv::Point>& roi_points,
+                FormatConvertor convertor,
+                const std::vector<cv::Point>& roi_points,
                 AVFrame* sample);
 
   // Processes a single frame and returns an Event if one has just been
   // completed.
   State ProcessFrame(RawFrame frame);
 
-  [[nodiscard]] std::unique_ptr<Frame> latest_frame();
-  int64_t num_detection() const {
+  [[nodiscard]] std::unique_ptr<Frame> latest_frame() const;
+  [[nodiscard]] int64_t num_detection() const {
     return static_cast<int>(kept_bboxes_.size());
   }
   [[nodiscard]] int64_t event_duration() const {
@@ -73,8 +74,8 @@ class EventDetector {
       return frame_buffer_.back()->timestamp - active_event_start_ts_;
     }
   };
-  int64_t timestamp() const;
-  int64_t start_ts() const;
+  [[nodiscard]] int64_t timestamp() const;
+  [[nodiscard]] int64_t start_ts() const;
 
   // Flushes any pending event when the stream ends.
   std::unique_ptr<Event> Flush();
