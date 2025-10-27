@@ -140,7 +140,8 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     ret = avcodec_receive_packet(video_codec_ctx_.get(), reused_pkt_.get());
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
       break;
-    } else if (ret < 0) {
+    }
+    if (ret < 0) {
       get_frame = false;
       LOGE_FFMPEG("Error receiving packet from encoder", ret);
       break;
