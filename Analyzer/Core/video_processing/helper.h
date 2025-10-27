@@ -46,13 +46,12 @@ struct AVFormatContextDeleter {
       avformat_close_input(&ptr);
       return;
     }
-    if (ptr->oformat) {
-      if (ptr->pb && !(ptr->oformat->flags & AVFMT_NOFILE)) {
-        avio_closep(&ptr->pb);
-      }
-      avformat_free_context(ptr);
+    if (ptr->oformat && ptr->pb && !(ptr->oformat->flags & AVFMT_NOFILE)) {
+      avio_closep(&ptr->pb);
     }
+    avformat_free_context(ptr);
   }
+
 };
 struct AVCodecContextDeleter {
   void operator()(AVCodecContext* ptr) const { avcodec_free_context(&ptr); }
