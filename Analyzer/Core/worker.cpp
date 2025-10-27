@@ -220,9 +220,8 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       param["level"] = level.data();
 
       const std::string data = param.toStyledString();
-      Request request;
       std::string response;
-      request.post(url.data(), data.data(), response);
+      Request::post(url.data(), data.data(), response);
       LOGI("sent alarm image to {}", conf.admin_host);
     }
   });

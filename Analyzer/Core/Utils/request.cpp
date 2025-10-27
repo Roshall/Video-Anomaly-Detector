@@ -25,9 +25,6 @@ inline size_t onWrite(void* ptr, size_t size, size_t nmEmb, void* stream) {
     return size * nmEmb;
 }
 */
-Request::Request() {}
-
-Request::~Request() {}
 
 bool Request::get(const char* url, std::string& response) {
   CURL* curl = curl_easy_init();
