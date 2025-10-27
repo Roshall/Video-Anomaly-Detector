@@ -18,31 +18,38 @@ bool Streamer::Valid() const {
   return fmt_ctx_ && codec_ctx_;
 }
 AVFrame* Streamer::NextFrame() {
-  av_packet_unref(pkt_.get());
-  int ret;
-  if ((ret = av_read_frame(fmt_ctx_.get(), pkt_.get())) < 0) {
-    if (ret == AVERROR_EOF) {
-      end_ = true;
+  while (true) {
+    int ret = avcodec_receive_frame(codec_ctx_.get(), frame_.get());
+    if (ret == 0) {
+      return frame_.get();
+    } else if (ret != AVERROR(EAGAIN)) {
+      if (ret == AVERROR_EOF) { end_ = true; return nullptr; }
+      avs_analyzer::LOGE_FFMPEG("receive_frame failed", ret);
+    }
+
+    // Need more input: read next packet
+    av_packet_unref(pkt_.get());
+    ret = av_read_frame(fmt_ctx_.get(), pkt_.get());
+    if (ret < 0) {
+      if (ret == AVERROR_EOF) {
+        avcodec_send_packet(codec_ctx_.get(), nullptr);
+        continue;
+      }
+      LOGE_FFMPEG("could not read packet", ret);
       return nullptr;
     }
-    LOGE_FFMPEG("could not read package", ret);
-    return nullptr;
-  }
-  if ((ret = avcodec_send_packet(codec_ctx_.get(), pkt_.get())) < 0) {
-    LOGE_FFMPEG("Could not send packet to the decoder", ret);
-    return nullptr;
-  }
-  av_frame_unref(frame_.get());
-  ret = avcodec_receive_frame(codec_ctx_.get(), frame_.get());
-  if (ret == AVERROR_EOF) {
-    end_ = true;
-    return nullptr;
-  } else if (ret < 0) {
-    avs_analyzer::LOGE_FFMPEG("cound not receive frame from the decoder", ret);
-    return nullptr;
-  }
 
-  return frame_.get();
+    if (pkt_->stream_index != stream_->index) {
+      continue;
+    }
+
+    // Send video packet; if decoder is full, pull a frame and retry next loop
+    ret = avcodec_send_packet(codec_ctx_.get(), pkt_.get());
+    if (ret == AVERROR(EAGAIN)) {
+    } else if (ret < 0) {
+      LOGE_FFMPEG("send_packet failed", ret);
+    }
+  }
 }
 bool Streamer::EoF() const {
   return end_;
@@ -85,6 +92,21 @@ bool Streamer::Init(const std::string& url) {
   if (index < 0) {
     LOGE_FFMPEG("Could not find video stream", ret);
     return false;
+  }
+  AVStream* st = fmt_ctx_->streams[index];
+  if (st->codecpar->codec_id == AV_CODEC_ID_H264) {
+    const uint8_t* ed = st->codecpar->extradata;
+    int ed_size = st->codecpar->extradata_size;
+    if (!ed || ed_size < 7) {
+      LOGE("H264: missing/short extradata (avcC). Did find_stream_info run? size={}", ed_size);
+    } else {
+      // ISO/IEC 14496-15 'avcC' – NAL length size is (ed[4] & 0x03) + 1
+      int nal_len_size = (ed[4] & 0x03) + 1;
+      LOGI("H264 avcC present. extradata_size={}, nal_length_size={}", ed_size, nal_len_size);
+      if (nal_len_size < 1 || nal_len_size > 4) {
+        LOGE("H264: invalid nal_length_size={} in avcC", nal_len_size);
+      }
+    }
   }
   const auto stream_p = fmt_ctx_->streams[index];
   time_base = stream_p->time_base;
