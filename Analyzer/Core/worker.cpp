@@ -172,6 +172,10 @@ void Worker::OfflineAnalyze(float conf_th) {
         break;
     }
   }
+  // report completion to server
+  const std::string url = std::format("{}/api/offline/finished?code={}", scheduler->GetConfig().admin_host, monitor_->code);
+  std::string res;
+  Request::get(url.c_str(), res);
 }
 
 void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
