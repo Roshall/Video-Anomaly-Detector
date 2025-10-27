@@ -138,13 +138,15 @@ void AvPullStream::Read() {
     if (ret = av_read_frame(fmt_ctx.get(), pkt.get()); ret >= 0) {
       continuity_error_count = 0;
       if (pkt->stream_index == worker_->monitor_->video_index) {
-        if (video_pkt_queue_.size_approx() > 30 * 10) {
+        if (video_pkt_queue_.size_approx() > 300) {
           LOGE("too many package to encode, throw one away.");
           continue;
         }
         video_pkt_queue_.enqueue(std::move(pkt));
         pkt_cs_.release();
         pkt.reset(av_packet_alloc());
+      } else {
+        av_packet_unref(pkt.get());
       }
     } else {
       LOGE_FFMPEG("av_read_frame in pull stream failed", ret);
