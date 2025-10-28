@@ -124,6 +124,7 @@ void Worker::OfflineAnalyze(float conf_th) {
       example};
 
   JPEGEncoder pict_writer(width, height);
+  const auto fix_level = monitor_->levels.second[0];
   while (!in.EoF()) {
     const auto frame = in.NextFrame();
     const auto timestamp = frame->best_effort_timestamp;
@@ -139,11 +140,11 @@ void Worker::OfflineAnalyze(float conf_th) {
 
     switch (state) {
       case EventDetector::kEventStart: {
-        AlarmImage(checker, pict_writer, false);
+        AlarmImage(checker, pict_writer, fix_level, false);
         break;
       }
       case EventDetector::kEventSplit: {
-        AlarmImage(checker, pict_writer, false);
+        AlarmImage(checker, pict_writer, fix_level, false);
         auto start_ts = timer_.compute(checker.start_ts());
         auto event = checker.Flush();
         assert(event && "event should exist");
@@ -179,34 +180,18 @@ void Worker::OfflineAnalyze(float conf_th) {
 }
 
 void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
-                        bool push) noexcept {
+                        std::string_view level, bool push) noexcept {
   auto ts = timer_.compute(checker.timestamp());
-  int64_t num;
-  std::string_view level;
-  if (push) {
-    if (monitor_->level_mode == LevelMode::kNumPeople) {
-      num = checker.num_detection();
-    } else {
-      num = checker.event_duration();
-    }
-    size_t i = 0;
-    const auto total_level = monitor_->levels.first.size();
-    while (i < total_level && monitor_->levels.first[i] <= num) {
-      ++i;
-    }
-    level = monitor_->levels.second[std::max(i - 1, 0UL)];
-  }
-  g_th_pool.detach_task([&pict_writer, this, start_ts = timer_.compute(checker.start_ts()),
-                         ts, level, push, frame = checker.latest_frame()] {
-    auto& conf = scheduler->GetConfig();
+  g_th_pool.detach_task([&pict_writer, &conf = scheduler->GetConfig(), &code = monitor_->code, start_ts = timer_.compute(checker.start_ts()),
+                         ts, level = std::string(level), push, frame = checker.latest_frame()] {
     auto img_path =
-        std::format("{}/alarm/{}/{}", conf.upload_dir, monitor_->code,
+        std::format("{}/alarm/{}/{}", conf.upload_dir, code,
                     FrameWallClock::to_iso8601_utc(start_ts));
     std::filesystem::create_directories(std::filesystem::path(img_path));
     auto time_str = FrameWallClock::to_iso8601_utc(ts);
     auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
-    int ret = pict_writer.saveFrame(frame->data.get(), img_path_str);
-    if (ret < 0) {
+    if (const int ret = pict_writer.saveFrame(frame->data.get(), img_path_str);
+        ret < 0) {
       LOGE_FFMPEG("failed to save picture", ret);
       return;
     } else {
@@ -216,7 +201,7 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
     if (push) {
       const std::string url = std::format("{}/api/postAddAlarm", conf.admin_host);
       Json::Value param;
-      param["control_code"] = monitor_->code;
+      param["control_code"] = code;
       param["desc"] = "";
       param["img_path"] = img_path_str;
       param["create_time"] = time_str;
@@ -234,9 +219,9 @@ void Worker::DecodeVideo() {
   int width = in_stream->video_codec_ctx->width;
   int height = in_stream->video_codec_ctx->height;
 
-  AVFramePtr frame_yuv420p{av_frame_alloc()};  // pkt->解码->frame
+  const AVFramePtr frame_yuv420p{av_frame_alloc()};  // pkt->解码->frame
 
-  auto in_time_base = in_stream->stream->time_base;
+  const auto in_time_base = in_stream->stream->time_base;
   if (!GrabFrame(frame_yuv420p.get())) {
     LOGE("No data can be retrieve from stream. exist");
     return;
@@ -254,40 +239,65 @@ void Worker::DecodeVideo() {
 
   JPEGEncoder pict_writer(width, height);
 
+  int current_highest_level{0};
+
   while (getState() && monitor_->video_index > -1) {
     av_frame_unref(frame_yuv420p.get());
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
     }
-    auto timestamp = frame_yuv420p->best_effort_timestamp;
+    const auto timestamp = frame_yuv420p->best_effort_timestamp;
 
     frame_yuv420p->time_base = in_time_base;
     frame_yuv420p->pict_type = AV_PICTURE_TYPE_NONE;
     // the time base of timestamp / in_time_base is 's', we divide it by 1/1000
     // to has 'ms' time base
-    auto state =
-        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000}),
+    const auto state =
+        checker.ProcessFrame({av_rescale_q(timestamp, in_time_base, {1, 1000/*ms*/}),
                               frame_yuv420p.get()});
     if (monitor_->push_stream) {
       out_stream->AddVideoFrame(checker.latest_frame());
     }
+    // compute level
+    int64_t num;
+    if (monitor_->level_mode == LevelMode::kNumPeople) {
+      num = checker.num_detection();
+    } else {
+      num = checker.event_duration();
+    }
+    int level_cur = 0;
+    const int total_level = static_cast<int>(monitor_->levels.first.size());
+    while (level_cur < total_level && monitor_->levels.first[level_cur] <= num) {
+      ++level_cur;
+    }
+    --level_cur;
+    if (level_cur < 0) {
+      LOGE("Impossible state: {} monitor got negative level", monitor_->code);
+      level_cur = 0;
+    }
+
     switch (state) {
       case EventDetector::kEventStart: {
-        AlarmImage(checker, pict_writer, true);
+        current_highest_level = level_cur;
+        AlarmImage(checker, pict_writer, monitor_->levels.second[level_cur], true);
         break;
       }
       case EventDetector::kEventSplit: {
-        AlarmImage(checker, pict_writer, true);
+        AlarmImage(checker, pict_writer, monitor_->levels.second[level_cur], true);
         auto event = checker.Flush();
-        assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
         break;
       }
+      case EventDetector::kEventActive: {
+        if (level_cur > current_highest_level) {
+          AlarmImage(checker, pict_writer, monitor_->levels.second[level_cur], true);
+          current_highest_level = level_cur;
+        }
+      }
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
-        assert(event && "event should exist");
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
