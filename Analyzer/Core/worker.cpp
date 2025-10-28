@@ -112,13 +112,17 @@ void Worker::OfflineAnalyze(float conf_th) {
   if (!example) {
     return;
   }
-  analyzer = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in.GetFps()/event_cfg_.minor_stride_ms);
-
+  monitor_->video_width = example->width;
+  monitor_->video_height = example->height;
+  if (!monitor_->ParseRecognitionRegion()) {
+    LOGE("cannot parse recognition region");
+    return;
+  }
+  auto analyzer_ = std::make_unique<Analyzer>(monitor_.get(), scheduler->GetConfig(), conf_th, in.GetFps()/event_cfg_.minor_stride_ms);
   timer_.init(in.format_context(), in.stream());
-
   EventDetector checker{
-      EventDetectorConfig{.minor_stride_ms = 500, .min_vote = 2},
-      *analyzer,
+      event_cfg_,
+      *analyzer_,
       {width, height, in.PixelFormat(), width, height},
       monitor_->roi_points,
       example};
