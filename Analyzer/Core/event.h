@@ -40,7 +40,8 @@ struct EventDetectorConfig {  // all time in base ms
   int64_t pre_event_buffer_ms{1000};
   int64_t post_event_buffer_ms{1000};
   int64_t latest_duration_ms{};
-  bool defer_start() const;
+  int minimum_num{1};
+  [[nodiscard]] bool defer_start(int num_obj) const;
 };
 
 // Processes a stream of frames to detect events based on object presence.
@@ -84,7 +85,7 @@ class EventDetector {
   enum class InnerState {
     kMajorCheck,
     kMinorCheck,
-    kDurationCheck,
+    kDoubleCheck,
     kEventActive,
     kEventEnding
   };
@@ -107,8 +108,7 @@ class EventDetector {
     }
     [[nodiscard]] long first_votes_reserve_pos() const {
       return std::distance(object_votes_window_.end(),
-                           std::find(object_votes_window_.cbegin(),
-                                     object_votes_window_.cend(), true));
+                           std::ranges::find(object_votes_window_, true));
     }
     [[nodiscard]] int votes() const { return votes_; }
 

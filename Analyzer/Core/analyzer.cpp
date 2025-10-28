@@ -37,9 +37,6 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th,
       conf_th_(conf_th),
       roi_area_(cv::contourArea(monitor->roi_points)),
       roi_bbox_(computeBoundingBox(monitor_->roi_points)) {
-  if (monitor->level_mode == LevelMode::kNumPeople) {
-    minimum_num_ = monitor->levels.first[0];
-  }
   if (monitor->task == Task::kWandering) {
     auto duration = monitor->levels.first[0];
 
@@ -92,9 +89,6 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
       if (point_to_polygon > 0) {
         detection_results.push_back(det.bbox[i]);
       }
-    }
-    if (detection_results.size() < minimum_num_) {
-      detection_results.clear();
     }
   }
 

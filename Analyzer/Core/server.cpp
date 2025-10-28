@@ -386,7 +386,8 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .window_size = ws,
           .min_vote = std::max(static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100), 1),
           .max_event_duration_ms = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000),
-          .latest_duration_ms = duration
+          .latest_duration_ms = duration,
+          .minimum_num = mode == LevelMode::kNumPeople ? monitor.levels.first[0] : 1,
       };
       float conf_th = root["modelConfidenceThreshold"].asFloat();
       if (monitor.ValidateAdd(result_msg)) {

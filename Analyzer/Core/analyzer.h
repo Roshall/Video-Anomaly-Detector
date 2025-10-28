@@ -20,7 +20,6 @@ class Analyzer {
  private:
   Monitor* monitor_;
   std::unique_ptr<Algorithm> algorithm_;
-  int minimum_num_{1};
   float conf_th_;
   double roi_area_;
   cv::Rect roi_bbox_;

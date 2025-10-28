@@ -190,12 +190,11 @@ void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
       num = checker.event_duration();
     }
     size_t i = 0;
-    auto total_level = monitor_->levels.first.size();
+    const auto total_level = monitor_->levels.first.size();
     while (i < total_level && monitor_->levels.first[i] <= num) {
       ++i;
     }
-    if (i == 0) return;
-    level = monitor_->levels.second[i - 1];
+    level = monitor_->levels.second[std::max(i - 1, 0UL)];
   }
   g_th_pool.detach_task([&pict_writer, this, start_ts = timer_.compute(checker.start_ts()),
                          ts, level, push, frame = checker.latest_frame()] {

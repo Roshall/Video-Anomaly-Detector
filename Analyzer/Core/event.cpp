@@ -83,8 +83,8 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
               votes >= config_.min_vote) {
             std::tie(active_event_start_ts_, start_frame_ts_) =
                 FindFirstVoteTimestamp();
-            if (config_.defer_start()) {
-              current_state_ = InnerState::kDurationCheck;
+            if (config_.defer_start(static_cast<int>(kept_bboxes_.size()))) {
+              current_state_ = InnerState::kDoubleCheck;
               LOGD(">>> Verification succeeded at t = {}ms, Starting Duration Checking", current_ts);
             } else {
               LOGD(">>> EVENT DETECTED at t = {}ms <<<", current_ts);
@@ -102,7 +102,7 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
       }
       break;
     }
-    case InnerState::kDurationCheck: {
+    case InnerState::kDoubleCheck: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(frame.data);
@@ -114,10 +114,10 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
 
         if (auto votes = object_votes_window_.votes();
             votes >= config_.min_vote) {
-          if (current_ts - active_event_start_ts_ >= config_.latest_duration_ms) {
+          if (current_ts - active_event_start_ts_ >= config_.latest_duration_ms && kept_bboxes_.size() >= config_.minimum_num) {
             LOGD(">>> EVENT DETECTED at t = {}ms <<<", current_ts);
             current_state_ = InnerState::kEventActive;
-            state = State::kEventStart;
+            state = kEventStart;
           }
         } else {
           LOGD(
@@ -142,10 +142,10 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
           kept_bboxes_ = std::move(bboxes);
         }
 
-        state = State::kEventActive;
+        state = kEventActive;
         // Check for event end condition
         if (auto votes = object_votes_window_.votes();
-            votes < config_.min_vote) {
+            votes < config_.min_vote || kept_bboxes_.size() < config_.minimum_num) {
           LOGD("[Active] Event ending at t = {}ms. Votes dropped to {}.",
                current_ts, votes);
           // Prepare for next event search
@@ -171,11 +171,11 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
           last_spilt_time_ < 0 ? active_event_start_ts_ : last_spilt_time_;
       if (current_ts - start >= config_.post_event_buffer_ms) {
         // Finalize the event.
-        current_state_ = InnerState::kMajorCheck;
+        current_state_ = kept_bboxes_.empty() ? InnerState::kMajorCheck: InnerState::kDoubleCheck;
         last_major_check_ts_ = current_ts;
         object_votes_window_.clear();
         kept_bboxes_.clear();
-        state = State::kEventEnd;
+        state = kEventEnd;
         last_spilt_time_ = -1;
       }
       break;
@@ -239,7 +239,7 @@ int64_t EventDetector::timestamp() const {
   return frame_buffer_.back()->data->best_effort_timestamp;
 }
 int64_t EventDetector::start_ts() const { return start_frame_ts_; }
-bool EventDetectorConfig::defer_start() const {
-  return minor_stride_ms * window_size < latest_duration_ms;
+bool EventDetectorConfig::defer_start(int num_obj) const {
+  return minor_stride_ms * window_size < latest_duration_ms || num_obj < minimum_num;
 }
 }  // namespace avs_analyzer
