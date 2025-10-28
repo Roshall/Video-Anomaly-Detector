@@ -139,7 +139,7 @@ void AvPullStream::Read() {
       continuity_error_count = 0;
       if (pkt->stream_index == worker_->monitor_->video_index) {
         if (video_pkt_queue_.size_approx() > 300) {
-          LOGE("too many package to encode, throw one away.");
+          LOGW("too many package to encode, throw one away.");
           continue;
         }
         video_pkt_queue_.enqueue(std::move(pkt));
