@@ -326,27 +326,26 @@ AVFrame* create_polygon_overlay(int width, int height,
 int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
                        AVFrame* frame) {
   // Create the polygon overlay frame first
-  YUVAColor red = {76, 84, 255, 255};  // Opaque Red in YUVA
   polygon_overlay_frame.reset(create_polygon_overlay(
-      frame->width, frame->height, polygon_vertices, red));
+      frame->width, frame->height, polygon_vertices, {76, 84, 255, 255}/*Opaque Red in YUVA*/));
   if (!polygon_overlay_frame) {
     LOGE("Failed to create polygon overlay");
     return AVERROR(ENOMEM);
   }
   int width = frame->width, height = frame->height;
-  auto tb = frame->time_base.num ? frame->time_base : AVRational{1, 1000};
-  auto sar = frame->sample_aspect_ratio.num ? frame->sample_aspect_ratio
+  auto [tnum, tden] = frame->time_base.num ? frame->time_base : AVRational{1, 1000};
+  auto [num, den] = frame->sample_aspect_ratio.num ? frame->sample_aspect_ratio
                                             : AVRational{1, 1};
 
-  auto args_main = std::format(
+  const auto args_main = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", width,
-      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)), tb.num, tb.den, sar.num, sar.den);
+      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)), tnum, tden, num, den);
 
-  auto args_overlay = std::format(
+  const auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1", width,
-      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(polygon_overlay_frame->format)), tb.num, tb.den);
+      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(polygon_overlay_frame->format)), tnum, tden);
 
-  format = (AVPixelFormat)frame->format;
+  format = static_cast<AVPixelFormat>(frame->format);
   const std::string filter_descr = "[in][poly]overlay=format=auto[out]";
 
   filter_graph.reset(avfilter_graph_alloc());
@@ -363,10 +362,9 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   const AVFilter* buffersrc = avfilter_get_by_name("buffer");
   const AVFilter* buffersink = avfilter_get_by_name("buffersink");
 
-  int ret;
-  ret = avfilter_graph_create_filter(&buffersrc_ctx_main, buffersrc, "in",
-                                     args_main.c_str(), nullptr,
-                                     filter_graph.get());
+  int ret = avfilter_graph_create_filter(&buffersrc_ctx_main, buffersrc, "in",
+                                         args_main.c_str(), nullptr,
+                                         filter_graph.get());
   if (ret < 0) {
     LOGE_FFMPEG("Cannot create buffer source.", ret);
     return ret;
@@ -426,7 +424,7 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
 
 AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
                                        const std::vector<cv::Rect>& rects,
-                                       int thickness) {
+                                       int thickness) const {
   if (!in_frame) return nullptr;
 
   // Make sure the cloned frame is writable
@@ -437,11 +435,10 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   }
 
   // 2. Draw all rectangles directly onto the cloned frame's pixel data.
-  const YUVColor rect_color = {76, 84, 255};  // Red
   for (const auto& r : rects) {
     // NOTE: This assumes the input format is YUVA420P. A robust implementation
     // would need to handle different pixel formats.
-    draw_rectangle_yuv420p(in_frame, r, rect_color, thickness);
+    draw_rectangle_yuv420p(in_frame, r, {76, 84, 255}, thickness);
   }
 
   // 3. Push the modified frame and the overlay into the static graph

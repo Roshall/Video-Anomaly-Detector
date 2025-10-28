@@ -24,7 +24,7 @@ class VideoOverlay {
   VideoOverlay() = default;
   VideoOverlay(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame) {
     if (init(polygon_vertices, frame) < 0) {
-      std::runtime_error("could not initialize overlay");
+      throw std::runtime_error("could not initialize overlay");
     }
   }
 
@@ -33,7 +33,7 @@ class VideoOverlay {
 
   // Draws dynamic rectangles on the input frame. The fixed polygon is also drawn.
   AVFramePtr draw_elements(AVFrame* in_frame,
-                           const std::vector<cv::Rect>& rects, int thickness);
+                           const std::vector<cv::Rect>& rects, int thickness) const;
 
  private:
 
@@ -44,7 +44,7 @@ class VideoOverlay {
 
   // We store the pre-rendered polygon frame here
   AVFramePtr polygon_overlay_frame;
-  AVPixelFormat format;
+  AVPixelFormat format{};
 
 };
 }
