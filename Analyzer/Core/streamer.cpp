@@ -22,8 +22,12 @@ AVFrame* Streamer::NextFrame() {
     int ret = avcodec_receive_frame(codec_ctx_.get(), frame_.get());
     if (ret == 0) {
       return frame_.get();
-    } else if (ret != AVERROR(EAGAIN)) {
-      if (ret == AVERROR_EOF) { end_ = true; return nullptr; }
+    }
+    if (ret != AVERROR(EAGAIN)) {
+      if (ret == AVERROR_EOF) {
+        end_ = true;
+        return nullptr;
+      }
       avs_analyzer::LOGE_FFMPEG("receive_frame failed", ret);
     }
 
