@@ -38,6 +38,7 @@ int main(int argc, char** argv) {
     printf("set parameter error:%s\n", arg);
     return -1;
   }
+  spdlog::set_default_logger(LoggerSingleton::instance().get_logger());
 
   sigset_t mask;
   sigemptyset(&mask);

@@ -2,7 +2,6 @@
 #define ANALYZER_LOG_FORMATTER_H
 
 #include <spdlog/spdlog.h>
-#include <spdlog/fmt/fmt.h>
 #include <spdlog/pattern_formatter.h>
 #include <string>
 #include <map>
@@ -42,7 +41,7 @@ class LevelBasedFormatter final : public spdlog::formatter {
      * @param tz_offset_hours The time zone offset in hours (e.g., 8 for UTC+8/Beijing time).
      * @return std::unique_ptr<spdlog::formatter> The configured formatter.
    */
-  static std::unique_ptr<spdlog::formatter> create_formatter(const std::string& pattern, int tz_offset_hours);
+  static std::unique_ptr<formatter> create_formatter(const std::string& pattern, int tz_offset_hours);
 };
 
 

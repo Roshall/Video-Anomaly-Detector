@@ -9,25 +9,21 @@ namespace avs_analyzer {
 // Pattern flags that are common across most levels
 // %^%L%$ : Colorized log level
 // %Y/%m/%d %H:%M:%S : Date and Time
-// +0800 : Hardcoded offset for Beijing Time Zone (since set_tz_offset is removed)
 // %v : The message payload
 
 LevelBasedFormatter::LevelBasedFormatter() {
   using spdlog::level::level_enum;
   using spdlog::pattern_formatter;
 
-  // --- Define Patterns ---
-
-  // 1. INFO Level: SHORT message + Fixed Beijing Time Offset (+0800)
-  // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 Message
+  // 1. INFO Level: SHORT message
   std::string info_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S %v";
 
   // 2. WARNING Level: Adds Source File
-  // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 [Source File] Message
+  // Pattern: [Level] YYYY/MM/DD HH:MM:SS [Source File] Message
   std::string warn_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S [%s] %v";
 
   // 3. DEBUG/ERROR/TRACE/CRITICAL Level: Adds File, Line, Function, Thread ID [Ti]
-  // Pattern: [Level] YYYY/MM/DD HH:MM:SS +0800 [File:Line] [Function] [Ti:ThreadID] Message
+  // Pattern: [Level] YYYY/MM/DD HH:MM:SS [File:Line] [Function] [Ti:ThreadID] Message
   // %s = source file, %# = line number, %! = function name, %t = thread id
   std::string detail_pattern = "[%^%L%$] %Y/%m/%d %H:%M:%S [%s:%#] [%!] [Ti:%t] %v";
 

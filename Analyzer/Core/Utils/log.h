@@ -1,10 +1,11 @@
 #ifndef ANALYZER_LOG_H
 #define ANALYZER_LOG_H
+#include "log_formatter.h"
 
 #include <memory>
+#include <source_location>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include "log_formatter.h"
 
 namespace avs_analyzer {
   
@@ -49,14 +50,24 @@ class LoggerSingleton final {
   std::shared_ptr<spdlog::logger> logger_;
 };
 
+[[nodiscard]] constexpr spdlog::source_loc to_spdlog_loc(
+    const std::source_location& location)
+{
+  return spdlog::source_loc{
+    location.file_name(),
+    static_cast<int>(location.line()),
+    location.function_name()
+};
+}
+
 // Convenient macro to access the logger throughout the application
 #define LOGGER ::avs_analyzer::LoggerSingleton::instance().get_logger()
 
 // Convenience macros
-#define LOGI(...) LOGGER->info(__VA_ARGS__)
-#define LOGW(...) LOGGER->warn(__VA_ARGS__)
-#define LOGD(...) LOGGER->debug(__VA_ARGS__)
-#define LOGE(...) LOGGER->error(__VA_ARGS__)
+#define LOGI(...) SPDLOG_INFO(__VA_ARGS__)
+#define LOGW(...) SPDLOG_WARN(__VA_ARGS__)
+#define LOGD(...) SPDLOG_DEBUG(__VA_ARGS__)
+#define LOGE(...) SPDLOG_ERROR(__VA_ARGS__)
 
 }  // namespace avs_analyzer
 #endif  // ANALYZER_LOG_H

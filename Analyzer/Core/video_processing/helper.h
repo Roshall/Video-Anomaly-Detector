@@ -19,15 +19,6 @@ extern "C" {
 }
 
 namespace avs_analyzer {
-[[nodiscard]] constexpr spdlog::source_loc to_spdlog_loc(
-    const std::source_location& location)
-{
-  return spdlog::source_loc{
-      location.file_name(),
-      static_cast<int>(location.line()),
-      location.function_name()
-  };
-}
 
 inline void log_ffmpeg_error_impl(const std::source_location& loc, const std::string& message, int error_code) {
   char err_buf[AV_ERROR_MAX_STRING_SIZE];

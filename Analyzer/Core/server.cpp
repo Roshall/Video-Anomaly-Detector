@@ -168,7 +168,7 @@ void ApiSnapShot(evhttp_request* req, void*) {
     // Open video
     cv::VideoCapture cap;
     if (!cap.open(path)) {
-      std::string msg = R"({"error":"failed to open video","path":")" + escape_json(path) + "\"}";
+      auto msg = std::format(R"({{"error":"failed to open video","path":"{}"}})", escape_json(path));
       send_json(req, HTTP_BADREQUEST, msg);
       return;
     }
@@ -176,7 +176,7 @@ void ApiSnapShot(evhttp_request* req, void*) {
     // Read first frame
     cv::Mat frame;
     if (!cap.read(frame) || frame.empty()) {
-      std::string msg = R"({{ {"error":"failed to read first frame","path":" {} } }})" + escape_json(path);
+      auto msg = std::format(R"({{"error":"failed to read first frame","path":"{}" }})", escape_json(path));
       send_json(req, HTTP_BADREQUEST, msg);
       return;
     }
