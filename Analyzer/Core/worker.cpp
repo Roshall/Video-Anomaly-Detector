@@ -103,13 +103,16 @@ void Worker::remove() {
 
 void Worker::OfflineAnalyze(float conf_th) {
   auto in{Streamer(monitor_->stream_url)};
-  if (!in.Valid()) return;
-
+  if (!in.Valid()) {
+    LOGE("invalid stream");
+    return;
+  }
   int width = in.width();
   int height = in.height();
   const auto in_time_base = in.time_base;
   const auto example = in.NextFrame();
   if (!example) {
+    LOGE("empty frame.");
     return;
   }
   monitor_->video_width = example->width;
@@ -126,11 +129,13 @@ void Worker::OfflineAnalyze(float conf_th) {
       {width, height, in.PixelFormat(), width, height},
       monitor_->roi_points,
       example};
-
   JPEGEncoder pict_writer(width, height);
   const auto fix_level = monitor_->levels.second[0];
   while (!in.EoF()) {
     const auto frame = in.NextFrame();
+    if (!frame) {
+      break;
+    }
     const auto timestamp = frame->best_effort_timestamp;
 
     frame->time_base = in_time_base;
@@ -151,7 +156,10 @@ void Worker::OfflineAnalyze(float conf_th) {
         AlarmImage(checker, pict_writer, fix_level, false);
         auto start_ts = timer_.compute(checker.start_ts());
         auto event = checker.Flush();
-        assert(event && "event should exist");
+        if (!event) {
+          LOGE("Impossible state: event is null");
+          return;
+        }
         g_th_pool.detach_task([start_ts, code = monitor_->code,
                                event = std::move(event), width, height,
                                upload_dir]() mutable {
@@ -163,7 +171,10 @@ void Worker::OfflineAnalyze(float conf_th) {
       }
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
-        assert(event && "event should exist");
+        if (!event) {
+          LOGE("Impossible state: event is null");
+          return;
+        }
         auto ts = timer_.compute(event->start_timestamp);
         g_th_pool.detach_task([ts, code = monitor_->code,
                                event = std::move(event), width, height,
@@ -181,6 +192,7 @@ void Worker::OfflineAnalyze(float conf_th) {
   const std::string url = std::format("{}/api/offline/finished?code={}", scheduler->GetConfig().admin_host, monitor_->code);
   std::string res;
   Request::get(url.c_str(), res);
+  LOGI("offline analyzer response: {}", res);
 }
 
 void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
@@ -289,6 +301,10 @@ void Worker::DecodeVideo() {
       case EventDetector::kEventSplit: {
         AlarmImage(checker, pict_writer, monitor_->levels.second[level_cur], true);
         auto event = checker.Flush();
+        if (!event) {
+          LOGE("Impossible state: event is null");
+          break;
+        }
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
@@ -299,9 +315,14 @@ void Worker::DecodeVideo() {
           AlarmImage(checker, pict_writer, monitor_->levels.second[level_cur], true);
           current_highest_level = level_cur;
         }
+        break;
       }
       case EventDetector::kEventEnd: {
         auto event = checker.Flush();
+        if (!event) {
+          LOGE("Impossible state: event is null");
+          break;
+        }
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event->start_timestamp), monitor_->code,
             std::move(event), out_width, out_height));
