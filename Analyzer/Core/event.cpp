@@ -204,7 +204,8 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
 
 std::unique_ptr<Event> EventDetector::Flush() {
   if ((current_state_ == InnerState::kMajorCheck ||
-       current_state_ == InnerState::kEventActive) &&
+       current_state_ == InnerState::kEventActive ||
+       current_state_ == InnerState::kDoubleCheck) &&
       !frame_buffer_.empty()) {
     auto event = std::make_unique<Event>(
         start_frame_ts_, frame_buffer_.back()->data->best_effort_timestamp);
