@@ -158,8 +158,7 @@ bool get_request_json(const evhttp_request* req, Json::Value& root) {
 
 
 void ApiSnapShot(evhttp_request* req, void*) {
-  Json::Value json_req;
-  if (get_request_json(req, json_req)) {
+  if (Json::Value json_req; get_request_json(req, json_req)) {
     std::string path;
     try {
       path = json_req["videoPath"].asString();
@@ -184,8 +183,8 @@ void ApiSnapShot(evhttp_request* req, void*) {
 
     // Encode to JPEG bytes
     std::vector<unsigned char> jpeg;
-    std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 90 };
-    if (!cv::imencode(".jpg", frame, jpeg, params)) {
+    if (std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 90};
+        !cv::imencode(".jpg", frame, jpeg, params)) {
       send_json(req, HTTP_SERVUNAVAIL, R"({"error":"JPEG encode failed"})");
       return;
     }
@@ -201,6 +200,7 @@ void ApiSnapShot(evhttp_request* req, void*) {
     json["data"] = b64;
 
     send_json(req, HTTP_OK, json.toStyledString());
+    LOGI("receive request for snapshot: {}. Successfully sent.", path);
   } else {
     LOGE("failed to parse json");
   }
