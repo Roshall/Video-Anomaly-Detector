@@ -1,5 +1,12 @@
-cmake_minimum_required(VERSION 3.16.0)
+cmake_minimum_required(VERSION 3.21)
 project(Analyzer)
+
+# Make built and installed binaries look for libs next to them
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+# When installed, binaries will search ../lib (relative to bin/)
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -84,6 +91,7 @@ if (ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
 else ()
     message(FATAL_ERROR "ONNX Runtime not found")
 endif ()
+get_filename_component(ONNXRUNTIME_LIBDIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
 
 find_path(EIGEN_INCLUDE_DIR NAMES Eigen/Dense PATH_SUFFIXES include/eigen3)
 if (EIGEN_INCLUDE_DIR)
@@ -240,6 +248,7 @@ set(source
         Analyzer/Core/streamer.cpp
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/bas64.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -261,19 +270,45 @@ target_link_libraries(Analyzer PRIVATE
         concurrentqueue::concurrentqueue
         spdlog::spdlog
 )
+target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
 
 # Include directories (if needed beyond what find_package provides)
 target_include_directories(Analyzer PRIVATE
         ${OpenCV_INCLUDE_DIRS}
         ${FFMPEG_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
+        ${EIGEN_INCLUDE_DIR}
 )
 
-target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR})
+target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
 
-# Add log formatter source files
-set(log_formatter_source
-        Analyzer/Core/Utils/log_formatter.cpp
+install(TARGETS Analyzer
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
 )
 
-target_sources(Analyzer PRIVATE ${log_formatter_source})
+install(
+        TARGETS Analyzer
+        RUNTIME_DEPENDENCIES
+        PRE_EXCLUDE_REGEXES
+        # exclude core system libs
+        ".*ld-linux.*\\.so.*"
+        ".*linux-vdso.*"
+        ".*libc\\.so.*"
+        ".*libm\\.so.*"
+        ".*libdl\\.so.*"
+        ".*librt\\.so.*"
+        ".*libpthread\\.so.*"
+        ".*libresolv\\.so.*"
+        ".*libnsl\\.so.*"
+        ".*libgcc_s\\.so.*"
+        # (optional) exclude stdc++; if you want to bundle it, remove this line
+        ".*libstdc\\+\\+\\.so.*"
+        ".*gtest.*" ".*gmock.*"
+        POST_EXCLUDE_REGEXES
+        # skip GPU driver bits, if accidentally seen
+        ".*dri/.*"
+        DIRECTORIES
+        ${THIRDPARTY_LIB_DIRS}
+)
