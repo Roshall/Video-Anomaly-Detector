@@ -27,7 +27,7 @@ std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
                                  (path_prefix / "yolov8n.onnx").string(), use_accelerator);
     case Task::kSleepWork:
       return pool.get_or_emplace(task_string,
-                                 (path_prefix / "sleeping_n.onnx").string(), use_accelerator);
+                                 (path_prefix / "sleeping_m.onnx").string(), use_accelerator);
     case Task::kWallClimbing:
       return pool.get_or_emplace(task_string,
                                  (path_prefix / "climbing_m.onnx").string(), use_accelerator, 1);
