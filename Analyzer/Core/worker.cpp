@@ -275,22 +275,33 @@ void Worker::DecodeVideo() {
       out_stream->AddVideoFrame(checker.latest_frame());
     }
     // compute level
-    int64_t num;
-    if (monitor_->level_mode == LevelMode::kNumPeople) {
-      num = checker.num_detection();
-    } else {
-      num = checker.event_duration();
-    }
     int level_cur = 0;
-    const int total_level = static_cast<int>(monitor_->levels.first.size());
-    while (level_cur < total_level && monitor_->levels.first[level_cur] <= num) {
-      ++level_cur;
+    switch (state) {
+      case EventDetector::kEventStart:
+      case EventDetector::kEventActive:
+      case EventDetector::kEventSplit: {
+        int64_t num;
+        if (monitor_->level_mode == LevelMode::kNumPeople) {
+          num = checker.num_detection();
+        } else {
+          num = checker.event_duration();
+        }
+
+        const int total_level = static_cast<int>(monitor_->levels.first.size());
+        while (level_cur < total_level && monitor_->levels.first[level_cur] <= num) {
+          ++level_cur;
+        }
+        --level_cur;
+        if (level_cur < 0) {
+          LOGE("Impossible state: {} monitor got negative level", monitor_->code);
+          level_cur = 0;
+        }
+      }
+        break;
+      default: break;
     }
-    --level_cur;
-    if (level_cur < 0) {
-      LOGE("Impossible state: {} monitor got negative level", monitor_->code);
-      level_cur = 0;
-    }
+
+
 
     switch (state) {
       case EventDetector::kEventStart: {

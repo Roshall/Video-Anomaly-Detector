@@ -69,11 +69,7 @@ class EventDetector {
     return static_cast<int>(kept_bboxes_.size());
   }
   [[nodiscard]] int64_t event_duration() const {
-    if (current_state_ != InnerState::kEventActive) {
-      return 0;
-    } else {
-      return frame_buffer_.back()->timestamp - active_event_start_ts_;
-    }
+    return frame_buffer_.back()->timestamp - active_event_start_ts_;
   };
   [[nodiscard]] int64_t timestamp() const;
   [[nodiscard]] int64_t start_ts() const;
