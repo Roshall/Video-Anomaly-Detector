@@ -19,7 +19,7 @@ FormatConvertor::FormatConvertor(int in_width, int in_height,
       in_height_{in_height},
       bgr_frame_{av_frame_alloc()},
       sws_context_{sws_getContext(in_width, in_height, in_fmt, out_width,
-                                  out_height, AV_PIX_FMT_BGR24, SWS_BICUBIC,
+                                  out_height, AV_PIX_FMT_BGR24, SWS_BILINEAR,
                                   nullptr, nullptr, nullptr)} {
   
   if (!bgr_frame_) {
