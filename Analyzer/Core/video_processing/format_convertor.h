@@ -18,7 +18,7 @@ class FormatConvertor {
  public:
   FormatConvertor(int in_width, int in_height, AVPixelFormat in_fmt, int out_width, int out_height);
   FormatConvertor(FormatConvertor& other) = delete;
-  cv::Mat operator() (AVFrame* original_frame);
+  cv::Mat operator() (const AVFrame* original_frame);
   FormatConvertor(FormatConvertor&& other) noexcept ;
 
  private:
