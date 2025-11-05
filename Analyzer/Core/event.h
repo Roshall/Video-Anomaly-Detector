@@ -6,7 +6,6 @@
 #define ANALYZER_EVENT_H
 
 #include <deque>
-#include <optional>
 #include <string>
 #include <vector>
 

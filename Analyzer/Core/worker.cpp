@@ -195,7 +195,7 @@ void Worker::OfflineAnalyze(float conf_th) {
   LOGI("offline analyzer response: {}", res);
 }
 
-void Worker::AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
+void Worker::AlarmImage(const EventDetector& checker, JPEGEncoder& pict_writer,
                         std::string_view level, bool push) noexcept {
   auto ts = timer_.compute(checker.timestamp());
   g_th_pool.detach_task([&pict_writer, &conf = scheduler->GetConfig(), &code = monitor_->code, start_ts = timer_.compute(checker.start_ts()),

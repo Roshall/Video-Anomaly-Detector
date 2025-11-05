@@ -108,9 +108,8 @@ bool AvPullStream::Reconnect() {
     CloseConnect();
     if (Connect(false)) {
       return true;
-    } else {
-      return false;
     }
+    return false;
   }
   return false;
 }

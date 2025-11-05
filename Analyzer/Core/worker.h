@@ -53,7 +53,7 @@ class Worker {
   bool file_{false};
 
   bool GrabFrame(AVFrame* frame) const;
-  void AlarmImage(EventDetector& checker, JPEGEncoder& pict_writer,
+  void AlarmImage(const EventDetector& checker, JPEGEncoder& pict_writer,
                   std::string_view level, bool push) noexcept;
 };
 }  // namespace avs_analyzer
