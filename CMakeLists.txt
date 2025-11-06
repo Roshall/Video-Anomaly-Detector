@@ -249,6 +249,7 @@ set(source
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
+        Analyzer/Core/Utils/file_server_cb.h
 )
 
 add_executable(Analyzer ${source})

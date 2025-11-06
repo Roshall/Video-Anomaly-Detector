@@ -7,17 +7,18 @@
 #include <json/json.h>
 #include <json/value.h>
 
+#include <sstream>
 #include <thread>
 
-#include "config.h"
-#include "monitor.h"
-#include "event.h"
-#include "scheduler.h"
 #include "Utils/base64.h"
 #include "Utils/common.h"
+#include "Utils/file_server_cb.h"
 #include "Utils/log.h"
+#include "config.h"
+#include "event.h"
+#include "monitor.h"
+#include "scheduler.h"
 #include "task.h"
-#include <sstream>
 
 static int extract_port(const std::string& ip_address) {
   std::string port_str = ip_address.substr(ip_address.rfind(':') + 1);
@@ -30,13 +31,12 @@ using namespace avs_analyzer;
 
 constexpr int kRecvBufMaxSize = 1024 * 8;
 
-std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base) {
+std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
+                            FileRouteOptions& file_route_opt) {
   int port = extract_port(scheduler.GetConfig().analyzer_host);
-  return std::thread([&, base, port]() {
+  return std::thread([&, event_base_p, port]() {
     LOGI("启动分析器服务：http://0.0.0.0:{}", port);
-//    event_config* evt_config = event_config_new();
-//    event_base* base = event_base_new_with_config(evt_config);
-    evhttp* http = evhttp_new(base);
+    evhttp* http = evhttp_new(event_base_p);
     evhttp_set_default_content_type(http, "text/html; charset=utf-8");
 
     evhttp_set_timeout(http, 0);
@@ -48,9 +48,10 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* base
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
+    evhttp_set_cb(http, "/video", file_route_cb, &file_route_opt);
 
     evhttp_bind_socket(http, "0.0.0.0", port);
-    event_base_dispatch(base);
+    event_base_dispatch(event_base_p);
 
     evhttp_free(http);
   });

@@ -65,7 +65,16 @@ int main(int argc, char** argv) {
   evthread_use_pthreads();
   event_config* evt_config = event_config_new();
   event_base* base = event_base_new_with_config(evt_config);
-  auto server_thread = HTTPServerStart(scheduler, base);
+  FileRouteOptions file_opts{
+    .root_dir = config.upload_dir,    // Must be absolute path
+    .route_prefix = "/video",          // Requests to /video/* will serve from root_dir
+    .default_file = "",      // Serve this when accessing /video/
+    .max_age_seconds = 3600,           // 1 hour cache
+    .enable_cors = true,               // Enable CORS for cross-origin playback
+    .follow_symlinks = false,          // Security: don't follow symlinks
+    .enable_directory_listing = false  // Security: no directory listing
+  };
+  auto server_thread = HTTPServerStart(scheduler, base, file_opts);
   scheduler.SetState(true);
   std::thread scheduler_cleanup_thread(&Scheduler::CleanUpLoop, &scheduler);
   LOGI("Start Success");

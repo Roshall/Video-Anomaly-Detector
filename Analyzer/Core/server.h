@@ -1,12 +1,15 @@
 ﻿#ifndef ANALYZER_SERVER_H
 #define ANALYZER_SERVER_H
-#include "scheduler.h"
 #include <event2/http.h>
+
+#include "Utils/file_server_cb.h"
+#include "scheduler.h"
 
 struct evhttp_request;
 
 std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler,
-                            event_base* event_base_p);
+                            event_base* event_base_p,
+                            FileRouteOptions& file_route_opt);
 void ApiIndex(evhttp_request* req, void* arg);
 void ApiHealth(evhttp_request* req, void* arg);
 void ApiAllMonitors(evhttp_request* req, void* arg);
