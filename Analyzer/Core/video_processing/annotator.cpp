@@ -230,55 +230,51 @@ inline void draw_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
   if (thickness <= 0) return;
 
   const auto fmt = static_cast<AVPixelFormat>(f->format);
-  if (fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) return;
+  if (fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) {
+    LOGW("the pixel format code [{}] is neither AV_PIX_FMT_YUV420P nor AV_PIX_FMT_YUVJ420P", f->format);
+  }
 
   const int width  = f->width;
   const int height = f->height;
 
-  // Convert color if needed
-  YUVColor adjusted = color;
-  if (fmt == AV_PIX_FMT_YUV420P) {
-    // Map from full-range (0-255) to limited (16-235 / 16-240)
-    auto scale_y  = [](int v) { return 16 + (v * 219 + 127) / 255; };
-    auto scale_uv = [](int v) { return 16 + (v * 224 + 127) / 255; };
-    adjusted.y  = scale_y(color.y);
-    adjusted.u  = scale_uv(color.u);
-    adjusted.v  = scale_uv(color.v);
-  }
-  else {
-    // AV_PIX_FMT_YUVJ420P: already full-range, leave as is
-  }
-
-  // Clamp rectangle
+  // Clamp rectangle to frame boundaries
   const int x1 = std::clamp(rect.x, 0, width - 1);
   const int y1 = std::clamp(rect.y, 0, height - 1);
-  const int x2 = std::clamp(rect.x + rect.width  - 1, 0, width - 1);
+  const int x2 = std::clamp(rect.x + rect.width - 1, 0, width - 1);
   const int y2 = std::clamp(rect.y + rect.height - 1, 0, height - 1);
 
   if (x2 < x1 || y2 < y1) return;
 
   if (thickness >= std::min(rect.width, rect.height) / 2) {
-    draw_filled_rectangle_yuv420p(f, rect, adjusted);
+    draw_filled_rectangle_yuv420p(f, rect, color);
     return;
   }
 
-  // Draw edges
-  if (y1 >= 0 && y1 < height)
-    draw_horizontal_line_yuv420p(f, x1, x2, y1, adjusted, thickness);
+  // Draw four edges as rectangles
+  // Top edge
+  if (y1 >= 0 && y1 < height) {
+    draw_horizontal_line_yuv420p(f, x1, x2, y1, color, thickness);
+  }
 
+  // Bottom edge
   const int bottom_y = y2 - thickness + 1;
-  if (bottom_y >= 0 && bottom_y < height)
-    draw_horizontal_line_yuv420p(f, x1, x2, bottom_y, adjusted, thickness);
+  if (bottom_y >= 0 && bottom_y < height) {
+    draw_horizontal_line_yuv420p(f, x1, x2, bottom_y, color, thickness);
+  }
 
-  const int left_start_y  = y1 + thickness;
-  const int left_end_y    = y2 - thickness;
-  if (left_end_y >= left_start_y)
-    draw_vertical_line_yuv420p(f, x1, left_start_y, left_end_y, adjusted, thickness);
+  // Left edge (excluding corners already drawn)
+  const int left_start_y = y1 + thickness;
+  const int left_end_y = y2 - thickness;
+  if (left_end_y >= left_start_y) {
+    draw_vertical_line_yuv420p(f, x1, left_start_y, left_end_y, color, thickness);
+  }
 
+  // Right edge (excluding corners already drawn)
   const int right_start_y = y1 + thickness;
-  const int right_end_y   = y2 - thickness;
-  if (right_end_y >= right_start_y)
-    draw_vertical_line_yuv420p(f, x2 - thickness + 1, right_start_y, right_end_y, adjusted, thickness);
+  const int right_end_y = y2 - thickness;
+  if (right_end_y >= right_start_y) {
+    draw_vertical_line_yuv420p(f, x2 - thickness + 1, right_start_y, right_end_y, color, thickness);
+  }
 }
 
 // Polygon outline with thickness
@@ -313,8 +309,10 @@ inline void draw_rectangles_yuv420p_fast(AVFrame* f,
                                          int thickness)
 {
     if (!f || thickness <= 0) return;
-    const auto fmt = static_cast<AVPixelFormat>(f->format);
-    if (fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) return;
+  if (const auto fmt = static_cast<AVPixelFormat>(f->format);
+      fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) {
+    LOGW("the pixel format code [{}] is neither AV_PIX_FMT_YUV420P nor AV_PIX_FMT_YUVJ420P", f->format);
+  }
 
     const int width  = f->width;
     const int height = f->height;
