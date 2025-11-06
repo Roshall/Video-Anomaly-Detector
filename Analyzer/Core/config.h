@@ -7,9 +7,10 @@
 namespace avs_analyzer {
 struct Config {
   explicit Config(const char* file);
-  ~Config() = default;
 
   bool state = false;
+  int thread_pool_size{3};
+  u_int32_t file_cache_timeout{3600}; // 1 hour
   void Show();
 
   std::string admin_host{};  // 后台管理服务地址 http://192.168.1.4:9001

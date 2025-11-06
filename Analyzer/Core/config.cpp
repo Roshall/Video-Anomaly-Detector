@@ -34,10 +34,15 @@ Config::Config(const char* file) {
       model_dir = root["modelDir"].asCString();
       use_accelerator = root["acceleratorInference"].asBool();
       log_level = root["logLevel"].asCString();
+      thread_pool_size = root["threadPoolSize"].asInt();
+      file_cache_timeout = root["fileCacheTimeout"].asUInt();
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:{}", e.what());
       return;
     }
+
+    // 0: use all core
+    thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
 
     std::filesystem::path path(upload_dir);
     try {

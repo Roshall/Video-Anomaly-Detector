@@ -61,6 +61,10 @@ int main(int argc, char** argv) {
   }
   LoggerSingleton::instance().set_log_level(config.log_level);
 
+  if (g_th_pool.get_thread_count() != config.thread_pool_size) {
+    g_th_pool.reset(config.thread_pool_size);
+  }
+
   Scheduler scheduler(config);
   evthread_use_pthreads();
   event_config* evt_config = event_config_new();
@@ -69,7 +73,7 @@ int main(int argc, char** argv) {
     .root_dir = config.upload_dir,    // Must be absolute path
     .route_prefix = "/video",          // Requests to /video/* will serve from root_dir
     .default_file = "",      // Serve this when accessing /video/
-    .max_age_seconds = 3600,           // 1 hour cache
+    .max_age_seconds = config.file_cache_timeout,           // second
     .enable_cors = true,               // Enable CORS for cross-origin playback
     .follow_symlinks = false,          // Security: don't follow symlinks
     .enable_directory_listing = false  // Security: no directory listing

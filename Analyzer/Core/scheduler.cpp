@@ -12,7 +12,7 @@
 #include "worker.h"
 
 namespace avs_analyzer {
-BS::thread_pool<0> g_th_pool{3};
+BS::thread_pool<> g_th_pool{3};
 
 Scheduler::Scheduler(Config& config) : config_(config) {}
 
