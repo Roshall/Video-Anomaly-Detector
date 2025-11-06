@@ -5,7 +5,7 @@
 
 namespace avs_analyzer {
 struct Monitor;
-class Config;
+struct Config;
 class Scheduler;
 class Algorithm;
 struct Detection;

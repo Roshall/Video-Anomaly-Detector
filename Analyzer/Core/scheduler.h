@@ -20,7 +20,7 @@ using namespace moodycamel;
 namespace avs_analyzer {
 extern BS::thread_pool<0> g_th_pool;
 
-class Config;
+struct Config;
 class Worker;
 class Algorithm;
 struct Monitor;
