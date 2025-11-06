@@ -121,13 +121,6 @@ inline void draw_rectangle_yuva420p_thick(AVFrame* f, const cv::Rect& r,
                            paint_chroma);  // Left
 }
 
-// Represents a YUV color. Red is {76, 84, 255}.
-struct YUVColor {
-  uint8_t y, u, v;
-};
-
-
-
 /**
  * @brief Optimized horizontal line drawing
  */
@@ -233,51 +226,59 @@ inline void draw_filled_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
   }
 }
 inline void draw_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
-                                             const YUVColor& color, int thickness) {
-  if (f->format != AV_PIX_FMT_YUV420P || thickness <= 0) return;
+                                               const YUVColor& color, int thickness) {
+  if (thickness <= 0) return;
 
-  const int width = f->width;
+  const auto fmt = static_cast<AVPixelFormat>(f->format);
+  if (fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) return;
+
+  const int width  = f->width;
   const int height = f->height;
 
-  // Clamp rectangle to frame boundaries
+  // Convert color if needed
+  YUVColor adjusted = color;
+  if (fmt == AV_PIX_FMT_YUV420P) {
+    // Map from full-range (0-255) to limited (16-235 / 16-240)
+    auto scale_y  = [](int v) { return 16 + (v * 219 + 127) / 255; };
+    auto scale_uv = [](int v) { return 16 + (v * 224 + 127) / 255; };
+    adjusted.y  = scale_y(color.y);
+    adjusted.u  = scale_uv(color.u);
+    adjusted.v  = scale_uv(color.v);
+  }
+  else {
+    // AV_PIX_FMT_YUVJ420P: already full-range, leave as is
+  }
+
+  // Clamp rectangle
   const int x1 = std::clamp(rect.x, 0, width - 1);
   const int y1 = std::clamp(rect.y, 0, height - 1);
-  const int x2 = std::clamp(rect.x + rect.width - 1, 0, width - 1);
+  const int x2 = std::clamp(rect.x + rect.width  - 1, 0, width - 1);
   const int y2 = std::clamp(rect.y + rect.height - 1, 0, height - 1);
 
   if (x2 < x1 || y2 < y1) return;
 
-  // Draw filled rectangle if thickness is large enough
   if (thickness >= std::min(rect.width, rect.height) / 2) {
-    draw_filled_rectangle_yuv420p(f, rect, color);
+    draw_filled_rectangle_yuv420p(f, rect, adjusted);
     return;
   }
 
-  // Draw four edges as rectangles
-  // Top edge
-  if (y1 >= 0 && y1 < height) {
-    draw_horizontal_line_yuv420p(f, x1, x2, y1, color, thickness);
-  }
+  // Draw edges
+  if (y1 >= 0 && y1 < height)
+    draw_horizontal_line_yuv420p(f, x1, x2, y1, adjusted, thickness);
 
-  // Bottom edge
   const int bottom_y = y2 - thickness + 1;
-  if (bottom_y >= 0 && bottom_y < height) {
-    draw_horizontal_line_yuv420p(f, x1, x2, bottom_y, color, thickness);
-  }
+  if (bottom_y >= 0 && bottom_y < height)
+    draw_horizontal_line_yuv420p(f, x1, x2, bottom_y, adjusted, thickness);
 
-  // Left edge (excluding corners already drawn)
-  const int left_start_y = y1 + thickness;
-  const int left_end_y = y2 - thickness;
-  if (left_end_y >= left_start_y) {
-    draw_vertical_line_yuv420p(f, x1, left_start_y, left_end_y, color, thickness);
-  }
+  const int left_start_y  = y1 + thickness;
+  const int left_end_y    = y2 - thickness;
+  if (left_end_y >= left_start_y)
+    draw_vertical_line_yuv420p(f, x1, left_start_y, left_end_y, adjusted, thickness);
 
-  // Right edge (excluding corners already drawn)
   const int right_start_y = y1 + thickness;
-  const int right_end_y = y2 - thickness;
-  if (right_end_y >= right_start_y) {
-    draw_vertical_line_yuv420p(f, x2 - thickness + 1, right_start_y, right_end_y, color, thickness);
-  }
+  const int right_end_y   = y2 - thickness;
+  if (right_end_y >= right_start_y)
+    draw_vertical_line_yuv420p(f, x2 - thickness + 1, right_start_y, right_end_y, adjusted, thickness);
 }
 
 // Polygon outline with thickness
@@ -291,6 +292,92 @@ inline void draw_polygon_yuva420p_thick(AVFrame* f,
     const auto& b = poly[(i + 1) % poly.size()];
     draw_line_yuva420p_thick(f, a.x, a.y, b.x, b.y, c, thickness, paint_chroma);
   }
+}
+
+void draw_horizontal_line_y_simd(uint8_t* row, int x1, int x2, uint8_t val) {
+  #pragma omp simd aligned(row:32)
+  for (int i = x1; i <= x2; ++i)
+    row[i] = val;
+}
+
+// scale YUV from full range → limited (for yuv420p)
+inline YUVColor scale_for_limited(const YUVColor& c) noexcept {
+    auto sy = [](uint8_t v) -> uint8_t { return static_cast<uint8_t>(16 + (v * 219 + 127) / 255); };
+    auto sc = [](uint8_t v) -> uint8_t { return static_cast<uint8_t>(16 + (v * 224 + 127) / 255); };
+    return { sy(c.y), sc(c.u), sc(c.v) };
+}
+
+inline void draw_rectangles_yuv420p_fast(AVFrame* f,
+                                         const std::vector<cv::Rect>& rects,
+                                         const YUVColor& color,
+                                         int thickness)
+{
+    if (!f || thickness <= 0) return;
+    const auto fmt = static_cast<AVPixelFormat>(f->format);
+    if (fmt != AV_PIX_FMT_YUV420P && fmt != AV_PIX_FMT_YUVJ420P) return;
+
+    const int width  = f->width;
+    const int height = f->height;
+
+    uint8_t* Y = f->data[0];
+    uint8_t* U = f->data[1];
+    uint8_t* V = f->data[2];
+    const int Y_stride = f->linesize[0];
+    const int U_stride = f->linesize[1];
+    const int V_stride = f->linesize[2];
+
+    for (const auto& rect : rects) {
+        int x1 = std::clamp(rect.x, 0, width  - 1);
+        int y1 = std::clamp(rect.y, 0, height - 1);
+        int x2 = std::clamp(rect.x + rect.width  - 1, 0, width  - 1);
+        int y2 = std::clamp(rect.y + rect.height - 1, 0, height - 1);
+        if (x2 <= x1 || y2 <= y1) continue;
+
+        // top and bottom edges (Y)
+        for (int t = 0; t < thickness; ++t) {
+            if (y1 + t < height)
+                draw_horizontal_line_y_simd(Y + (y1 + t) * Y_stride, x1, x2, color.y);
+            if (y2 - t >= 0 && y2 - t < height)
+                draw_horizontal_line_y_simd(Y + (y2 - t) * Y_stride, x1, x2, color.y);
+        }
+
+        // left and right edges (Y)
+        for (int y = y1 + thickness; y <= y2 - thickness; ++y) {
+            uint8_t* row = Y + y * Y_stride;
+            for (int t = 0; t < thickness; ++t) {
+                if (x1 + t < width) row[x1 + t] = color.y;
+                if (x2 - t >= 0 && x2 - t < width) row[x2 - t] = color.y;
+            }
+        }
+
+        // subsampled UV planes
+        int x1c = x1 / 2, x2c = x2 / 2;
+        int y1c = y1 / 2, y2c = y2 / 2;
+        for (int t = 0; t < std::max(1, thickness / 2); ++t) {
+            if (y1c + t < height / 2) {
+                draw_horizontal_line_y_simd(U + (y1c + t) * U_stride, x1c, x2c, color.u);
+                draw_horizontal_line_y_simd(V + (y1c + t) * V_stride, x1c, x2c, color.v);
+            }
+            if (y2c - t >= 0 && y2c - t < height / 2) {
+                draw_horizontal_line_y_simd(U + (y2c - t) * U_stride, x1c, x2c, color.u);
+                draw_horizontal_line_y_simd(V + (y2c - t) * V_stride, x1c, x2c, color.v);
+            }
+        }
+        for (int yc = y1c + thickness / 2; yc <= y2c - thickness / 2; ++yc) {
+            uint8_t* rowU = U + yc * U_stride;
+            uint8_t* rowV = V + yc * V_stride;
+            for (int t = 0; t < std::max(1, thickness / 2); ++t) {
+                if (x1c + t < width / 2) {
+                    rowU[x1c + t] = color.u;
+                    rowV[x1c + t] = color.v;
+                }
+                if (x2c - t >= 0 && x2c - t < width / 2) {
+                    rowU[x2c - t] = color.u;
+                    rowV[x2c - t] = color.v;
+                }
+            }
+        }
+    }
 }
 
 // Creates the reusable polygon overlay frame.
@@ -332,6 +419,8 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
     LOGE("Failed to create polygon overlay");
     return AVERROR(ENOMEM);
   }
+  YUVColor color = {76, 84, 255}; // red
+  bbox_color_ = static_cast<AVPixelFormat>(frame->format) == AV_PIX_FMT_YUV420P ? scale_for_limited(color) : color;
   int width = frame->width, height = frame->height;
   auto [tnum, tden] = frame->time_base.num ? frame->time_base : AVRational{1, 1000};
   auto [num, den] = frame->sample_aspect_ratio.num ? frame->sample_aspect_ratio
@@ -435,11 +524,10 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   }
 
   // 2. Draw all rectangles directly onto the cloned frame's pixel data.
-  for (const auto& r : rects) {
-    // NOTE: This assumes the input format is YUVA420P. A robust implementation
-    // would need to handle different pixel formats.
-    draw_rectangle_yuv420p(in_frame, r, {76, 84, 255}, thickness);
-  }
+  // for (const auto& r : rects) {
+  //   draw_rectangle_yuv420p(in_frame, r, {76, 84, 255}, thickness);
+  // }
+  draw_rectangles_yuv420p_fast(in_frame, rects, bbox_color_, thickness);
 
   // 3. Push the modified frame and the overlay into the static graph
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_main, in_frame,

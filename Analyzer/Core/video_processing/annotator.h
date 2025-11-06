@@ -18,7 +18,7 @@ namespace avs_analyzer {
 struct Point;
 // rectangles, color is always red
 struct SimpleRect { int x, y, w, h, thickness; };
-
+struct YUVColor { uint8_t y, u, v; };
 class VideoOverlay {
  public:
   VideoOverlay() = default;
@@ -36,7 +36,7 @@ class VideoOverlay {
                            const std::vector<cv::Rect>& rects, int thickness) const;
 
  private:
-
+  YUVColor bbox_color_;
   AVFilterGraphPtr filter_graph;
   AVFilterContext* buffersrc_ctx_main = nullptr;
   AVFilterContext* buffersrc_ctx_overlay = nullptr;
