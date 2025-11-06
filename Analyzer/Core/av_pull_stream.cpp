@@ -57,7 +57,7 @@ bool AvPullStream::Connect(bool file) {
   worker_->monitor_->video_index = video_index;
   stream = fmt_ctx->streams[video_index];
   if (video_index > -1) {
-    AVCodecParameters* videoCodecPar = stream->codecpar;
+    const AVCodecParameters* videoCodecPar = stream->codecpar;
 
     const AVCodec* video_codec = nullptr;
     video_codec = avcodec_find_decoder(videoCodecPar->codec_id);
@@ -76,8 +76,6 @@ bool AvPullStream::Connect(bool file) {
       return false;
     }
     // mVideoCodecCtx->thread_count = 1;
-
-    file = fmt_ctx->streams[video_index];
     // TODO: video resize
     worker_->monitor_->video_width = video_codec_ctx->width;
     worker_->monitor_->video_height = video_codec_ctx->height;
@@ -131,10 +129,9 @@ void AvPullStream::ClearPacketQueue() {
 }
 void AvPullStream::Read() {
   int continuity_error_count = 0;
-  int ret;
   AVPacketPtr pkt{av_packet_alloc()};
   while (worker_->getState()) {
-    if (ret = av_read_frame(fmt_ctx.get(), pkt.get()); ret >= 0) {
+    if (int ret = av_read_frame(fmt_ctx.get(), pkt.get()); ret >= 0) {
       continuity_error_count = 0;
       if (pkt->stream_index == worker_->monitor_->video_index) {
         if (video_pkt_queue_.size_approx() > 300) {
