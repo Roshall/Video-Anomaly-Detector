@@ -67,7 +67,6 @@ void AvPushStream::EncodeVideo() {
     if (auto frame = PopVideoFrame()) {
       if (not recorder_.AddVideoFrame(frame->data.get())) {
         continuity_error_count++;
-        // TODO: timeout reconnect to be configurable
         if (continuity_error_count > 5) {  // 大于5秒重启拉流连接
 
           LOGE("av_read_frame error, continuity_error_count = {} (s)",

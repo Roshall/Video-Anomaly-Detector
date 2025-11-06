@@ -167,9 +167,8 @@ bool Recorder::AddVideoFrame(AVFrame* frame) {
   if (pts <= last_pts_) {
     LOGD("recoder->throw frame because of pts: {} <= {}",  pts, last_pts_);
     return true;
-  } else {
-    last_pts_ = frame->pts = pts;
   }
+  last_pts_ = frame->pts = pts;
   return EncodeAndWrite(frame);
 }
 }  // namespace avs_analyzer
