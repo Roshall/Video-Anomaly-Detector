@@ -62,12 +62,19 @@ Config::Config(const char* file) {
 }
 
 void Config::Show() {
-  printf("config.host=%s\n", admin_host.c_str());
-  printf("config.adminHost=%s\n", admin_host.c_str());
-  printf("config.analyzerHost=%s\n", analyzer_host.c_str());
-  printf("config.mediaHttpHost=%s\n", media_http_host.c_str());
-  printf("config.mediaRtspHost=%s\n", media_rtsp_host.c_str());
-  printf("config.uploadDir=%s\n", upload_dir.data());
-  printf("config.modelDir=%s\n", model_dir.data());
+  printf("Configuration Settings:\n");
+  printf("----------------------\n");
+  printf("State               : %s\n", state ? "true" : "false");
+  printf("Thread Pool Size    : %d\n", thread_pool_size);
+  printf("File Cache Timeout  : %u seconds\n", file_cache_timeout);
+  printf("Admin Host         : %s\n", admin_host.c_str());
+  printf("Analyzer Host      : %s\n", analyzer_host.c_str());
+  printf("Media HTTP Host    : %s\n", media_http_host.c_str());
+  printf("Media RTSP Host    : %s\n", media_rtsp_host.c_str());
+  printf("Upload Directory   : %s\n", upload_dir.data());
+  printf("Model Directory    : %s\n", model_dir.data());
+  printf("Use Accelerator    : %s\n", use_accelerator ? "true" : "false");
+  printf("Log Level          : %s\n", log_level.c_str());
+  printf("----------------------\n");
 }
 }  // namespace avs_analyzer

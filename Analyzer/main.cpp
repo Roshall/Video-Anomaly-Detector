@@ -82,6 +82,7 @@ int main(int argc, char** argv) {
   scheduler.SetState(true);
   std::thread scheduler_cleanup_thread(&Scheduler::CleanUpLoop, &scheduler);
   LOGI("Start Success");
+  config.Show();
   int caught_signal = 0;
   if (sigwait(&mask, &caught_signal) != 0) {
     LOGE("sigwait failed");
