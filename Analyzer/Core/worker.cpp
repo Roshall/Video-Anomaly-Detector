@@ -42,9 +42,9 @@ Worker::~Worker() {
     state_.store(false);  // Signal threads to stop
     // Wake up any sleeping threads (important for queues with
     // timeouts/semaphores)
-    if (in_stream) in_stream->CloseConnect();  // This should unblock GetVideoPkt
+    if (in_stream) in_stream->SignalShutdown();  // This should unblock GetVideoPkt
     if (out_stream)
-      out_stream->CloseConnect();  // This should unblock PopVideoFrame
+      out_stream->SignalShutdown();  // This should unblock PopVideoFrame
 
     for (auto& thread : threads_) {
       if (thread && thread->joinable()) {
@@ -96,8 +96,8 @@ bool Worker::start(std::string& msg, float conf_th) {
 bool Worker::getState() const { return state_.load(); }
 void Worker::remove() {
   state_.store(false);
-  in_stream->CloseConnect();
-  out_stream->CloseConnect();
+  in_stream->SignalShutdown();
+  out_stream->SignalShutdown();
   scheduler->RemoveWorker(monitor_->code);
 }
 
