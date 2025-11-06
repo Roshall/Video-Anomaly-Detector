@@ -28,15 +28,6 @@ FormatConvertor::FormatConvertor(int in_width, int in_height,
   if (!sws_context_) {
     throw std::runtime_error("sws_getContext() failed");
   }
-  if (in_fmt == AV_PIX_FMT_YUVJ420P) {
-    sws_setColorspaceDetails(
-        sws_context_.get(),
-        sws_getCoefficients(SWS_CS_ITU709),  // input colorspace
-        1,                                   // srcRange=1 (full)
-        sws_getCoefficients(SWS_CS_ITU709),  // output
-        0,                                   // dstRange=0 (limited RGB)
-        0, 1, 0);
-  }
   const auto buff_size =
       av_image_get_buffer_size(AV_PIX_FMT_BGR24, out_width, out_height, 1);
   bgr_buffer_.reset(static_cast<uint8_t*>(av_malloc(buff_size)));
