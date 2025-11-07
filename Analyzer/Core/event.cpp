@@ -161,7 +161,7 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame frame) {
             "[Active] Event reached max duration at t = {}ms. Saving and "
             "splitting.",
             current_ts);
-        state = State::kEventSplit;
+        state = kEventSplit;
         last_spilt_time_ = current_ts;
       }
       break;
