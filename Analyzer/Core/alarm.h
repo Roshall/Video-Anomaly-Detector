@@ -2,15 +2,8 @@
 #define ANALYZER_GENERATEALARMVIDEO_H
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "event.h"
-#include "frame_recorder.h"
-
-extern "C" {
-#include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
-}
 
 namespace avs_analyzer {
 
@@ -25,7 +18,7 @@ struct Alarm {
   Alarm(Alarm&&) noexcept = default;
   Alarm& operator=(Alarm&&) noexcept = default;
 
-  bool Finalize(const std::string& upload_dir, const std::string& admin_host);
+  bool Finalize(const std::string& upload_dir, const std::string& admin_host) const;
 
   std::chrono::time_point<std::chrono::system_clock> start_ts{}; // ms
   std::string control_code;

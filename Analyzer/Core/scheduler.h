@@ -7,7 +7,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <threadpool/BS_thread_pool.hpp>
 #include <unordered_map>
 #include <vector>

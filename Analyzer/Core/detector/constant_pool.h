@@ -8,7 +8,6 @@
 #include <mutex>
 #include <shared_mutex>
 #include <stdexcept>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 namespace avs_analyzer{

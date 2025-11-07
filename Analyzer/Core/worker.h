@@ -4,13 +4,11 @@
 
 #include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <thread>
 
 #include "event.h"
 #include "frame_walk_time.h"
-#include "helper.h"
 #include "jpeg_encoder.h"
 
 namespace avs_analyzer {

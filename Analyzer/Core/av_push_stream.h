@@ -1,13 +1,9 @@
 ﻿#ifndef ANALYZER_AVPUSHSTREAM_H
 #define ANALYZER_AVPUSHSTREAM_H
-#include <mutex>
-#include <queue>
 #include <semaphore>
 
 #include "frame_recorder.h"
-#include "helper.h"
 extern "C" {
-#include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 }
 #include <readerwriterqueue/readerwriterqueue.h>

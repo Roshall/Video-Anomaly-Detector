@@ -4,9 +4,7 @@
 #include <mutex>
 #include <string>
 
-#include "Utils/log.h"
 #include "alarm.h"
-#include "algorithm.h"
 #include "config.h"
 #include "monitor.h"
 #include "worker.h"

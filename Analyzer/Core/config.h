@@ -2,7 +2,6 @@
 #define ANALYZER_CONFIG_H
 
 #include <string>
-#include <vector>
 
 namespace avs_analyzer {
 struct Config {

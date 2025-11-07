@@ -11,9 +11,8 @@ extern "C" {
 #include <libavutil/avutil.h>
 }
 #include <chrono>
-#include <optional>
-#include <string>
 #include <stdexcept>
+#include <string>
 
 namespace avs_analyzer {
 class FrameWallClock {

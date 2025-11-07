@@ -7,8 +7,6 @@
 #include "frame.h"
 
 extern "C" {
-#include <libavutil/dict.h>
-#include <libavutil/imgutils.h>
 #include <libswresample/swresample.h>
 }
 

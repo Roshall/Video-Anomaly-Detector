@@ -1,13 +1,11 @@
 #include "frame_recorder.h"
 
-#include <iostream>
-#include <stdexcept>
 #include <format>
+#include <iostream>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 }
 

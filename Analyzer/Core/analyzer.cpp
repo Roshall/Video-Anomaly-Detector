@@ -4,10 +4,7 @@
 
 #include <fstream>
 
-#include "Utils/log.h"
-#include "Utils/request.h"
 #include "algorithm.h"
-#include "config.h"
 #include "detection_algorithm.h"
 #include "monitor.h"
 #include "scheduler.h"

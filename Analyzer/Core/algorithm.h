@@ -1,8 +1,7 @@
 ﻿#ifndef ANALYZER_ALGORITHM_H
 #define ANALYZER_ALGORITHM_H
 
-#include <opencv2/opencv.hpp>  //opencv header file
-#include <string>
+#include <opencv2/opencv.hpp>
 #include <vector>
 
 namespace avs_analyzer {

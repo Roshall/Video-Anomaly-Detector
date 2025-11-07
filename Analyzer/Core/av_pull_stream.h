@@ -3,12 +3,10 @@
 #include <readerwriterqueue/readerwriterqueue.h>
 
 #include <semaphore>
-#include <queue>
 
 #include "video_processing/helper.h"
 
 extern "C" {
-#include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 }
 namespace avs_analyzer {

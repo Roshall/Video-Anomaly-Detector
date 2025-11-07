@@ -21,7 +21,6 @@
 #include "streamer.h"
 
 extern "C" {
-#include <libavutil/imgutils.h>
 #include <libswresample/swresample.h>
 }
 

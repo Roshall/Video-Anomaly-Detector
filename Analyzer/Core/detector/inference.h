@@ -6,9 +6,6 @@
 #include <array>
 #include <string>
 #include <vector>
-#include <numeric>
-#include <algorithm>
-#include <stdexcept>
 
 struct DL_INIT_PARAM {
   std::string modelPath;

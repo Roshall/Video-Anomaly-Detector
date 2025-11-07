@@ -22,7 +22,7 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
       height(height),
       fps(fps) {}
 bool Alarm::Finalize(const std::string& upload_dir,
-                     const std::string& admin_host) {
+                     const std::string& admin_host) const {
   Recorder recorder({width, height, fps});
   std::filesystem::path prefix_dir{upload_dir};
   std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
