@@ -286,14 +286,15 @@ void Worker::DecodeVideo() {
         } else {
           num = checker.event_duration();
         }
-
-        const int total_level = static_cast<int>(monitor_->levels.first.size());
-        while (level_cur < total_level && monitor_->levels.first[level_cur] <= num) {
+        const auto& level_th = monitor_->levels.first;
+        const int total_level = static_cast<int>(level_th.size());
+        while (level_cur < total_level && level_th[level_cur] <= num) {
           ++level_cur;
         }
         --level_cur;
         if (level_cur < 0) {
-          LOGE("Impossible state: {} monitor got negative level", monitor_->code);
+          LOGE("Impossible state: {} monitor got negative level. value: [{}] v.s. [{}]",
+            monitor_->code, num, level_th[0]);
           level_cur = 0;
         }
       }
