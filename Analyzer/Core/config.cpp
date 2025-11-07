@@ -62,19 +62,30 @@ Config::Config(const char* file) {
 }
 
 void Config::Show() {
-  printf("Configuration Settings:\n");
-  printf("----------------------\n");
-  printf("State               : %s\n", state ? "true" : "false");
-  printf("Thread Pool Size    : %d\n", thread_pool_size);
-  printf("File Cache Timeout  : %u seconds\n", file_cache_timeout);
-  printf("Admin Host         : %s\n", admin_host.c_str());
-  printf("Analyzer Host      : %s\n", analyzer_host.c_str());
-  printf("Media HTTP Host    : %s\n", media_http_host.c_str());
-  printf("Media RTSP Host    : %s\n", media_rtsp_host.c_str());
-  printf("Upload Directory   : %s\n", upload_dir.data());
-  printf("Model Directory    : %s\n", model_dir.data());
-  printf("Use Accelerator    : %s\n", use_accelerator ? "true" : "false");
-  printf("Log Level          : %s\n", log_level.c_str());
-  printf("----------------------\n");
+  printf("Configuration Settings:\n"
+         "----------------------\n"
+         "State               : %s\n"
+         "Thread Pool Size    : %d\n"
+         "File Cache Timeout  : %u seconds\n"
+         "Admin Host         : %s\n"
+         "Analyzer Host      : %s\n"
+         "Media HTTP Host    : %s\n"
+         "Media RTSP Host    : %s\n"
+         "Upload Directory   : %s\n"
+         "Model Directory    : %s\n"
+         "Use Accelerator    : %s\n"
+         "Log Level          : %s\n"
+         "----------------------\n",
+         state ? "true" : "false",
+         thread_pool_size,
+         file_cache_timeout,
+         admin_host.c_str(),
+         analyzer_host.c_str(),
+         media_http_host.c_str(),
+         media_rtsp_host.c_str(),
+         upload_dir.data(),
+         model_dir.data(),
+         use_accelerator ? "true" : "false",
+         log_level.c_str());
 }
 }  // namespace avs_analyzer
