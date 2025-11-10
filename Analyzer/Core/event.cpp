@@ -1,8 +1,6 @@
 #include "event.h"
 
 #include <algorithm>
-#include <iostream>
-#include <numeric>
 
 #include "Utils/log.h"
 #include "format_convertor.h"

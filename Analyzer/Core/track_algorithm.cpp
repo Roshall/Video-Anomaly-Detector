@@ -11,9 +11,9 @@
 #include "task.h"
 
 namespace avs_analyzer {
-TrackAlgorithm::TrackAlgorithm(const Config& config, int frame_stride)
+TrackAlgorithm::TrackAlgorithm(const Config& config)
     : detector_(GetDetector(config.model_dir, Task::kWandering,
-                            config.use_accelerator)), min_frame_stride_{frame_stride} {}
+                            config.use_accelerator)), min_frame_stride_{30} {}
 
 Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
   auto res = detector_->Run(image);
@@ -31,6 +31,7 @@ Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
   std::vector<cv::Rect> bbox;
   std::vector<float> confs;
   for (auto& t : tracks) {
+    // TODO: replace min_frame_stride_ with min_ms_stride_
     if (t->getFrameId() - t->getStartFrameId() >= min_frame_stride_) {
       auto rec_f = t->getRect();
       bbox.emplace_back(rec_f.x(), rec_f.y(), rec_f.width(), rec_f.height());

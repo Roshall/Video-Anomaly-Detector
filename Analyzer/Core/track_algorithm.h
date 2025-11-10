@@ -15,7 +15,7 @@ namespace avs_analyzer {
 struct Config;
 class TrackAlgorithm: public Algorithm {
  public:
-  explicit TrackAlgorithm(const Config& config, int frame_stride);
+  explicit TrackAlgorithm(const Config& config);
   Detection DetectObjects(const cv::Mat& image) override;
 
  private:

@@ -28,17 +28,14 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
   return {minX, minY, maxX - minX, maxY - minY};
 }
 
-Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th,
-                   double fps)
+Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
     : monitor_(monitor),
       conf_th_(conf_th),
       roi_area_(cv::contourArea(monitor->roi_points)),
       roi_bbox_(computeBoundingBox(monitor_->roi_points)) {
   if (monitor->task == Task::kWandering) {
-    auto duration = monitor->levels.first[0];
 
-    algorithm_ = std::make_unique<TrackAlgorithm>(
-        config, std::ceil(duration * fps / 1000));
+    algorithm_ = std::make_unique<TrackAlgorithm>(config);
   } else {
     algorithm_ = std::make_unique<DetectionAlgorithm>(config, monitor->task);
   }

@@ -12,7 +12,7 @@ struct Detection;
 
 class Analyzer {
  public:
-  Analyzer(Monitor* monitor, const Config& config, float conf_th, double fps);
+  Analyzer(Monitor* monitor, const Config& config, float conf_th);
   ~Analyzer() = default;
 
   [[nodiscard]] std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;

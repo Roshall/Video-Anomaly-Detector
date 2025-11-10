@@ -43,31 +43,33 @@ class Scheduler {
 
   // ApiServer 对应的函数 start
   std::vector<Monitor> GetAllMonitors();
-  Monitor* GetMonitorByCode(const std::string& code);
+  bool GetMonitorByCode(const std::string& video_code, const std::string& code,
+                        Monitor* monitor_p);
   void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
-                  std::string& result_msg, const EventDetectorConfig& event_cfg,
-                  float conf_th);
-  void MonitorRemove(const std::string& code, int& result_code,
-                     std::string& result_msg);
+                  std::string& result_msg,
+                  const EventDetectorConfig& event_cfg);
+  void MonitorRemove(const std::string& video_code, const std::string& code,
+                     int& result_code, std::string& result_msg);
   // void StartAlarmThread();
   // ApiServer 对应的函数 end
   void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
   void NotifyCleanUp();
   void ClearWorker();
+  bool ContainsMonitor(const std::string& video_code, const std::string& code);
 
  private:
   Config& config_;
   std::atomic<bool> state_{false};
 
+  bool ContainsMonitor(const Monitor* monitor);
   size_t GetWorkerSize();
-  bool Contains(const std::string& code);
-  bool AddWorker(std::unique_ptr<Worker> worker);
-  Worker* GetWorkerByCode(const std::string& code);
+  void AddWorker(std::unique_ptr<Worker> worker);
+  Worker* GetWorkerByVideoCode(const std::string& video_code);
 
 
   // each worker monitors one type of anomaly for a stream
   std::unordered_map<std::string, std::unique_ptr<Worker>>
-      worker_map_;  // <monitor.code,Worker*>
+      worker_map_;  // <video.code,Worker>
   std::mutex worker_map_mutex_;
   ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
 

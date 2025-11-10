@@ -5,7 +5,6 @@
 #include "Utils/log.h"
 #include "worker.h"
 #include "video_processing/helper.h"
-#include "monitor.h"
 
 extern "C" {
 #include <libavutil/dict.h>
@@ -21,7 +20,7 @@ AvPullStream::~AvPullStream() {
 }
 
 bool AvPullStream::Connect(bool file) {
-  std::string_view stream_url = worker_->monitor_->stream_url;
+  std::string_view stream_url = worker_->StreamUrl();
 
   AVDictionary* fmt_options{};
   if (!file) {
@@ -53,8 +52,7 @@ bool AvPullStream::Connect(bool file) {
 
   // video start
   auto video_index =
-      av_find_best_stream(fmt_ctx.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-  worker_->monitor_->video_index = video_index;
+    av_find_best_stream(fmt_ctx.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   stream = fmt_ctx->streams[video_index];
   if (video_index > -1) {
     const AVCodecParameters* videoCodecPar = stream->codecpar;
@@ -77,22 +75,17 @@ bool AvPullStream::Connect(bool file) {
     }
     // mVideoCodecCtx->thread_count = 1;
     // TODO: video resize
-    worker_->monitor_->video_width = video_codec_ctx->width;
-    worker_->monitor_->video_height = video_codec_ctx->height;
-
-    if (!worker_->monitor_->ParseRecognitionRegion()) {
-      LOGE("ParseRecognitionRegion() error");
-      return false;
-    }
+  worker_->OnStreamOpened(video_index, video_codec_ctx->width,
+              video_codec_ctx->height,
+              video_codec_ctx->pix_fmt);
 
   } else {
-    LOGE("av_find_best_stream video error videoIndex={}",
-         worker_->monitor_->video_index);
+    LOGE("av_find_best_stream video error videoIndex={}", video_index);
     return false;
   }
   // video end;
 
-  if (worker_->monitor_->video_index <= -1) {
+  if (worker_->VideoStreamIndex() <= -1) {
     return false;
   }
 
@@ -130,10 +123,10 @@ void AvPullStream::ClearPacketQueue() {
 void AvPullStream::Read() {
   int continuity_error_count = 0;
   AVPacketPtr pkt{av_packet_alloc()};
-  while (worker_->getState()) {
+  while (worker_->State()) {
     if (int ret = av_read_frame(fmt_ctx.get(), pkt.get()); ret >= 0) {
       continuity_error_count = 0;
-      if (pkt->stream_index == worker_->monitor_->video_index) {
+  if (pkt->stream_index == worker_->VideoStreamIndex()) {
         if (video_pkt_queue_.size_approx() > 300) {
           LOGW("too many package to encode, throw one away.");
           continue;
@@ -158,7 +151,7 @@ void AvPullStream::Read() {
           LOGI("reConnect success : mConnectCount={}", connect_count);
         } else {
           LOGI("reConnect error : mConnectCount={}", connect_count);
-          worker_->remove();
+          worker_->Remove();
         }
       } else {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
