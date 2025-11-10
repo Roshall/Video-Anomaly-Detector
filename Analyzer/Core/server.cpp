@@ -380,7 +380,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .level_mode = mode
       };
       auto ws = root["alertWindowSize"].asInt();
-      auto duration = mode == LevelMode::kDuration ? monitor.levels.first[0] * 1000 : 0;
+      auto duration = mode == LevelMode::kDuration ? monitor.levels.first[0]: 0;
       EventDetectorConfig event_cfg{
           .major_stride_ms = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
           .minor_stride_ms = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),

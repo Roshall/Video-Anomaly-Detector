@@ -241,6 +241,6 @@ int64_t EventDetector::timestamp() const {
 }
 int64_t EventDetector::start_ts() const { return start_frame_ts_; }
 bool EventDetectorConfig::defer_start(int num_obj) const {
-  return minor_stride_ms * window_size < latest_duration_ms || num_obj < minimum_num;
+  return minor_stride_ms < latest_duration_ms || num_obj < minimum_num;
 }
 }  // namespace avs_analyzer
