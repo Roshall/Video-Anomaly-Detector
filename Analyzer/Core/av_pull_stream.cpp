@@ -75,9 +75,8 @@ bool AvPullStream::Connect(bool file) {
     }
     // mVideoCodecCtx->thread_count = 1;
     // TODO: video resize
-  worker_->OnStreamOpened(video_index, video_codec_ctx->width,
-              video_codec_ctx->height,
-              video_codec_ctx->pix_fmt);
+  worker_->OnStreamOpened({stream->time_base, video_codec_ctx->sample_aspect_ratio, video_codec_ctx->pix_fmt, video_codec_ctx->width,
+              video_codec_ctx->height, video_index});
 
   } else {
     LOGE("av_find_best_stream video error videoIndex={}", video_index);

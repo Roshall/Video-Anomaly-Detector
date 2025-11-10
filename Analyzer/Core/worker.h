@@ -1,6 +1,7 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
 
+#include <libavutil/rational.h>
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -9,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "annotator.h"
 #include "event.h"
 #include "frame_walk_time.h"
 #include "jpeg_encoder.h"
@@ -29,7 +31,7 @@ class Worker {
   Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
          const EventDetectorConfig& event_cfg, bool file);
   ~Worker();
-  void AddMonitor(std::unique_ptr<Monitor> monitor);
+  void AddMonitor(std::unique_ptr<Monitor> monitor, const EventDetectorConfig& event_cfg);
   [[nodiscard]] size_t num_task() const;
   void GetAllMonitor(std::vector<Monitor>& monitors) const;
   void RemoveMonitor(const std::string& code);
@@ -48,11 +50,10 @@ class Worker {
   bool ContainsMonitor(const std::string& code) const;
   [[nodiscard]] const std::string& Code() const;
   [[nodiscard]] std::string_view StreamUrl() const { return stream_url_; }
-  void OnStreamOpened(int video_index, int width, int height,
-                                                 AVPixelFormat pix_fmt);
-  [[nodiscard]] int VideoStreamIndex() const { return video_index_; }
-  [[nodiscard]] int VideoWidth() const { return video_width_; }
-  [[nodiscard]] int VideoHeight() const { return video_height_; }
+  void OnStreamOpened(VideoContext context);
+  [[nodiscard]] int VideoStreamIndex() const { return video_context_.video_index; }
+  [[nodiscard]] int VideoWidth() const { return video_context_.width; }
+  [[nodiscard]] int VideoHeight() const { return video_context_.height; }
   [[nodiscard]] std::string_view PushStreamUrl() const {
     return push_stream_url_;
   }
@@ -66,26 +67,24 @@ class Worker {
        std::unique_ptr<Monitor> monitor;
        std::unique_ptr<Analyzer> analyzer;
        std::unique_ptr<EventDetector> detector;
+       EventDetectorConfig event_cfg;
        int current_highest_level{0};
   };
 
   using MonitorContextPtr = std::unique_ptr<MonitorContext>;
 
   void PrepareMonitorForStream(MonitorContext& ctx) const;
-  void EnsureAllPipelinesReady(AVFrame* sample, int out_width, int out_height);
+  void EnsureAllPipelinesReady(int out_width,
+																		 int out_height);
   MonitorContext* FindMonitorContext(const std::string& code) const;
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();
 
   std::string video_code_;
-  int video_width_{0};
-  int video_height_{0};
-  int video_index_{-1};
-  AVPixelFormat video_pix_fmt_{AV_PIX_FMT_NONE};
+  VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
   std::string stream_url_{};
   std::string push_stream_url_{};
   FrameWallClock timer_;
-  EventDetectorConfig event_cfg_;
   std::atomic<bool> state_{false};
   std::vector<std::unique_ptr<std::thread>> threads_;
   bool file_{false};

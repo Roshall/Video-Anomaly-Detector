@@ -57,7 +57,7 @@ class EventDetector {
   EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
                 FormatConvertor convertor,
                 const std::vector<cv::Point>& roi_points,
-                AVFrame* sample);
+                VideoContext cfg);
 
   // Processes a single frame and returns an Event if one has just been
   // completed.

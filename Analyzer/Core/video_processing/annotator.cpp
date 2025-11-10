@@ -403,25 +403,25 @@ AVFrame* create_polygon_overlay(int width, int height,
   }
 
   // Draw lines between consecutive vertices
-  draw_polygon_yuva420p_thick(overlay_frame, vertices, color, 4, false);
+  draw_polygon_yuva420p_thick(overlay_frame, vertices, color, 4, true);
 
   return overlay_frame;
 }
 
 int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
-                       AVFrame* frame) {
+                       VideoContext cfg) {
   // Create the polygon overlay frame first
   polygon_overlay_frame.reset(create_polygon_overlay(
-      frame->width, frame->height, polygon_vertices, {76, 84, 255, 255}/*Opaque Red in YUVA*/));
+      cfg.width, cfg.height, polygon_vertices, {76, 84, 255, 255}/*Opaque Red in YUVA*/));
   if (!polygon_overlay_frame) {
     LOGE("Failed to create polygon overlay");
     return AVERROR(ENOMEM);
   }
   YUVColor color = {76, 84, 255}; // red
-  bbox_color_ = static_cast<AVPixelFormat>(frame->format) == AV_PIX_FMT_YUV420P ? scale_for_limited(color) : color;
-  int width = frame->width, height = frame->height;
-  auto [tnum, tden] = frame->time_base.num ? frame->time_base : AVRational{1, 1000};
-  auto [num, den] = frame->sample_aspect_ratio.num ? frame->sample_aspect_ratio
+  bbox_color_ = static_cast<AVPixelFormat>(cfg.format) == AV_PIX_FMT_YUV420P ? scale_for_limited(color) : color;
+  int width = cfg.width, height = cfg.height;
+  auto [tnum, tden] = cfg.time_base.num ? cfg.time_base : AVRational{1, 1000};
+  auto [num, den] = cfg.sample_aspect_ratio.num ? cfg.sample_aspect_ratio
                                             : AVRational{1, 1};
 
   const auto args_main = std::format(

@@ -17,9 +17,9 @@ EventDetector::EventDetector(const EventDetectorConfig& config,
                              const Analyzer& analyzer,
                              FormatConvertor convertor,
                              const std::vector<cv::Point>& roi_points,
-                             AVFrame* sample)
+                             VideoContext cfg)
     : config_(config),
-      painter_{roi_points, sample},
+      painter_{roi_points, cfg},
       convertor_(std::move(convertor)),
       analyzer_(analyzer),
       object_votes_window_(config.window_size) {

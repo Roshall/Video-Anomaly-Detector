@@ -5,10 +5,12 @@
 #ifndef ANALYZER_ANNOTATOR_H
 #define ANALYZER_ANNOTATOR_H
 
+#include <libavutil/pixfmt.h>
 #include <opencv2/opencv.hpp>
 #include <vector>
 
 #include "helper.h"
+#include "video_context.h"
 
 struct AVFrame;
 struct AVFilterGraph;
@@ -22,14 +24,14 @@ struct YUVColor { uint8_t y, u, v; };
 class VideoOverlay {
  public:
   VideoOverlay() = default;
-  VideoOverlay(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame) {
-    if (init(polygon_vertices, frame) < 0) {
+  VideoOverlay(const std::vector<cv::Point>& polygon_vertices, VideoContext cfg) {
+    if (init(polygon_vertices, cfg) < 0) {
       throw std::runtime_error("could not initialize overlay");
     }
   }
 
   // Initializes the filter graph with a fixed polygon.
-  int init(const std::vector<cv::Point>& polygon_vertices, AVFrame* frame);
+  int init(const std::vector<cv::Point>& polygon_vertices, VideoContext cfg);
 
   // Draws dynamic rectangles on the input frame. The fixed polygon is also drawn.
   AVFramePtr draw_elements(AVFrame* in_frame,
