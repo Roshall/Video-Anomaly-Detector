@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
   }
   LoggerSingleton::instance().set_log_level(config.log_level);
 
-  if (g_th_pool.get_thread_count() != config.thread_pool_size) {
+  if (g_th_pool.get_thread_count() != static_cast<size_t>(config.thread_pool_size)) {
     g_th_pool.reset(config.thread_pool_size);
   }
 
