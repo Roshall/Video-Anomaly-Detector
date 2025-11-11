@@ -91,16 +91,15 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     }
   }
   ctx_raw->analyzer = std::make_unique<Analyzer>(
-      ctx_raw->monitor.get(), scheduler->GetConfig(), monitor->conf_threshold);
+      ctx_raw->monitor.get(), scheduler->GetConfig(),
+      ctx_raw->monitor->conf_threshold);
   if (out_stream) {
     try {
       ctx->detector = std::make_unique<EventDetector>(
           event_cfg, *ctx->analyzer,
           FormatConvertor{video_context_.width, video_context_.height,
                           video_context_.format, out_stream->width(),
-                          out_stream->height()},
-          ctx->monitor->roi_points, video_context_);
-
+                          out_stream->height()});
     } catch (const std::exception& ex) {
       LOGE("Failed to create event detector for monitor {}: {}",
            ctx->monitor->code, ex.what());
