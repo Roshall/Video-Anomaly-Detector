@@ -82,6 +82,7 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavcodec libavformat libavutil libswscale)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
+pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 
 # Find ONNX Runtime (prebuilt, no CMake config)
 find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_c_api.h PATH_SUFFIXES include)
@@ -207,6 +208,13 @@ add_executable(log_test
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
 target_include_directories(log_test PRIVATE Analyzer/Core/Utils)
 
+add_executable(draw_text_test Analyzer/Core/video_processing/painter.h
+        tests/draw_text_test.cpp
+)
+target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMPEG)
+target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
+target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing)
+
 
 set(source
         Analyzer/main.cpp
@@ -250,6 +258,7 @@ set(source
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
+        Analyzer/Core/video_processing/painter.h
 )
 
 add_executable(Analyzer ${source})
