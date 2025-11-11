@@ -24,7 +24,7 @@ struct Monitor {
   std::string stream_url;      // 拉流地址
   bool push_stream = false;    // 是否推流
   std::string push_stream_url;  // 推流地址
-  Task task;  // 算法编号
+  Task task;
   float conf_threshold = 0.5f; // 置信度阈值
 
   std::string roi_str;
@@ -41,7 +41,6 @@ struct Monitor {
     return code == other.code;
   }
 
-  // TODO: move it to worker or add w h parameter.
   bool ParseRecognitionRegion(int video_width, int video_height) {
     bool res = false;
     if (video_width > 0 && video_height > 0) {
