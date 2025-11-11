@@ -6,10 +6,9 @@
 #define ANALYZER_EVENT_H
 
 #include <deque>
-#include <string>
+#include <optional>
 #include <vector>
 
-#include "annotator.h"
 #include "format_convertor.h"
 #include "frame.h"
 
@@ -50,31 +49,32 @@ class EventDetector {
     kNoEvent,
     kEventStart,
     kEventActive,
-    kEventSplit,
     kEventEnd,
   };
 
   EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
-                FormatConvertor convertor,
-                const std::vector<cv::Point>& roi_points,
-                VideoContext cfg);
+                FormatConvertor convertor);
 
   // Processes a single frame and returns an Event if one has just been
   // completed.
-  State ProcessFrame(RawFrame frame);
+  State ProcessFrame(const RawFrame& frame);
 
-  [[nodiscard]] std::unique_ptr<Frame> latest_frame() const;
+  [[nodiscard]] const std::vector<cv::Rect>& detections() const {
+    return kept_bboxes_;
+  }
   [[nodiscard]] int64_t num_detection() const {
     return static_cast<int>(kept_bboxes_.size());
   }
   [[nodiscard]] int64_t event_duration() const {
-    return frame_buffer_.back()->timestamp - active_event_start_ts_;
+    return last_timestamp_ms_ > active_event_start_ts_
+               ? last_timestamp_ms_ - active_event_start_ts_
+               : 0;
   };
   [[nodiscard]] int64_t timestamp() const;
-  [[nodiscard]] int64_t start_ts() const;
-
-  // Flushes any pending event when the stream ends.
-  std::unique_ptr<Event> Flush();
+  [[nodiscard]] int64_t start_ts() const;  // returns best-effort timestamp
+  [[nodiscard]] int64_t event_start_timestamp() const {
+    return active_event_start_ts_;
+  }
 
  private:
   enum class InnerState {
@@ -88,28 +88,30 @@ class EventDetector {
    public:
     explicit VotesWindow(size_t max_i) : max_item_(max_i) {}
     // return whether window is full
-    void slide(bool item) {
-      object_votes_window_.push_back(item);
+    void slide(bool item, int64_t timestamp, int64_t best_effort_ts) {
+      samples_.push_back({item, timestamp, best_effort_ts});
       votes_ += item;
-      if (object_votes_window_.size() > max_item_) {
-        votes_ -= object_votes_window_.front();
-        object_votes_window_.pop_front();
+      if (samples_.size() > max_item_) {
+        votes_ -= samples_.front().positive;
+        samples_.pop_front();
       }
     }
-    [[nodiscard]] bool full() const { return object_votes_window_.size() == max_item_; }
+    [[nodiscard]] bool full() const { return samples_.size() == max_item_; }
     void clear() {
-      object_votes_window_.clear();
+      samples_.clear();
       votes_ = 0;
     }
-    [[nodiscard]] long first_votes_reserve_pos() const {
-      return std::distance(object_votes_window_.end(),
-                           std::ranges::find(object_votes_window_, true));
-    }
     [[nodiscard]] int votes() const { return votes_; }
+    [[nodiscard]] std::optional<std::pair<int64_t, int64_t>> first_positive_timestamp() const;
 
    private:
+    struct Sample {
+      bool positive{false};
+      int64_t timestamp{0};
+      int64_t best_effort_timestamp{0};
+    };
     size_t max_item_;
-    std::deque<bool> object_votes_window_{};
+    std::deque<Sample> samples_{};
     int votes_{0};
   };
 
@@ -121,22 +123,19 @@ class EventDetector {
   const EventDetectorConfig config_;
   InnerState current_state_{InnerState::kMajorCheck};
 
-  VideoOverlay painter_;
   FormatConvertor convertor_;
   const Analyzer& analyzer_;
 
   int64_t last_major_check_ts_{-2000};
   int64_t last_minor_check_ts_{0};
-
-  // Buffer for all recent frames, used to construct events.
-  std::deque<std::unique_ptr<Frame>> frame_buffer_;
   // Sliding window to track object presence for voting.
   VotesWindow object_votes_window_;
   std::vector<cv::Rect> kept_bboxes_{};
-  int64_t last_spilt_time_{-1};
   int64_t active_event_start_ts_{0};
-  int64_t max_buffer_time_{0};
-  int64_t start_frame_ts_{};
+  int64_t active_event_start_pts_{0};
+  int64_t last_timestamp_ms_{0};
+  int64_t last_best_effort_ts_{0};
+  int64_t event_end_candidate_ts_{0};
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_EVENT_H

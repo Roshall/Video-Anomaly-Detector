@@ -1,16 +1,15 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
 
-#include <libavutil/rational.h>
 #include <atomic>
 #include <memory>
-#include <optional>
 #include <shared_mutex>
 #include <thread>
 #include <string_view>
 #include <vector>
 
 #include "annotator.h"
+#include "combined_event_manager.h"
 #include "event.h"
 #include "frame_walk_time.h"
 #include "jpeg_encoder.h"
@@ -67,6 +66,7 @@ class Worker {
        std::unique_ptr<Monitor> monitor;
        std::unique_ptr<Analyzer> analyzer;
        std::unique_ptr<EventDetector> detector;
+    std::unique_ptr<VideoOverlay> overlay;
        EventDetectorConfig event_cfg;
        int current_highest_level{0};
   };
@@ -74,11 +74,11 @@ class Worker {
   using MonitorContextPtr = std::unique_ptr<MonitorContext>;
 
   void PrepareMonitorForStream(MonitorContext& ctx) const;
-  void EnsureAllPipelinesReady(int out_width,
-																		 int out_height);
-  MonitorContext* FindMonitorContext(const std::string& code) const;
+  void EnsureAllPipelinesReady(int out_width, int out_height) const;
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();
+  void RebuildEventManager();
+  CombinedEventConfig ComputeCombinedEventConfig() const;
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
@@ -91,11 +91,13 @@ class Worker {
   std::vector<MonitorContextPtr> monitors_;
   mutable std::shared_mutex monitors_mutex_;
   mutable std::mutex push_stream_mutex_;
+  std::unique_ptr<CombinedEventManager> event_manager_;
 
   bool GrabFrame(AVFrame* frame) const;
-       void AlarmImage(const Monitor& monitor, const EventDetector& checker,
-                                                               JPEGEncoder& pict_writer, std::string_view level,
-                                                               bool push) noexcept;
+  void AlarmImage(const Monitor& monitor, int64_t start_pts,
+        int64_t event_pts, const Frame& frame,
+        JPEGEncoder& pict_writer, std::string_view level,
+        bool push) noexcept;
   bool NeedPushStream() const;
 };
 }  // namespace avs_analyzer
