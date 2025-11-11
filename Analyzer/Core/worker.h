@@ -90,6 +90,7 @@ class Worker {
   bool file_{false};
   std::vector<MonitorContextPtr> monitors_;
   mutable std::shared_mutex monitors_mutex_;
+  mutable std::mutex push_stream_mutex_;
 
   bool GrabFrame(AVFrame* frame) const;
        void AlarmImage(const Monitor& monitor, const EventDetector& checker,

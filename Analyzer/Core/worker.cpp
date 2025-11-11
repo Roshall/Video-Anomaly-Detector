@@ -574,9 +574,15 @@ void Worker::StartPushThreadIfNeeded() {
 }
 
 void Worker::CleanUpPushThread() {
-  auto push_thread = threads_.erase(threads_.end() - 1);
-  (*push_thread)->join();
-  out_stream.reset();
+  std::lock_guard lock(push_stream_mutex_);
+  if (threads_.size() == 3) {
+    const auto push_thread = std::move(threads_.back());
+    threads_.pop_back();
+    if (push_thread->joinable()) {
+      push_thread->join();
+    }
+    out_stream.reset();
+  }
 }
 
 void Worker::ClosePushThreadIfNeeded() {
