@@ -109,7 +109,7 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
         result_msg = "control is running";
         result_code = 1000;
       } else {
-        existing_worker->AddMonitor(std::move(monitor));
+        existing_worker->AddMonitor(std::move(monitor), event_cfg);
         result_msg = "added successfully";
         result_code = 1000;
       }
