@@ -426,13 +426,13 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
 
   const auto args_main = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", width,
-      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format)), tnum, tden, num, den);
+      height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(cfg.format)), tnum, tden, num, den);
 
   const auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1", width,
       height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(polygon_overlay_frame->format)), tnum, tden);
 
-  format = static_cast<AVPixelFormat>(frame->format);
+  format = cfg.format;
   const std::string filter_descr = "[in][poly]overlay=format=auto[out]";
 
   filter_graph.reset(avfilter_graph_alloc());
