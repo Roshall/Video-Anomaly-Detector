@@ -41,6 +41,8 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
   }
 }
 
+Analyzer::~Analyzer() = default;
+
 std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
   std::vector<cv::Rect> detection_results;
   Detection det = algorithm_->DetectObjects(image);
