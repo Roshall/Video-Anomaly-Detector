@@ -62,10 +62,32 @@ void BatchPainter::add_filled_rectangle(const cv::Rect& rect,
   filled_rectangles_.emplace_back(rect, color);
 }
 
+void BatchPainter::add_quadrilateral(const std::vector<cv::Point>& quad_points,
+                                     const YUVAColor& color, int thickness) {
+  quadrilaterals_.emplace_back(quad_points, color, thickness);
+}
+
+void BatchPainter::add_filled_quadrilateral(const std::vector<cv::Point>& quad_points,
+                                            const YUVAColor& color) {
+  filled_quadrilaterals_.emplace_back(quad_points, color);
+}
+
 void BatchPainter::execute() {
-  // Process filled rectangles first (they're typically backgrounds)
+  // Process filled quadrilaterals first (backgrounds)
+  for (const auto& [quad_points, color] : filled_quadrilaterals_) {
+    // Draw filled polygon using existing shape function
+    // For now, we'll use the polygon outline function with thick lines
+    draw_polygon_yuva420p_optimized(frame_, quad_points, color, 1, true);
+  }
+
+  // Process filled rectangles
   for (const auto& [rect, color] : filled_rectangles_) {
     draw_filled_rectangle_yuv420p_optimized(frame_, rect, color);
+  }
+  
+  // Process quadrilateral outlines
+  for (const auto& [quad_points, color, thickness] : quadrilaterals_) {
+    draw_polygon_yuva420p_optimized(frame_, quad_points, color, thickness, true);
   }
 
   // Group rectangles by color and thickness for better cache efficiency
@@ -89,6 +111,8 @@ void BatchPainter::execute() {
 void BatchPainter::clear() {
   rectangles_.clear();
   filled_rectangles_.clear();
+  quadrilaterals_.clear();
+  filled_quadrilaterals_.clear();
 }
 
 void draw_detection_boxes(AVFrame* frame,

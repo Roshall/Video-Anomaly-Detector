@@ -19,6 +19,12 @@ public:
   void add_rectangle(const cv::Rect& rect, const YUVColor& color,
                      int thickness);
   void add_filled_rectangle(const cv::Rect& rect, const YUVColor& color);
+  
+  // Batch quadrilateral drawing (for ROIs)
+  void add_quadrilateral(const std::vector<cv::Point>& quad_points, 
+                        const YUVAColor& color, int thickness);
+  void add_filled_quadrilateral(const std::vector<cv::Point>& quad_points,
+                               const YUVAColor& color);
 
   // Execute all batched operations
   void execute();
@@ -28,6 +34,8 @@ private:
   AVFrame* frame_;
   std::vector<std::tuple<cv::Rect, YUVColor, int>> rectangles_;
   std::vector<std::pair<cv::Rect, YUVColor>> filled_rectangles_;
+  std::vector<std::tuple<std::vector<cv::Point>, YUVAColor, int>> quadrilaterals_;
+  std::vector<std::pair<std::vector<cv::Point>, YUVAColor>> filled_quadrilaterals_;
 };
 
 // High-level convenience functions

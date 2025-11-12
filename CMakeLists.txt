@@ -271,6 +271,7 @@ set(source
         Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_types.h
+        Analyzer/Core/video_processing/dynamic_annotator.cpp
 )
 
 add_executable(Analyzer ${source})

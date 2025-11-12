@@ -72,6 +72,16 @@ std::pair<int, int> estimate_legend_size(
     int text_padding = 8,
     int frame_padding = 8);
 
+// Accurate legend size estimation using FreeType
+std::pair<int, int> estimate_legend_size_accurate(
+    const std::string& font_path,
+    int font_px,
+    std::pair<int, int> handle_wh,
+    int row_spacing,
+    const std::vector<std::string>& labels_utf8,
+    int text_padding = 8,
+    int frame_padding = 8);
+
 AVFrame* create_blank_yuva420p(int width, int height);
 
 void draw_legend_yuva420p(AVFrame* frame,

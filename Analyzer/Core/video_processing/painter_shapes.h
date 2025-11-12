@@ -39,6 +39,10 @@ void draw_line_yuva420p_optimized(AVFrame* frame, int x0, int y0, int x1,
                                   bool write_chroma = true);
 
 // Polygon drawing
+void draw_polygon_yuv420p_optimized(AVFrame* frame,
+                                    const std::vector<cv::Point>& points,
+                                    const YUVColor& color, int thickness = 2);
+
 void draw_polygon_yuva420p_optimized(AVFrame* frame,
                                      const std::vector<cv::Point>& points,
                                      const YUVAColor& color, int thickness = 2,

@@ -300,4 +300,66 @@ void draw_filled_circle_yuva420p_optimized(AVFrame* frame, int center_x,
     }
   }
 }
+
+// YUV420P polygon drawing (no alpha channel)
+void draw_polygon_yuv420p_optimized(AVFrame* frame,
+                                    const std::vector<cv::Point>& points,
+                                    const YUVColor& color, int thickness) {
+  if (points.size() < 2 || !frame || thickness <= 0) return;
+
+  const auto fmt = static_cast<AVPixelFormat>(frame->format);
+  if (!is_yuv420_format(fmt)) return;
+
+  // Simple Bresenham line algorithm for each edge
+  auto draw_line = [&](int x0, int y0, int x1, int y1) {
+    const int dx = std::abs(x1 - x0);
+    const int sx = x0 < x1 ? 1 : -1;
+    const int dy = -std::abs(y1 - y0);
+    const int sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+
+    const int radius = thickness / 2;
+    int x = x0, y = y0;
+    
+    while (true) {
+      // Draw thick point
+      for (int dy_offset = -radius; dy_offset <= radius; ++dy_offset) {
+        for (int dx_offset = -radius; dx_offset <= radius; ++dx_offset) {
+          const int px = x + dx_offset;
+          const int py = y + dy_offset;
+          if (in_bounds(px, py, frame->width, frame->height)) {
+            // Y plane
+            frame->data[0][py * frame->linesize[0] + px] = color.y;
+            
+            // Chroma planes (subsampled)
+            const int cx = px >> 1;
+            const int cy = py >> 1;
+            frame->data[1][cy * frame->linesize[1] + cx] = color.u;
+            frame->data[2][cy * frame->linesize[2] + cx] = color.v;
+          }
+        }
+      }
+
+      if (x == x1 && y == y1) break;
+
+      const int e2 = err << 1;
+      if (e2 >= dy) {
+        err += dy;
+        x += sx;
+      }
+      if (e2 <= dx) {
+        err += dx;
+        y += sy;
+      }
+    }
+  };
+
+  // Draw lines between consecutive points
+  for (size_t i = 0; i < points.size(); ++i) {
+    const auto& p1 = points[i];
+    const auto& p2 = points[(i + 1) % points.size()];
+    draw_line(p1.x, p1.y, p2.x, p2.y);
+  }
+}
+
 } // namespace avs_analyzer
