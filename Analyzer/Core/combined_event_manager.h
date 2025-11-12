@@ -3,6 +3,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -38,14 +39,14 @@ class CombinedEventManager {
 
   struct Result {
     std::unique_ptr<Frame> annotated_frame{};
-    std::vector<std::unique_ptr<Event>> flushed_events{};
+    std::optional<std::unique_ptr<Event>> flushed_event{};
   };
 
   CombinedEventManager() = default;
 
   void UpdateConfig(const CombinedEventConfig& config);
 
-  Result ProcessFrame(AVFrame* source_frame, int64_t timestamp_ms,
+  Result ProcessFrame(const AVFrame* source_frame, int64_t timestamp_ms,
                       int64_t best_effort_pts,
                       const std::vector<DetectorFrameInfo>& detectors);
 

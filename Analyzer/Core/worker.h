@@ -93,7 +93,7 @@ class Worker {
   void ClosePushThreadIfNeeded();
   void RebuildEventManager();
   CombinedEventConfig ComputeCombinedEventConfig() const;
-  std::optional<int> ComputeLevelIndex(
+  int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,
       std::string_view monitor_code) const;

@@ -263,7 +263,7 @@ void Worker::OfflineAnalyze() {
     info.event_start_pts = checker.start_ts();
 
     std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
-    info_vec.emplace_back(std::move(info));
+    info_vec.emplace_back(info);
 
     auto combined = event_manager.ProcessFrame(frame, timestamp_ms, timestamp,
                                                info_vec);
@@ -272,13 +272,7 @@ void Worker::OfflineAnalyze() {
     switch (state) {
       case EventDetector::kEventStart:
         if (annotated_frame) {
-          AlarmImage(monitor, checker.start_ts(), checker.timestamp(),
-                     *annotated_frame, pict_writer, level, false);
-        }
-        break;
-      case EventDetector::kEventEnd:
-        if (annotated_frame) {
-          AlarmImage(monitor, checker.start_ts(), checker.timestamp(),
+          AlarmImage(monitor.code, checker.start_ts(), checker.timestamp(),
                      *annotated_frame, pict_writer, level, false);
         }
         break;
@@ -286,17 +280,18 @@ void Worker::OfflineAnalyze() {
         break;
     }
 
-    for (auto& event : combined.flushed_events) {
-      if (!event) continue;
-      const auto start_ts = timer_.compute(event->start_timestamp);
-      const int w = width;
-      const int h = height;
-      g_th_pool.detach_task(
-          [start_ts, code = monitor.code, event = std::move(event), w, h,
-           upload_dir = scheduler->GetConfig().upload_dir]() mutable {
-            Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
-            alarm.Finalize(upload_dir, "");
-          });
+    if (combined.flushed_event) {
+      if (auto& event = combined.flushed_event.value()) {
+        const auto start_ts = timer_.compute(event->start_timestamp);
+        const int w = width;
+        const int h = height;
+        g_th_pool.detach_task(
+            [start_ts, code = monitor.code, event = std::move(event), w, h,
+             upload_dir = scheduler->GetConfig().upload_dir]() mutable {
+              Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
+              alarm.Finalize(upload_dir, "");
+            });
+      }
     }
   }
 
@@ -416,13 +411,13 @@ void Worker::RebuildEventManager() {
   event_manager_->UpdateConfig(cfg);
 }
 
-std::optional<int> Worker::ComputeLevelIndex(
+int Worker::ComputeLevelIndex(
     const std::pair<std::vector<int>, std::vector<std::string>>& levels,
     LevelMode level_mode, int64_t num_detection, int64_t event_duration,
     std::string_view monitor_code) const {
   if (levels.first.empty() || levels.second.empty()) {
-    LOGW("monitor {} has invalid/empty levels configuration", monitor_code);
-    return std::nullopt;
+    LOGE("monitor {} has invalid/empty levels configuration", monitor_code);
+    return 0;  // Always return lowest level (0) to avoid missing alarms
   }
   
   int64_t metric = level_mode == LevelMode::kNumPeople
@@ -538,13 +533,13 @@ void Worker::DecodeVideo() {
 
       switch (snapshot.state) {
         case EventDetector::kEventStart: {
-          if (level_idx && annotated_frame) {
-            // Update highest level in context (need lock)
+          if (annotated_frame) {
+            // Update the highest level in context (need lock)
             {
               std::shared_lock lock(monitors_mutex_);
               for (auto& ctx : monitors_) {
                 if (ctx->monitor->code == snapshot.monitor_code) {
-                  ctx->current_highest_level = *level_idx;
+                  ctx->current_highest_level = level_idx;
                   break;
                 }
               }
@@ -552,31 +547,27 @@ void Worker::DecodeVideo() {
             AlarmImage(snapshot.monitor_code,
                        snapshot.start_pts, snapshot.timestamp,
                        *annotated_frame, pict_writer,
-                       snapshot.levels.second[*level_idx], true);
+                       snapshot.levels.second[level_idx], true);
           }
           break;
         }
         case EventDetector::kEventActive: {
-          if (level_idx && *level_idx > snapshot.current_highest_level && annotated_frame) {
-            // Update highest level in context (need lock)
+          if (level_idx > snapshot.current_highest_level && annotated_frame) {
+            // Update the highest level in context (need lock)
             {
               std::shared_lock lock(monitors_mutex_);
               for (auto& ctx : monitors_) {
                 if (ctx->monitor->code == snapshot.monitor_code) {
-                  ctx->current_highest_level = *level_idx;
+                  ctx->current_highest_level = level_idx;
                   break;
                 }
               }
             }
-            AlarmImage(snapshot.monitor_code,
-                       snapshot.start_pts, snapshot.timestamp,
-                       *annotated_frame, pict_writer,
-                       snapshot.levels.second[*level_idx], true);
           }
           break;
         }
         case EventDetector::kEventEnd: {
-          // Reset highest level in context (need lock)
+          // Reset the highest level in context (need lock)
           {
             std::shared_lock lock(monitors_mutex_);
             for (auto& ctx : monitors_) {
@@ -586,6 +577,7 @@ void Worker::DecodeVideo() {
               }
             }
           }
+          // TODO: report event ended
           break;
         }
         default:
@@ -593,18 +585,10 @@ void Worker::DecodeVideo() {
       }
     }
 
-    std::string control_code = video_code_;
-    if (control_code.empty() && !event_snapshots.empty()) {
-      control_code = event_snapshots.front().monitor_code;
-    }
-
-    if (!control_code.empty()) {
-      for (auto& event_ptr : combined_result.flushed_events) {
-        if (!event_ptr) {
-          continue;
-        }
+    if (combined_result.flushed_event) {
+      if (auto& event_ptr = combined_result.flushed_event.value()) {
         scheduler->AddAlarm(std::make_unique<Alarm>(
-            timer_.compute(event_ptr->start_timestamp), control_code,
+            timer_.compute(event_ptr->start_timestamp), video_code_,
             std::move(event_ptr), out_width, out_height));
       }
     }
@@ -617,21 +601,11 @@ void Worker::DecodeVideo() {
   }
 
   if (event_manager_) {
-    auto tail_events = event_manager_->FlushPending();
-    std::string control_code = video_code_;
-    if (control_code.empty()) {
-      std::shared_lock lock(monitors_mutex_);
-      if (!monitors_.empty()) {
-        control_code = monitors_.front()->monitor->code;
-      }
-    }
-    if (!control_code.empty()) {
-      for (auto& event_ptr : tail_events) {
-        if (!event_ptr) continue;
-        scheduler->AddAlarm(std::make_unique<Alarm>(
-            timer_.compute(event_ptr->start_timestamp), control_code,
-            std::move(event_ptr), out_width, out_height));
-      }
+    for (auto tail_events = event_manager_->FlushPending(); auto& event_ptr : tail_events) {
+      if (!event_ptr) continue;
+      scheduler->AddAlarm(std::make_unique<Alarm>(
+          timer_.compute(event_ptr->start_timestamp), video_code_,
+          std::move(event_ptr), out_width, out_height));
     }
   }
 }
