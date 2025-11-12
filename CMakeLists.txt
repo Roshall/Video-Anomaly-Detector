@@ -260,6 +260,7 @@ set(source
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
         Analyzer/Core/video_processing/painter.h
+        Analyzer/Core/video_processing/painter.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -280,6 +281,7 @@ target_link_libraries(Analyzer PRIVATE
         readerwriterqueue::readerwriterqueue
         concurrentqueue::concurrentqueue
         spdlog::spdlog
+        PkgConfig::FREETYPE
 )
 target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
 
@@ -289,6 +291,7 @@ target_include_directories(Analyzer PRIVATE
         ${FFMPEG_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
         ${EIGEN_INCLUDE_DIR}
+        ${FREETYPE_INCLUDE_DIRS}
 )
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)

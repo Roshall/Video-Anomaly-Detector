@@ -20,7 +20,7 @@ namespace avs_analyzer {
 struct Point;
 // rectangles, color is always red
 struct SimpleRect { int x, y, w, h, thickness; };
-struct YUVColor { uint8_t y, u, v; };
+
 class VideoOverlay {
  public:
   VideoOverlay() = default;
