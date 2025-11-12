@@ -53,6 +53,31 @@ void draw_rectangles_yuv420p_fast(AVFrame* f,
                                   const YUVColor& color,
                                   int thickness);
 
+LegendLayout estimate_legend_layout(
+    const std::string& font_path,
+    int font_px,
+    std::pair<int, int> handle_wh,
+    int row_spacing,
+    const std::vector<std::string>& labels_utf8,
+    int text_padding,
+    int frame_padding,
+    int video_w,
+    int video_h,
+    LegendPosition position_mode = LegendPosition::kTopRight,
+    int margin_x = 40,
+    int margin_y = 40);
+
+std::pair<int, int> estimate_legend_size(
+    const std::string& font_path,
+    int font_px,
+    std::pair<int, int> handle_wh,
+    int row_spacing,
+    const std::vector<std::string>& labels_utf8,
+    int text_padding = 8,
+    int frame_padding = 8);
+
+AVFrame* create_blank_yuva420p(int width, int height);
+
 void draw_legend_yuva420p(AVFrame* frame,
                           const std::string& font_path,
                           std::pair<int, int> origin,

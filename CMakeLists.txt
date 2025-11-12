@@ -261,6 +261,14 @@ set(source
         Analyzer/Core/Utils/file_server_cb.h
         Analyzer/Core/video_processing/painter.h
         Analyzer/Core/video_processing/painter.cpp
+        Analyzer/Core/video_processing/painter_base.h
+        Analyzer/Core/video_processing/painter_primitives.h
+        Analyzer/Core/video_processing/painter_shapes.h
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/painter_optimized.h
+        Analyzer/Core/video_processing/painter_optimized.cpp
+        Analyzer/Core/video_processing/painter_text.h
+        Analyzer/Core/video_processing/painter_text.cpp
 )
 
 add_executable(Analyzer ${source})
