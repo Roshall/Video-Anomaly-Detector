@@ -5,18 +5,14 @@
 
 #include "opencv2/core/types.hpp"
 
+#include "painter_types.h"
+
 extern "C" {
 #include "libavutil/frame.h"
 }
 
 namespace avs_analyzer {
-struct YUVAColor {
-  uint8_t y, u, v, a;
-};
 
-struct YUVColor {
-  uint8_t y, u, v;
-};
 
 struct LegendLayout {
   int width;

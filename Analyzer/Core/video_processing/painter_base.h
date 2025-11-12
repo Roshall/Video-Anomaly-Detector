@@ -9,9 +9,6 @@ extern "C" {
 }
 
 namespace avs_analyzer {
-// Forward declarations of color structs
-struct YUVAColor;
-struct YUVColor;
 
 // Pixel format validation
 constexpr bool is_yuv420_format(AVPixelFormat fmt) noexcept {

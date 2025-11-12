@@ -2,7 +2,7 @@
 #define ANALYZER_PAINTER_PRIMITIVES_H
 
 #include "painter_base.h"
-#include "painter.h"  // For color structs
+#include "painter_types.h"  // For color structs
 #include <cstring>
 
 namespace avs_analyzer {

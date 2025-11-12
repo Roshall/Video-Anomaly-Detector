@@ -22,6 +22,8 @@
 #include <cstring>
 #include <numeric>
 
+#include "Utils/log.h"
+
 extern "C" {
 #include <libavutil/frame.h>
 #include <libavutil/pixfmt.h>
@@ -84,16 +86,15 @@ struct ClippedRect {
 };
 
 // Validate and get pixel format
-bool validate_yuv_format(AVFrame* frame, bool require_alpha = false) {
+bool validate_yuv_format(AVFrame* frame, const bool require_alpha = false) {
   if (!frame) return false;
 
   const auto fmt = static_cast<AVPixelFormat>(frame->format);
 
   if (require_alpha) {
     return fmt == AV_PIX_FMT_YUVA420P;
-  } else {
-    return fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P;
   }
+  return fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P;
 }
 } // anonymous namespace
 
@@ -383,6 +384,7 @@ void draw_legend_yuva420p(AVFrame* frame,
                           int frame_thickness,
                           YUVAColor frame_color) {
   if (!validate_yuv_format(frame, true) || colors.size() != labels.size()) {
+    LOGE("unable to validate yuv format or colors is incompatible with labels");
     return;
   }
 
@@ -394,12 +396,12 @@ void draw_legend_yuva420p(AVFrame* frame,
   const int row_step = row_height + std::max(0, row_spacing);
 
   // Draw legend items (handles only, no text rendering without FreeType)
-  for (size_t i = 0; i < colors.size(); ++i) {
+  for (auto color : colors) {
     if (current_y >= frame->height) break;
 
     // Draw color handle
     const cv::Rect handle_rect(start_x, current_y, handle_width, handle_height);
-    draw_filled_rectangle_yuva420p_optimized(frame, handle_rect, colors[i],
+    draw_filled_rectangle_yuva420p_optimized(frame, handle_rect, color,
                                              write_chroma);
 
     current_y += row_step;

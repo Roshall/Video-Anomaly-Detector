@@ -208,12 +208,13 @@ add_executable(log_test
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
 target_include_directories(log_test PRIVATE Analyzer/Core/Utils)
 
-add_executable(draw_text_test Analyzer/Core/video_processing/painter.h
+add_executable(draw_text_test Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_shapes.cpp
         tests/draw_text_test.cpp
 )
-target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMPEG)
-target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS})
-target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing)
+target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMPEG opencv_core)
+target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
 
 set(source
@@ -269,6 +270,7 @@ set(source
         Analyzer/Core/video_processing/painter_optimized.cpp
         Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_types.h
 )
 
 add_executable(Analyzer ${source})

@@ -3,7 +3,7 @@
 
 #include "painter_base.h"
 #include "painter_primitives.h"
-#include "painter.h"
+#include "painter_types.h"
 #include <vector>
 #include "opencv2/core/types.hpp"
 

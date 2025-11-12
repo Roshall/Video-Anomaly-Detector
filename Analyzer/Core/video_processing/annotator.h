@@ -5,11 +5,11 @@
 #ifndef ANALYZER_ANNOTATOR_H
 #define ANALYZER_ANNOTATOR_H
 
-#include <libavutil/pixfmt.h>
 #include <opencv2/opencv.hpp>
 #include <vector>
 
 #include "helper.h"
+#include "painter_types.h"
 #include "video_context.h"
 
 struct AVFrame;

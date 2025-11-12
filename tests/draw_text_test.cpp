@@ -6,7 +6,7 @@
 #include <vector>
 #include <string>
 #include <filesystem>
-#include "painter.h"
+#include "painter_text.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -74,7 +74,7 @@ int test_draw_legend_on_first_frame(const std::string& video_path,
         memset(yuva->data[3] + y * yuva->linesize[3], 255, yuva->width);
 
     // ---- draw legend ----
-    std::vector<YUVAColor> cols = {
+    std::vector<avs_analyzer::YUVAColor> cols = {
         {155, 48, 170, 120},
         {152, 165, 83, 220},
         { 107, 133, 62,	220},
@@ -93,16 +93,15 @@ int test_draw_legend_on_first_frame(const std::string& video_path,
       u8"未知",
     };
 
-    draw_legend_yuva420p(
+    avs_analyzer::draw_legend_yuva420p_optimized(
         yuva,
         font_path,
         {1640, 40},     // origin
         32,            // font px
         {28, 18},      // handle size
-        34,            // row spacing
+        20,            // row spacing
         cols,
-        labels,
-        true, 8);
+        labels);
 
     // ---- convert back to YUV420p for saving ----
     AVFrame* yuv420 = av_frame_alloc();

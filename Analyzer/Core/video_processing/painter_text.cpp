@@ -276,7 +276,7 @@ void draw_legend_yuva420p_optimized(AVFrame* frame,
     throw std::runtime_error("Failed to load font: " + font_path);
   }
 
-  FT_Face face = font_manager.get_face();
+  const FT_Face face = font_manager.get_face();
 
   const int start_x = origin.first;
   int current_y = origin.second;
@@ -299,11 +299,14 @@ void draw_legend_yuva420p_optimized(AVFrame* frame,
                                  std::max(0, row_spacing) * (
                                    static_cast<int>(labels.size()) - 1);
 
+  // we want Unicode texts to be center aligned with handles
+  const int text_off_set_y = font_size * 2 / 3;
+
   // Draw frame if requested
   if (style.draw_frame && content_width > 0 && content_height > 0) {
     const cv::Rect frame_rect(
         start_x - style.frame_padding,
-        current_y - style.frame_padding,
+        current_y - style.frame_padding - text_off_set_y/2,
         content_width + 2 * style.frame_padding,
         content_height + 2 * style.frame_padding
         );
@@ -323,7 +326,7 @@ void draw_legend_yuva420p_optimized(AVFrame* frame,
 
     // Draw text label
     const int text_x = start_x + handle_width + style.text_padding;
-    const int baseline_y = current_y + font_size / 2;
+    const int baseline_y = current_y + text_off_set_y;
 
     render_text_yuva420p(frame, face, text_x, baseline_y, labels[i], colors[i],
                          write_chroma);

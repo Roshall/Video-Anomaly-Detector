@@ -2,7 +2,7 @@
 #define ANALYZER_PAINTER_TEXT_H
 
 #include "painter_base.h"
-#include "painter.h"
+#include "painter_types.h"
 #include <string>
 #include <vector>
 
