@@ -81,8 +81,7 @@ class EventDetector {
     kMajorCheck,
     kMinorCheck,
     kDoubleCheck,
-    kEventActive,
-    kEventEnding
+    kEventActive
   };
   class VotesWindow {
    public:
@@ -135,7 +134,6 @@ class EventDetector {
   int64_t active_event_start_pts_{0};
   int64_t last_timestamp_ms_{0};
   int64_t last_best_effort_ts_{0};
-  int64_t event_end_candidate_ts_{0};
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_EVENT_H

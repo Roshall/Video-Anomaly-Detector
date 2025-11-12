@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <ranges>
 #include <utility>
 
 #include "Utils/log.h"
@@ -27,20 +28,15 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
 
   TrimFrameBuffer(timestamp_ms);
 
-  // Update per-monitor states.
+  // Update per-monitor states and track if any are active.
+  has_active_monitors_ = false;
   for (const auto& info : detectors) {
     auto [it, _] =
         monitor_state_.try_emplace(std::string(info.monitor_code));
     auto& status = it->second;
-    const auto& stored_code = it->first;
 
     switch (info.state) {
       case EventDetector::kEventStart:
-        status.active = true;
-        status.start_ts_ms = info.event_start_timestamp_ms;
-        status.start_pts = info.event_start_pts;
-        active_monitors_.insert(stored_code);
-        break;
       case EventDetector::kEventActive:
         status.active = true;
         if (info.event_start_timestamp_ms > 0) {
@@ -49,19 +45,16 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
         if (info.event_start_pts > 0) {
           status.start_pts = info.event_start_pts;
         }
-        active_monitors_.insert(stored_code);
         break;
       case EventDetector::kEventEnd:
         status.active = false;
-        active_monitors_.erase(stored_code);
         break;
       default:
-        if (status.active) {
-          active_monitors_.insert(stored_code);
-        } else {
-          active_monitors_.erase(stored_code);
-        }
         break;
+    }
+
+    if (status.active) {
+      has_active_monitors_ = true;
     }
   }
 
@@ -109,7 +102,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
   // Evaluate combined event state transitions.
   switch (state_) {
     case CombinedState::kIdle: {
-      if (!active_monitors_.empty()) {
+      if (has_active_monitors_) {
         state_ = CombinedState::kActive;
         UpdateCombinedStartFromActive(timestamp_ms, best_effort_pts);
         event_end_candidate_ts_ = 0;
@@ -117,11 +110,10 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       break;
     }
     case CombinedState::kActive: {
-      if (active_monitors_.empty()) {
+      if (!has_active_monitors_) {
         state_ = CombinedState::kEnding;
         event_end_candidate_ts_ = timestamp_ms;
-      } else if (config_.max_event_duration_ms > 0 &&
-                 timestamp_ms - segment_start_ts_ >=
+      } else if (timestamp_ms - segment_start_ts_ >=
                      config_.max_event_duration_ms) {
         if (auto event = FlushEvent(true)) {
           result.flushed_events.emplace_back(std::move(event));
@@ -132,7 +124,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       break;
     }
     case CombinedState::kEnding: {
-      if (!active_monitors_.empty()) {
+      if (has_active_monitors_) {
         state_ = CombinedState::kActive;
         UpdateCombinedStartFromActive(timestamp_ms, best_effort_pts);
         event_end_candidate_ts_ = 0;
@@ -181,6 +173,7 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
   }
 
   static constexpr std::vector<cv::Rect> kEmptyRects{};
+  // TODO: use different color for different task, also add a legend.
   for (const auto& info : detectors) {
     if (!info.overlay) {
       continue;
@@ -200,23 +193,18 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
 
 void CombinedEventManager::UpdateCombinedStartFromActive(
     int64_t fallback_timestamp_ms, int64_t fallback_pts) {
-  if (active_monitors_.empty()) {
-    return;
-  }
-  // TODO: It seems that we don't need to compare start_ts_ms in active monitor
-  //   since we process frame by frame and idle|ending -> active
-  //   indicates that starting timestamp is absolutely right now. As a result,
-  //   activate_monitors_ is unnecessary and can be replaced with a flag that
-  //   indicates that whether there exist any active monitor.
+  // Since we process frames sequentially, when transitioning from idle/ending
+  // to active, the earliest active monitor's start is the combined start.
   int64_t min_ts = std::numeric_limits<int64_t>::max();
   int64_t min_pts = std::numeric_limits<int64_t>::max();
-  for (const auto& code : active_monitors_) {
-    if (auto it = monitor_state_.find(code); it != monitor_state_.end()) {
-      if (it->second.start_ts_ms > 0) {
-        min_ts = std::min(min_ts, it->second.start_ts_ms);
+  
+  for (const auto& [active, start_ts_ms, start_pts] : monitor_state_ | std::views::values) {
+    if (active) {
+      if (start_ts_ms > 0) {
+        min_ts = std::min(min_ts, start_ts_ms);
       }
-      if (it->second.start_pts > 0) {
-        min_pts = std::min(min_pts, it->second.start_pts);
+      if (start_pts > 0) {
+        min_pts = std::min(min_pts, start_pts);
       }
     }
   }
@@ -273,7 +261,7 @@ std::vector<std::unique_ptr<Event>> CombinedEventManager::FlushPending() {
   }
 
   state_ = CombinedState::kIdle;
-  active_monitors_.clear();
+  has_active_monitors_ = false;
   combined_event_start_ts_ = 0;
   combined_event_start_pts_ = 0;
   segment_start_ts_ = 0;

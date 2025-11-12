@@ -40,7 +40,7 @@ std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
 }
 
 EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
-  State state{State::kNoEvent};
+  State state{kNoEvent};
   last_timestamp_ms_ = frame.timestamp;
   last_best_effort_ts_ = frame.data ? frame.data->best_effort_timestamp : 0;
   const auto current_ts = last_timestamp_ms_;
@@ -55,7 +55,6 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
                current_ts);
           current_state_ = InnerState::kMinorCheck;
           last_minor_check_ts_ = current_ts;
-          event_end_candidate_ts_ = 0;
           object_votes_window_.slide(true, current_ts, best_effort_ts);
           kept_bboxes_ = std::move(bboxes);
         }
@@ -78,7 +77,6 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
             const auto [start_ts, start_pts] = FindFirstVoteTimestamp();
             active_event_start_ts_ = start_ts;
             active_event_start_pts_ = start_pts;
-              event_end_candidate_ts_ = 0;
             if (config_.defer_start(static_cast<int>(kept_bboxes_.size()))) {
               current_state_ = InnerState::kDoubleCheck;
               LOGD(">>> Verification succeeded at t = {}ms, Starting Duration Checking", current_ts);
@@ -114,8 +112,7 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
               kept_bboxes_.size() >= static_cast<size_t>(config_.minimum_num)) {
             LOGD(">>> EVENT DETECTED at t = {}ms <<<", current_ts);
             current_state_ = InnerState::kEventActive;
-            event_end_candidate_ts_ = 0;
-            state = State::kEventStart;
+            state = kEventStart;
           }
         } else {
           LOGD(
@@ -140,33 +137,20 @@ EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
           kept_bboxes_ = std::move(bboxes);
         }
 
-        state = State::kEventActive;
+        state = kEventActive;
         // Check for event end condition
         if (auto votes = object_votes_window_.votes();
             votes < config_.min_vote || kept_bboxes_.size() < static_cast<size_t>(config_.minimum_num)) {
           LOGD("[Active] Event ending at t = {}ms. Votes dropped to {}.",
                current_ts, votes);
-          // Prepare for next event search
-          current_state_ = InnerState::kEventEnding;
-          event_end_candidate_ts_ = current_ts;
+          // Transition directly to appropriate check state
+          current_state_ = kept_bboxes_.empty() ? InnerState::kMajorCheck
+                                                : InnerState::kDoubleCheck;
+          last_major_check_ts_ = current_ts;
+          object_votes_window_.clear();
           kept_bboxes_.clear();
+          state = kEventEnd;
         }
-      }
-      break;
-    }
-    case InnerState::kEventEnding: {
-      if (event_end_candidate_ts_ == 0) {
-        event_end_candidate_ts_ = current_ts;
-      }
-      if (current_ts - event_end_candidate_ts_ >= config_.post_event_buffer_ms) {
-        // Finalize the event.
-        current_state_ = kept_bboxes_.empty() ? InnerState::kMajorCheck
-                                              : InnerState::kDoubleCheck;
-        last_major_check_ts_ = current_ts;
-        object_votes_window_.clear();
-        kept_bboxes_.clear();
-        state = State::kEventEnd;
-        event_end_candidate_ts_ = 0;
       }
       break;
     }

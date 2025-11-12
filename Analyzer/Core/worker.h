@@ -13,6 +13,7 @@
 #include "event.h"
 #include "frame_walk_time.h"
 #include "jpeg_encoder.h"
+#include "monitor.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>
@@ -73,12 +74,29 @@ class Worker {
 
   using MonitorContextPtr = std::unique_ptr<MonitorContext>;
 
+  // Snapshot of monitor state for event processing (thread-safe, no pointers)
+  struct MonitorEventSnapshot {
+    std::string monitor_code;
+    EventDetector::State state;
+    int64_t start_pts;
+    int64_t timestamp;
+    int64_t num_detection;
+    int64_t event_duration;
+    std::pair<std::vector<int>, std::vector<std::string>> levels;
+    LevelMode level_mode;
+    int current_highest_level;
+  };
+
   void PrepareMonitorForStream(MonitorContext& ctx) const;
   void EnsureAllPipelinesReady(int out_width, int out_height) const;
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();
   void RebuildEventManager();
   CombinedEventConfig ComputeCombinedEventConfig() const;
+  std::optional<int> ComputeLevelIndex(
+      const std::pair<std::vector<int>, std::vector<std::string>>& levels,
+      LevelMode level_mode, int64_t num_detection, int64_t event_duration,
+      std::string_view monitor_code) const;
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
@@ -94,10 +112,10 @@ class Worker {
   std::unique_ptr<CombinedEventManager> event_manager_;
 
   bool GrabFrame(AVFrame* frame) const;
-  void AlarmImage(const Monitor& monitor, int64_t start_pts,
-        int64_t event_pts, const Frame& frame,
-        JPEGEncoder& pict_writer, std::string_view level,
-        bool push) noexcept;
+  void AlarmImage(const std::string& monitor_code, int64_t start_pts,
+                  int64_t event_pts, const Frame& frame,
+                  JPEGEncoder& pict_writer, std::string_view level,
+                  bool push) noexcept;
   bool NeedPushStream() const;
 };
 }  // namespace avs_analyzer

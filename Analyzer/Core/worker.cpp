@@ -36,10 +36,6 @@ extern "C" {
 }
 
 namespace avs_analyzer {
-template <typename Vec>
-auto chain_vectors(Vec& a, Vec& b) {
-  return std::array{std::views::all(a), std::views::all(b)} | std::views::join;
-}
 
 Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
                const EventDetectorConfig& event_cfg, bool file)
@@ -111,9 +107,6 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     }
   }
   ctx->current_highest_level = 0;
-  // FIXME: rebuilding event manager will lose all cache frame
-  //  here we can simply update event manage by providing the added monitor
-  //  and it might need to be protected by the monitors mutex
   RebuildEventManager();
   StartPushThreadIfNeeded();
 }
@@ -292,19 +285,32 @@ void Worker::OfflineAnalyze() {
       default:
         break;
     }
-    for (auto flush_pending = event_manager.FlushPending();
-      auto&& event : chain_vectors(combined.flushed_events, flush_pending)) {
+
+    for (auto& event : combined.flushed_events) {
       if (!event) continue;
       const auto start_ts = timer_.compute(event->start_timestamp);
       const int w = width;
       const int h = height;
       g_th_pool.detach_task(
           [start_ts, code = monitor.code, event = std::move(event), w, h,
-            upload_dir = scheduler->GetConfig().upload_dir]() mutable {
+           upload_dir = scheduler->GetConfig().upload_dir]() mutable {
             Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
             alarm.Finalize(upload_dir, "");
           });
     }
+  }
+
+  for (auto& event : event_manager.FlushPending()) {
+    if (!event) continue;
+    const auto start_ts = timer_.compute(event->start_timestamp);
+    const int w = width;
+    const int h = height;
+    g_th_pool.detach_task(
+        [start_ts, code = monitor.code, event = std::move(event), w, h,
+         upload_dir = scheduler->GetConfig().upload_dir]() mutable {
+          Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
+          alarm.Finalize(upload_dir, "");
+        });
   }
 
   const std::string url =
@@ -315,13 +321,13 @@ void Worker::OfflineAnalyze() {
   LOGI("offline analyzer response: {}", res);
 }
 
-void Worker::AlarmImage(const Monitor& monitor, int64_t start_pts,
+void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
                         int64_t event_pts, const Frame& frame,
                         JPEGEncoder& pict_writer, std::string_view level,
                         bool push) noexcept {
   if (!frame.data) {
     LOGW("AlarmImage skipped for monitor {}: missing frame data",
-         monitor.code);
+         monitor_code);
     return;
   }
 
@@ -330,7 +336,7 @@ void Worker::AlarmImage(const Monitor& monitor, int64_t start_pts,
 
   AVFramePtr frame_clone{av_frame_clone(frame.data.get())};
   if (!frame_clone) {
-    LOGE("AlarmImage failed to clone frame for monitor {}", monitor.code);
+    LOGE("AlarmImage failed to clone frame for monitor {}", monitor_code);
     return;
   }
   frame_clone->best_effort_timestamp = frame.data->best_effort_timestamp;
@@ -343,7 +349,7 @@ void Worker::AlarmImage(const Monitor& monitor, int64_t start_pts,
   async_frame->data = std::move(frame_clone);
 
   g_th_pool.detach_task([&pict_writer, &conf = scheduler->GetConfig(),
-        code = monitor.code, start_timestamp, event_timestamp,
+        code = monitor_code, start_timestamp, event_timestamp,
         level = std::string(level), push,
         frame = std::move(async_frame)]() mutable {
         auto img_path =
@@ -403,8 +409,38 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 }
 
 void Worker::RebuildEventManager() {
-  event_manager_ = std::make_unique<CombinedEventManager>();
-  event_manager_->UpdateConfig(ComputeCombinedEventConfig());
+  auto cfg = ComputeCombinedEventConfig();
+  if (!event_manager_) {
+    event_manager_ = std::make_unique<CombinedEventManager>();
+  }
+  event_manager_->UpdateConfig(cfg);
+}
+
+std::optional<int> Worker::ComputeLevelIndex(
+    const std::pair<std::vector<int>, std::vector<std::string>>& levels,
+    LevelMode level_mode, int64_t num_detection, int64_t event_duration,
+    std::string_view monitor_code) const {
+  if (levels.first.empty() || levels.second.empty()) {
+    LOGW("monitor {} has invalid/empty levels configuration", monitor_code);
+    return std::nullopt;
+  }
+  
+  int64_t metric = level_mode == LevelMode::kNumPeople
+                       ? num_detection
+                       : event_duration;
+  int idx = 0;
+  const int total = static_cast<int>(levels.first.size());
+  while (idx < total && levels.first[idx] <= metric) {
+    ++idx;
+  }
+  --idx;
+  if (idx < 0) {
+    LOGW("monitor {} metric {} below first threshold {}", monitor_code,
+         metric, levels.first.front());
+    idx = 0;
+  }
+  idx = std::min(idx, static_cast<int>(levels.second.size()) - 1);
+  return idx;
 }
 
 void Worker::DecodeVideo() {
@@ -444,40 +480,46 @@ void Worker::DecodeVideo() {
     out_width = out_stream ? out_stream->width() : width;
     out_height = out_stream ? out_stream->height() : height;
 
-    std::vector<MonitorContext*> active_contexts;
+    std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
+    std::vector<MonitorEventSnapshot> event_snapshots;
+
     {
       std::shared_lock lock(monitors_mutex_);
-      active_contexts.reserve(monitors_.size());
+      detector_infos.reserve(monitors_.size());
+      event_snapshots.reserve(monitors_.size());
+
       for (auto& ctx : monitors_) {
-        active_contexts.push_back(ctx.get());
+        auto* ctx_ptr = ctx.get();
+        if (!ctx_ptr || !ctx_ptr->detector) {
+          continue;
+        }
+        const auto state =
+            ctx_ptr->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
+
+        CombinedEventManager::DetectorFrameInfo info;
+        info.monitor_code = ctx_ptr->monitor->code;
+        info.overlay = ctx_ptr->overlay.get();
+        info.state = state;
+        info.detections = &ctx_ptr->detector->detections();
+        info.event_start_timestamp_ms = ctx_ptr->detector->event_start_timestamp();
+        info.event_start_pts = ctx_ptr->detector->start_ts();
+        detector_infos.emplace_back(info);
+
+        // Capture snapshot for alarm processing (no pointers, thread-safe)
+        MonitorEventSnapshot snapshot;
+        snapshot.monitor_code = ctx_ptr->monitor->code;
+        snapshot.state = state;
+        snapshot.start_pts = ctx_ptr->detector->start_ts();
+        snapshot.timestamp = ctx_ptr->detector->timestamp();
+        snapshot.num_detection = ctx_ptr->detector->num_detection();
+        snapshot.event_duration = ctx_ptr->detector->event_duration();
+        snapshot.levels = ctx_ptr->monitor->levels;
+        snapshot.level_mode = ctx_ptr->monitor->level_mode;
+        snapshot.current_highest_level = ctx_ptr->current_highest_level;
+        event_snapshots.emplace_back(std::move(snapshot));
       }
     }
-
-    std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
-    detector_infos.reserve(active_contexts.size());
-    std::vector<std::pair<MonitorContext*, EventDetector::State>>
-        detector_states;
-    detector_states.reserve(active_contexts.size());
-
-    // FIXME: data race with RemoveMonitor function
-    for (auto* ctx : active_contexts) {
-      if (!ctx || !ctx->detector) {
-        continue;
-      }
-      const auto state =
-          ctx->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
-      detector_states.emplace_back(ctx, state);
-
-      CombinedEventManager::DetectorFrameInfo info;
-      // TODO: use monitor.id instead of code
-      info.monitor_code = ctx->monitor->code;
-      info.overlay = ctx->overlay.get();
-      info.state = state;
-      info.detections = &ctx->detector->detections();
-      info.event_start_timestamp_ms = ctx->detector->event_start_timestamp();
-      info.event_start_pts = ctx->detector->start_ts();
-      detector_infos.emplace_back(info);
-    }
+    // Lock released here - safe to process snapshots
 
     CombinedEventManager::Result combined_result;
     if (event_manager_) {
@@ -487,65 +529,63 @@ void Worker::DecodeVideo() {
 
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
-    for (auto& [ctx, state] : detector_states) {
-      if (!ctx || !ctx->detector) {
-        continue;
-      }
-      // TODO: we check its level only when the state is start/active
-      const auto& monitor = *ctx->monitor;
-      auto compute_level_index = [&]() -> std::optional<int> {
-        if (monitor.levels.first.empty() || monitor.levels.second.empty()) {
-          return std::nullopt; // FIXME: this is a impossible state
-        }
-        int64_t metric = monitor.level_mode == LevelMode::kNumPeople
-                           ? ctx->detector->num_detection()
-                           : ctx->detector->event_duration();
-        int idx = 0;
-        const int total = static_cast<int>(monitor.levels.first.size());
-        while (idx < total && monitor.levels.first[idx] <= metric) {
-          ++idx;
-        }
-        --idx;
-        if (idx < 0) {
-          LOGW("monitor {} metric {} below first threshold {}", monitor.code,
-               metric, monitor.levels.first.front());
-          idx = 0;
-        }
-        idx = std::min(idx, static_cast<int>(monitor.levels.second.size()) - 1);
-        return idx;
-      };
+    // Process alarms using snapshots (no data race)
+    for (auto& snapshot : event_snapshots) {
+      auto level_idx = ComputeLevelIndex(
+          snapshot.levels, snapshot.level_mode,
+          snapshot.num_detection, snapshot.event_duration,
+          snapshot.monitor_code);
 
-      switch (state) {
+      switch (snapshot.state) {
         case EventDetector::kEventStart: {
-          if (auto level_idx = compute_level_index()) {
-            ctx->current_highest_level = *level_idx;
-            if (annotated_frame) {
-              AlarmImage(monitor, ctx->detector->start_ts(),
-                         ctx->detector->timestamp(), *annotated_frame,
-                         pict_writer, monitor.levels.second[*level_idx], true);
+          if (level_idx && annotated_frame) {
+            // Update highest level in context (need lock)
+            {
+              std::shared_lock lock(monitors_mutex_);
+              for (auto& ctx : monitors_) {
+                if (ctx->monitor->code == snapshot.monitor_code) {
+                  ctx->current_highest_level = *level_idx;
+                  break;
+                }
+              }
             }
+            AlarmImage(snapshot.monitor_code,
+                       snapshot.start_pts, snapshot.timestamp,
+                       *annotated_frame, pict_writer,
+                       snapshot.levels.second[*level_idx], true);
           }
           break;
         }
         case EventDetector::kEventActive: {
-          if (auto level_idx = compute_level_index()) {
-            if (*level_idx > ctx->current_highest_level && annotated_frame) {
-              AlarmImage(monitor, ctx->detector->start_ts(),
-                         ctx->detector->timestamp(), *annotated_frame,
-                         pict_writer, monitor.levels.second[*level_idx], true);
-              ctx->current_highest_level = *level_idx;
+          if (level_idx && *level_idx > snapshot.current_highest_level && annotated_frame) {
+            // Update highest level in context (need lock)
+            {
+              std::shared_lock lock(monitors_mutex_);
+              for (auto& ctx : monitors_) {
+                if (ctx->monitor->code == snapshot.monitor_code) {
+                  ctx->current_highest_level = *level_idx;
+                  break;
+                }
+              }
             }
+            AlarmImage(snapshot.monitor_code,
+                       snapshot.start_pts, snapshot.timestamp,
+                       *annotated_frame, pict_writer,
+                       snapshot.levels.second[*level_idx], true);
           }
           break;
         }
         case EventDetector::kEventEnd: {
-          if (auto level_idx = compute_level_index();
-            level_idx && annotated_frame) {
-            AlarmImage(monitor, ctx->detector->start_ts(),
-                       ctx->detector->timestamp(), *annotated_frame,
-                       pict_writer, monitor.levels.second[*level_idx], true);
+          // Reset highest level in context (need lock)
+          {
+            std::shared_lock lock(monitors_mutex_);
+            for (auto& ctx : monitors_) {
+              if (ctx->monitor->code == snapshot.monitor_code) {
+                ctx->current_highest_level = 0;
+                break;
+              }
+            }
           }
-          ctx->current_highest_level = 0;
           break;
         }
         default:
@@ -553,12 +593,10 @@ void Worker::DecodeVideo() {
       }
     }
 
-    const std::string control_code =
-        !video_code_.empty()
-          ? video_code_
-          : (!active_contexts.empty()
-               ? active_contexts.front()->monitor->code
-               : std::string{});
+    std::string control_code = video_code_;
+    if (control_code.empty() && !event_snapshots.empty()) {
+      control_code = event_snapshots.front().monitor_code;
+    }
 
     if (!control_code.empty()) {
       for (auto& event_ptr : combined_result.flushed_events) {
@@ -654,9 +692,6 @@ void Worker::RemoveMonitor(const std::string& code) {
     Remove();
   } else {
     ClosePushThreadIfNeeded();
-    // FIXME: rebuilding event manager will lose all cache frame
-    //  here we can simply update event manage by providing the to-be-removed monitor
-    //  and it might need to be protected by the monitors mutex
     RebuildEventManager();
   }
 }
@@ -761,5 +796,6 @@ void Worker::OnStreamOpened(VideoContext context) {
   }
 
   StartPushThreadIfNeeded();
+  RebuildEventManager();
 }
 } // namespace avs_analyzer

@@ -6,7 +6,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "event.h"
@@ -79,7 +78,7 @@ class CombinedEventManager {
   CombinedState state_{CombinedState::kIdle};
   std::deque<std::unique_ptr<Frame>> frame_buffer_{};
   std::unordered_map<std::string, MonitorState> monitor_state_{};
-  std::unordered_set<std::string> active_monitors_{};
+  bool has_active_monitors_{false};
 
   int64_t combined_event_start_ts_{0};
   int64_t combined_event_start_pts_{0};
