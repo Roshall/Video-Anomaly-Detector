@@ -57,38 +57,12 @@ void BatchPainter::add_rectangle(const cv::Rect& rect, const YUVColor& color,
   rectangles_.emplace_back(rect, color, thickness);
 }
 
-void BatchPainter::add_filled_rectangle(const cv::Rect& rect,
-                                        const YUVColor& color) {
-  filled_rectangles_.emplace_back(rect, color);
-}
-
-void BatchPainter::add_quadrilateral(const std::vector<cv::Point>& quad_points,
-                                     const YUVAColor& color, int thickness) {
-  quadrilaterals_.emplace_back(quad_points, color, thickness);
-}
-
-void BatchPainter::add_filled_quadrilateral(const std::vector<cv::Point>& quad_points,
-                                            const YUVAColor& color) {
-  filled_quadrilaterals_.emplace_back(quad_points, color);
+void BatchPainter::add_polygon(const std::vector<cv::Point>& points,
+                               const YUVColor& color, int thickness) {
+  polygons_.emplace_back(points, color, thickness);
 }
 
 void BatchPainter::execute() {
-  // Process filled quadrilaterals first (backgrounds)
-  for (const auto& [quad_points, color] : filled_quadrilaterals_) {
-    // Draw filled polygon using existing shape function
-    // For now, we'll use the polygon outline function with thick lines
-    draw_polygon_yuv420p_optimized(frame_, quad_points, color, 1);
-  }
-
-  // Process filled rectangles
-  for (const auto& [rect, color] : filled_rectangles_) {
-    draw_filled_rectangle_yuv420p_optimized(frame_, rect, color);
-  }
-  
-  // Process quadrilateral outlines
-  for (const auto& [quad_points, color, thickness] : quadrilaterals_) {
-    draw_polygon_yuv420p_optimized(frame_, quad_points, color, thickness);
-  }
 
   // Group rectangles by color and thickness for better cache efficiency
   std::sort(rectangles_.begin(), rectangles_.end(),
@@ -106,13 +80,16 @@ void BatchPainter::execute() {
   for (const auto& [rect, color, thickness] : rectangles_) {
     draw_rectangle_yuv420p_optimized(frame_, rect, color, thickness);
   }
+
+  // Process polygon outlines (YUV, no alpha)
+  for (const auto& [points, color, thickness] : polygons_) {
+    draw_polygon_yuv420p_optimized(frame_, points, color, thickness);
+  }
 }
 
 void BatchPainter::clear() {
   rectangles_.clear();
-  filled_rectangles_.clear();
-  quadrilaterals_.clear();
-  filled_quadrilaterals_.clear();
+  polygons_.clear();
 }
 
 void draw_detection_boxes(AVFrame* frame,

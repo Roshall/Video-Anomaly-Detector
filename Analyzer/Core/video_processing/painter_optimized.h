@@ -18,13 +18,9 @@ public:
   // Batch rectangle drawing
   void add_rectangle(const cv::Rect& rect, const YUVColor& color,
                      int thickness);
-  void add_filled_rectangle(const cv::Rect& rect, const YUVColor& color);
   
-  // Batch quadrilateral drawing (for ROIs)
-  void add_quadrilateral(const std::vector<cv::Point>& quad_points, 
-                        const YUVAColor& color, int thickness);
-  void add_filled_quadrilateral(const std::vector<cv::Point>& quad_points,
-                               const YUVAColor& color);
+  // Batch polygon (outline) drawing with YUV (no alpha), used to directly draw ROIs on YUV420P
+  void add_polygon(const std::vector<cv::Point>& points, const YUVColor& color, int thickness);
 
   // Execute all batched operations
   void execute();
@@ -33,9 +29,7 @@ public:
 private:
   AVFrame* frame_;
   std::vector<std::tuple<cv::Rect, YUVColor, int>> rectangles_;
-  std::vector<std::pair<cv::Rect, YUVColor>> filled_rectangles_;
-  std::vector<std::tuple<std::vector<cv::Point>, YUVAColor, int>> quadrilaterals_;
-  std::vector<std::pair<std::vector<cv::Point>, YUVAColor>> filled_quadrilaterals_;
+  std::vector<std::tuple<std::vector<cv::Point>, YUVColor, int>> polygons_;
 };
 
 // High-level convenience functions
