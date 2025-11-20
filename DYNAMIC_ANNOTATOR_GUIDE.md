@@ -29,9 +29,9 @@ Implemented `estimate_legend_size_accurate()` with FreeType fallback:
 - Wrapped in `#ifdef HAVE_FREETYPE` guards
 
 ### C. Legend Buffer Management
-- Pre-render legend to exact size buffer
-- Store as YUVA420P frame for alpha blending
-- Update only when labels change
+- Pre-allocate legend overlay using the full Task enum set at initialization (get_enum_range<Task>())
+- Store as a YUVA420P frame for alpha blending
+- Update only when labels change; redraw in-place into the pre-allocated buffer (no reallocation of overlay or filter graph)
 
 ### D. Alpha Overlay Function
 Implemented `overlay_yuva420p_region()` for efficient alpha blending:

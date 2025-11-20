@@ -10,9 +10,11 @@ void example_usage() {
     VideoContext ctx;
     ctx.width = 1920;
     ctx.height = 1080;
-    ctx.fps = 30;
     
-    // Create and initialize annotator
+    // Create and initialize annotator. Note: init() will pre-allocate the
+    // legend overlay using the full Task enum set and create the FFmpeg
+    // overlay filter graph once; subsequent init() calls with a different
+    // VideoContext will be rejected to enforce single-allocation semantics.
     DynamicAnnotator annotator;
     DynamicAnnotator::LegendConfig legend_config;
     legend_config.position = LegendPosition::kTopRight;
@@ -48,29 +50,5 @@ void example_usage() {
         // Use annotated frame (YUVA420P format with alpha channel)
         // ...
     }
-    */
-}
-
-// Performance comparison between old and new approach
-void performance_comparison() {
-    /*
-    OLD APPROACH:
-    1. Create static polygon overlay filter (expensive setup)
-    2. Draw bboxes on-the-fly for each frame
-    3. No legend support
-    4. Limited to one polygon per overlay
-    
-    NEW APPROACH:
-    1. Pre-render legend once (amortized cost)
-    2. Use batch painter for efficient multi-shape drawing
-    3. Support for multiple ROIs with different colors
-    4. Alpha blending for smooth overlay
-    5. Modular design for easier maintenance
-    
-    PERFORMANCE BENEFITS:
-    - ~40% faster for multiple ROIs
-    - ~60% faster legend rendering (pre-computed)
-    - Better cache locality with batch operations
-    - Reduced GPU/CPU transfers
     */
 }
