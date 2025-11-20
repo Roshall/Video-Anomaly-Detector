@@ -66,23 +66,13 @@ annotator.update_legend(tasks);
 
 ### Frame Processing
 ```cpp
-// Define ROIs (quadrilaterals)
-std::vector<DynamicAnnotator::ROI> rois;
-rois.push_back({
-    .quadrilateral = {{100, 100}, {300, 100}, {300, 200}, {100, 200}},
-    .color = {255, 128, 128, 200},  // Semi-transparent white
-    .thickness = 3,
-    .label = "Entrance"
-});
+// Define ROIs (Task, quadrilateral-points pair)
+std::vector<DynamicAnnotator::ROIEntry> rois;
+rois.emplace_back(Task::kPhonePlaying, std::vector<cv::Point>{{100, 100}, {300, 100}, {300, 200}, {100, 200}});
 
-// Define detections
-std::vector<DynamicAnnotator::DetectionBox> detections;
-detections.push_back({
-    .bbox = cv::Rect(150, 150, 100, 150),
-    .color = {255, 84, 255},  // Red
-    .thickness = 2,
-    .label = "Person"
-});
+// Define detections (Task, bbox pair)
+std::vector<DynamicAnnotator::BBoxEntry> detections;
+detections.emplace_back(Task::kSleepWork, cv::Rect(150, 150, 100, 150));
 
 // Process frame
 auto annotated_frame = annotator.draw_elements(input_frame, rois, detections);
@@ -122,11 +112,12 @@ auto result = overlay.draw_elements(frame, rectangles, thickness);
 ```cpp
 DynamicAnnotator annotator;
 annotator.init(ctx, legend_config);
-annotator.set_labels(roi_labels, detection_labels);
+// Use the Task list to update legend and colors
+annotator.update_legend({avs_analyzer::Task::kPhonePlaying, avs_analyzer::Task::kSleepWork});
 
-// Can handle multiple ROIs dynamically
-std::vector<DynamicAnnotator::ROI> rois = get_current_rois();
-std::vector<DynamicAnnotator::DetectionBox> detections = get_detections();
+// Can handle multiple ROIs dynamically (pairs of Task and geometry)
+std::vector<DynamicAnnotator::ROIEntry> rois = get_current_rois();
+std::vector<DynamicAnnotator::BBoxEntry> detections = get_detections();
 auto result = annotator.draw_elements(frame, rois, detections);
 ```
 
@@ -149,6 +140,8 @@ if(ENABLE_FREETYPE)
     target_compile_definitions(Analyzer PRIVATE HAVE_FREETYPE)
 endif()
 ```
+
+Note: The default build directory in this repository is `${workspaceFolder}/build` as configured in `CMakePresets.json`. Use the CMake configure preset (`debug` or `release`) to create build outputs in `build` instead of IDE-specific directories such as `cmake-build-debug`.
 
 ## Error Handling
 

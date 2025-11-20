@@ -32,23 +32,14 @@ void example_usage() {
     /*
     AVFrame* input_frame = ...; // Your input frame
     
-    // Define ROIs (quadrilaterals)
-    std::vector<DynamicAnnotator::ROI> rois;
-    rois.push_back({
-        .quadrilateral = {{100, 100}, {300, 100}, {300, 200}, {100, 200}},
-        .color = {255, 128, 128, 200},
-        .thickness = 3,
-        .label = "Entrance"
-    });
+    // Define ROIs (task + quadrilateral)
+    std::vector<DynamicAnnotator::ROIEntry> rois;
+    rois.emplace_back(Task::kPhonePlaying,
+                      std::vector<cv::Point>{{100, 100}, {300, 100}, {300, 200}, {100, 200}});
     
-    // Define detections (bounding boxes)
-    std::vector<DynamicAnnotator::DetectionBox> detections;
-    detections.push_back({
-        .bbox = cv::Rect(150, 150, 100, 150),
-        .color = {255, 84, 255},
-        .thickness = 2,
-        .label = "Person"
-    });
+    // Define detections (task + bounding box)
+    std::vector<DynamicAnnotator::BBoxEntry> detections;
+    detections.emplace_back(Task::kSleepWork, cv::Rect(150, 150, 100, 150));
     
     // Annotate frame
     auto annotated_frame = annotator.draw_elements(input_frame, rois, detections);
