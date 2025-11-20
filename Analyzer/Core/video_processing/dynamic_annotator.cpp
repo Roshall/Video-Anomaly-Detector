@@ -7,6 +7,8 @@
 #include <format>
 
 #include "painter_text.h"
+#include "task.h"
+#include <Utils/log.h>
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -19,108 +21,75 @@ extern "C" {
 }
 
 namespace avs_analyzer {
+
+YUVColor Task2Color(const Task task) {
+  switch (task) {
+    case Task::kPhonePlaying:
+        return {152, 165, 83};
+      case Task::kSleepWork:
+        return {107, 133, 62};
+      case Task::kWandering:
+        return {199, 55, 145};
+      case Task::kBreakIn:
+        return {91, 173, 74};
+      case Task::kWallClimbing:
+        return {118, 69, 187};
+      case Task::kBunkOff:
+        return {146, 136, 161};
+      default:
+        return {255, 128, 128};
+  }
+}
+YUVAColor Task2ColorAlpha(const Task task) {
+  const auto [y, u, v] = Task2Color(task);
+  return {y, u, v, 220};
+}
+
 int DynamicAnnotator::init(const VideoContext& video_ctx,
                            const LegendConfig& legend_config) {
   video_ctx_ = video_ctx;
   legend_config_ = legend_config;
 
-  // Clear any existing data
-  roi_labels_.clear();
-  detection_labels_.clear();
-  legend_colors_.clear();
-  legend_labels_utf8_.clear();
+  // Clear any existing legend overlay
   legend_overlay_frame_.reset();
-
-  // Scale color for limited range if needed
-  YUVColor color = {76, 84, 255}; // red
-  bbox_color_ = static_cast<AVPixelFormat>(video_ctx.format) ==
-                AV_PIX_FMT_YUV420P
-                  ? scale_for_limited(color)
-                  : color;
 
   return 0;
 }
 
-void DynamicAnnotator::set_labels(const std::vector<std::string>& roi_labels,
-                                  const std::vector<std::string>&
-                                  detection_labels) {
-  roi_labels_ = roi_labels;
-  detection_labels_ = detection_labels;
-
-  prepare_legend_data();
-  update_legend();
-
-  // Initialize filter graph with the legend overlay
-  if (legend_overlay_frame_) {
-    init_filter_graph();
-  }
-}
-
-void DynamicAnnotator::prepare_legend_data() {
-  legend_colors_.clear();
-  legend_labels_utf8_.clear();
-
-  // Add ROI labels with different colors
-  const std::vector<YUVAColor> roi_colors = {
-      {255, 128, 128, 255}, // White
-      {76, 84, 255, 255}, // Blue
-      {149, 43, 21, 255}, // Green
-      {225, 211, 114, 255}, // Yellow
-      {174, 128, 128, 255}, // Gray
-  };
-
-  for (size_t i = 0; i < roi_labels_.size(); ++i) {
-    legend_colors_.push_back(roi_colors[i % roi_colors.size()]);
-    legend_labels_utf8_.emplace_back(
-        reinterpret_cast<const char8_t*>(roi_labels_[i].c_str()));
-  }
-
-  // Add detection box labels with different colors
-  const std::vector<YUVAColor> detection_colors = {
-      {255, 128, 128, 255}, // White
-      {255, 84, 255, 255}, // Red
-      {255, 211, 114, 255}, // Orange
-      {76, 128, 255, 255}, // Cyan
-      {149, 128, 21, 255}, // Purple
-  };
-
-  for (size_t i = 0; i < detection_labels_.size(); ++i) {
-    legend_colors_.push_back(detection_colors[i % detection_colors.size()]);
-    legend_labels_utf8_.emplace_back(
-        reinterpret_cast<const char8_t*>(detection_labels_[i].c_str()));
-  }
-}
-
-void DynamicAnnotator::update_legend() {
-  if (legend_colors_.empty() || legend_labels_utf8_.empty()) {
+void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
+  if (tasks.empty()) {
     legend_overlay_frame_.reset();
     return;
   }
 
-  // Get accurate legend size
-  std::vector<std::string> all_labels;
-  all_labels.reserve(roi_labels_.size() + detection_labels_.size());
-  all_labels.insert(all_labels.end(), roi_labels_.begin(), roi_labels_.end());
-  all_labels.insert(all_labels.end(), detection_labels_.begin(),
-                    detection_labels_.end());
+  // Build labels and colors from Task list
+  std::vector<std::u8string> labels_u8;
+  labels_u8.reserve(tasks.size());
+  std::vector<YUVAColor> colors;
+  colors.reserve(tasks.size());
 
+  for (const auto& t : tasks) {
+    labels_u8.emplace_back(toChinese(t));
+    colors.push_back(Task2ColorAlpha(t));
+  }
+
+  // Get accurate legend size
   const auto [legend_width, legend_height] = estimate_legend_size_accurate(
       legend_config_.font_path,
       legend_config_.font_size,
       legend_config_.handle_size,
       legend_config_.row_spacing,
-      all_labels,
+      labels_u8,
       legend_config_.text_padding,
       legend_config_.frame_padding
       );
 
   // Calculate legend position
   legend_layout_ = estimate_legend_layout(
-      legend_config_.font_path,
       legend_config_.font_size,
       legend_config_.handle_size,
       legend_config_.row_spacing,
-      all_labels,
+      labels_u8,
       legend_config_.text_padding,
       legend_config_.frame_padding,
       video_ctx_.width,
@@ -132,27 +101,22 @@ void DynamicAnnotator::update_legend() {
 
   // Create legend overlay buffer with exact size (YUVA420P for FFmpeg overlay filter)
   try {
-    legend_overlay_frame_.reset(
-        create_blank_yuva420p_optimized(legend_width, legend_height));
-
+    legend_overlay_frame_.reset(create_blank_yuva420p_optimized(legend_width, legend_height));
     // Draw legend in the buffer
     draw_legend_yuva420p_optimized(
         legend_overlay_frame_.get(),
         legend_config_.font_path,
-        {legend_config_.frame_padding,
-         legend_config_.frame_padding + legend_config_.font_size},
-        // Origin within buffer
+        {legend_config_.frame_padding, legend_config_.frame_padding + legend_config_.font_size},
         legend_config_.font_size,
         legend_config_.handle_size,
         legend_config_.row_spacing,
-        legend_colors_,
-        legend_labels_utf8_, {
-            legend_config_.text_padding,
-            legend_config_.frame_padding,
-            legend_config_.frame_thickness,
-            true, // draw_frame
-            legend_config_.frame_color}
-        );
+        colors,
+        labels_u8,
+        {legend_config_.text_padding, legend_config_.frame_padding, legend_config_.frame_thickness, true, legend_config_.frame_color},
+        true
+    );
+    // Re-init filter graph
+    init_filter_graph();
   } catch (const std::exception& e) {
     legend_overlay_frame_.reset();
     LOGE("Failed to create legend overlay frame: {}", e.what());
@@ -176,14 +140,14 @@ int DynamicAnnotator::init_filter_graph() {
   const auto args_main = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}",
       width, height,
-      av_get_pix_fmt_name(static_cast<AVPixelFormat>(video_ctx_.format)),
+      av_get_pix_fmt_name(video_ctx_.format),
       tnum, tden, num, den);
 
-  const auto args_overlay = std::format(
+    // Overlay filter expects a YUVA420P overlay frame of the same video size (full frame)
+    const auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
-      legend_overlay_frame_->width, legend_overlay_frame_->height,
-      av_get_pix_fmt_name(
-          static_cast<AVPixelFormat>(legend_overlay_frame_->format)),
+      width, height,
+      av_get_pix_fmt_name(AV_PIX_FMT_YUVA420P),
       tnum, tden);
 
   // Overlay filter positioned at legend_layout_ coordinates
@@ -233,7 +197,7 @@ int DynamicAnnotator::init_filter_graph() {
   }
 
   static const AVPixelFormat sink_pix_fmts[] = {
-      static_cast<AVPixelFormat>(video_ctx_.format),
+      video_ctx_.format,
       AV_PIX_FMT_NONE
   };
   av_opt_set_int_list(buffersink_ctx_, "pix_fmts", sink_pix_fmts,
@@ -285,7 +249,47 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
     return nullptr;
   }
 
-  // Draw ROI quadrilaterals directly on YUV420P frame
+  // Draw detection bounding boxes directly on YUV420P frame (opaque boxes)
+  for (const auto& detection : detections) {
+    YUVColor color = detection.color;
+    if (static_cast<AVPixelFormat>(video_ctx_.format) == AV_PIX_FMT_YUV420P) {
+      color = scale_for_limited(color);
+    }
+    draw_rectangle_yuv420p_optimized(in_frame, detection.bbox, color,
+                                     detection.thickness);
+  }
+
+  // Prepare a full-frame YUVA overlay for ROIs + legend composition
+  AVFramePtr rois_overlay_frame(create_blank_yuva420p_optimized(video_ctx_.width, video_ctx_.height));
+  if (!rois_overlay_frame) {
+    // If overlay cannot be created, return input frame with rectangles only
+    AVFramePtr result(av_frame_clone(in_frame));
+    return result;
+  }
+
+  // Initialize overlay frame alpha to 0 (fully transparent)
+  for (int y = 0; y < rois_overlay_frame->height; ++y) {
+    memset(rois_overlay_frame->data[3] + y * rois_overlay_frame->linesize[3], 0, rois_overlay_frame->width);
+  }
+
+  // Draw ROI quadrilaterals into the overlay frame with YUVAColor (alpha)
+  BatchPainter roi_painter(rois_overlay_frame.get());
+  const std::vector<YUVAColor> default_roi_colors = {
+      {255, 128, 128, 200}, // Semi-transparent white
+      {76, 84, 255, 200}, // Semi-transparent blue
+      {149, 43, 21, 200}, // Semi-transparent green
+      {225, 211, 114, 200}, // Semi-transparent yellow
+      {174, 128, 128, 200}, // Semi-transparent gray
+  };
+  for (size_t i = 0; i < rois.size(); ++i) {
+    const auto& roi = rois[i];
+    YUVAColor color = roi.color;
+    if (color.a == 0) { // if not set, use default
+      color = default_roi_colors[i % default_roi_colors.size()];
+    }
+    roi_painter.add_quadrilateral(roi.quadrilateral, color, roi.thickness);
+  }
+  roi_painter.execute();
   const std::vector<YUVColor> roi_colors = {
       {255, 128, 128}, // White
       {76, 84, 255}, // Blue
@@ -307,14 +311,11 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
                                    roi.thickness);
   }
 
-  // Draw detection bounding boxes
-  for (const auto& detection : detections) {
-    YUVColor color = detection.color;
-    if (static_cast<AVPixelFormat>(video_ctx_.format) == AV_PIX_FMT_YUV420P) {
-      color = scale_for_limited(color);
-    }
-    draw_rectangle_yuv420p_optimized(in_frame, detection.bbox, color,
-                                     detection.thickness);
+  // Overlay legend on overlay frame (composite legend into this full-sized overlay)
+  if (legend_overlay_frame_) {
+    overlay_yuva420p_region(rois_overlay_frame.get(), legend_overlay_frame_.get(),
+                           legend_layout_.pos_x, legend_layout_.pos_y,
+                           legend_overlay_frame_->width, legend_overlay_frame_->height);
   }
 
   // If no legend, return the frame as is
@@ -323,7 +324,7 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
     return result;
   }
 
-  // Push frames through overlay filter
+  // Push frames through overlay filter: main + overlay (full-frame YUVA)
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_main_, in_frame,
                                      AV_BUFFERSRC_FLAG_KEEP_REF);
   if (ret < 0) {
@@ -331,9 +332,9 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
     return nullptr;
   }
 
-  legend_overlay_frame_->pts = in_frame->pts;
+  rois_overlay_frame->pts = in_frame->pts;
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_overlay_,
-                                     legend_overlay_frame_.get(),
+                                     rois_overlay_frame.get(),
                                      AV_BUFFERSRC_FLAG_KEEP_REF);
   if (ret < 0) {
     LOGE_FFMPEG("Cannot add legend overlay frame to buffer source.", ret);
@@ -392,21 +393,23 @@ void overlay_yuva420p_region(AVFrame* dst, const AVFrame* overlay,
     const uint8_t* __restrict Ao = overlay->data[3] + y * overlay->linesize[3];
     uint8_t* __restrict Yd = dst->data[0] + dy * dst->linesize[0];
 
-    for (int x = 0; x < ow; ++x) {
-      int dx = dst_x + x;
-      if (static_cast<unsigned>(dx) >= static_cast<unsigned>(W)) continue;
+    // Compute src x-range for this row (avoid per-pixel bound checks)
+    const int src_x0 = std::max(0, -dst_x);
+    const int src_x1 = std::min(ow, W - dst_x);
+    const uint8_t* __restrict Yo_row = Yo + src_x0;
+    const uint8_t* __restrict Ao_row = Ao + src_x0;
+    uint8_t* __restrict Yd_row = Yd + dst_x + src_x0;
 
-      const uint8_t a = Ao[x];
-      if (a == 0) continue;
-      if (a == 255) {
-        Yd[dx] = Yo[x];
-        continue;
-      }
-
-      // Alpha blending: dst = (dst * (255-a) + src * a) / 255
-      // Optimized: dst = dst + ((src - dst) * a) / 255
-      const int diff = static_cast<int>(Yo[x]) - static_cast<int>(Yd[dx]);
-      Yd[dx] = static_cast<uint8_t>(Yd[dx] + (diff * a) / 255);
+    #pragma omp simd
+    for (int sx = src_x0; sx < src_x1; ++sx) {
+      const uint8_t a = *Ao_row++;
+      if (a == 0) { Yd_row++; Yo_row++; continue; }
+      if (a == 255) { *Yd_row = *Yo_row; Yd_row++; Yo_row++; continue; }
+      const int src_val = static_cast<int>(*Yo_row);
+      const int dst_val = static_cast<int>(*Yd_row);
+      const int diff = src_val - dst_val;
+      *Yd_row = static_cast<uint8_t>(dst_val + (diff * a) / 255);
+      Yd_row++; Yo_row++;
     }
   }
 
@@ -423,27 +426,30 @@ void overlay_yuva420p_region(AVFrame* dst, const AVFrame* overlay,
       int dy = (dst_y >> 1) + y;
       if (static_cast<unsigned>(dy) >= static_cast<unsigned>(Hc)) continue;
 
-      const uint8_t* __restrict Co =
-          overlay->data[c] + y * overlay->linesize[c];
-      uint8_t* __restrict Cd = dst->data[c] + dy * dst->linesize[c];
+    const uint8_t* __restrict Co = overlay->data[c] + y * overlay->linesize[c];
+    uint8_t* __restrict Cd = dst->data[c] + dy * dst->linesize[c];
 
       // Sample alpha from top-left of each 2x2 block
       const uint8_t* __restrict Ao =
           overlay->data[3] + (y * 2) * overlay->linesize[3];
 
-      for (int x = 0; x < ow2; ++x) {
-        int dx = (dst_x >> 1) + x;
-        if (static_cast<unsigned>(dx) >= static_cast<unsigned>(Wc)) continue;
+      // Source x-range for chroma row
+      const int src_cx0 = std::max(0, - (dst_x >> 1));
+      const int src_cx1 = std::min(ow2, Wc - (dst_x >> 1));
+      const uint8_t* __restrict Co_row = Co + src_cx0;
+      const uint8_t* __restrict Ao_row_c = Ao + (src_cx0 * 2);
+      uint8_t* __restrict Cd_row = Cd + (dst_x >> 1) + src_cx0;
 
-        const uint8_t a = Ao[x * 2];
-        if (a == 0) continue;
-        if (a == 255) {
-          Cd[dx] = Co[x];
-          continue;
-        }
-
-        const int diff = static_cast<int>(Co[x]) - static_cast<int>(Cd[dx]);
-        Cd[dx] = static_cast<uint8_t>(Cd[dx] + (diff * a) / 255);
+      #pragma omp simd
+      for (int cx = src_cx0; cx < src_cx1; ++cx) {
+        const uint8_t a = *Ao_row_c; Ao_row_c += 2;
+        if (a == 0) { Cd_row++; Co_row++; continue; }
+        if (a == 255) { *Cd_row = *Co_row; Cd_row++; Co_row++; continue; }
+        const int src_val = static_cast<int>(*Co_row);
+        const int dst_val = static_cast<int>(*Cd_row);
+        const int diff = src_val - dst_val;
+        *Cd_row = static_cast<uint8_t>(dst_val + (diff * a) / 255);
+        Cd_row++; Co_row++;
       }
     }
   }

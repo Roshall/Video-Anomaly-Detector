@@ -10,6 +10,8 @@
 #include "painter_types.h"
 #include "painter_optimized.h"
 #include "video_context.h"
+// Task enum used by update_legend API; include definition
+#include "task.h"
 
 struct AVFrame;
 struct AVFilterGraph;
@@ -65,19 +67,13 @@ public:
      */
     int init(const VideoContext& video_ctx, const LegendConfig& legend_config);
 
-    int init(VideoContext video_ctx) { return init(video_ctx, LegendConfig()); }
+    int init(const VideoContext& video_ctx) { return init(video_ctx, LegendConfig()); }
     
     /**
-     * @brief Set the ROI and detection box labels (for legend)
-     * This creates the legend overlay buffer
+     * @brief Redraw the legend in the buffer based on the overall Task vector
+     * The legend order follows the order of tasks in this vector.
      */
-    void set_labels(const std::vector<std::string>& roi_labels,
-                   const std::vector<std::string>& detection_labels);
-    
-    /**
-     * @brief Redraw the legend in the buffer (call after label changes)
-     */
-    void update_legend();
+    void update_legend(const std::vector<Task>& tasks);
     
     /**
      * @brief Draw quadrilaterals, bounding boxes, and overlay legend on frame
@@ -93,24 +89,18 @@ public:
 private:
     VideoContext video_ctx_;
     LegendConfig legend_config_;
-    YUVColor bbox_color_;
-    
+
     // FFmpeg overlay filter graph
     AVFilterGraphPtr filter_graph_;
     AVFilterContext* buffersrc_ctx_main_ = nullptr;
     AVFilterContext* buffersrc_ctx_overlay_ = nullptr;
     AVFilterContext* buffersink_ctx_ = nullptr;
     
-    // Legend management
-    std::vector<std::string> roi_labels_;
-    std::vector<std::string> detection_labels_;
-    std::vector<YUVAColor> legend_colors_;
-    std::vector<std::u8string> legend_labels_utf8_;
+    // Legend management (pre-rendered overlay)
     AVFramePtr legend_overlay_frame_;
     LegendLayout legend_layout_;
     
     // Helper functions
-    void prepare_legend_data();
     int init_filter_graph();
 };
 
