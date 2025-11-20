@@ -13,7 +13,8 @@ enum class Task {
   kWandering,
   kBreakIn,
   kWallClimbing,
-  kBunkOff
+  kBunkOff,
+  kCount
 };
 
 std::string toString(Task task);
