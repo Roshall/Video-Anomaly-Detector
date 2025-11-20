@@ -77,7 +77,7 @@ void BatchPainter::execute() {
   for (const auto& [quad_points, color] : filled_quadrilaterals_) {
     // Draw filled polygon using existing shape function
     // For now, we'll use the polygon outline function with thick lines
-    draw_polygon_yuva420p_optimized(frame_, quad_points, color, 1, true);
+    draw_polygon_yuv420p_optimized(frame_, quad_points, color, 1);
   }
 
   // Process filled rectangles
@@ -87,7 +87,7 @@ void BatchPainter::execute() {
   
   // Process quadrilateral outlines
   for (const auto& [quad_points, color, thickness] : quadrilaterals_) {
-    draw_polygon_yuva420p_optimized(frame_, quad_points, color, thickness, true);
+    draw_polygon_yuv420p_optimized(frame_, quad_points, color, thickness);
   }
 
   // Group rectangles by color and thickness for better cache efficiency
