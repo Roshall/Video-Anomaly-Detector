@@ -298,11 +298,10 @@ void draw_filled_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
 
 // Estimate legend size (simplified version without FreeType dependency)
 std::pair<int, int> estimate_legend_size(
-    const std::string& font_path,
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding,
     int frame_padding) {
   // Simplified estimation without FreeType
@@ -334,32 +333,29 @@ std::pair<int, int> estimate_legend_size_accurate(
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding,
     int frame_padding) {
   // Try to use FreeType for accurate measurement, fallback to simple estimation
   try {
     FT_Library ft_library;
     if (FT_Init_FreeType(&ft_library) != 0) {
-      return estimate_legend_size(font_path, font_px, handle_wh,
-                                  row_spacing, labels_utf8, text_padding,
-                                  frame_padding);
+      return estimate_legend_size(font_px, handle_wh, row_spacing,
+                                  labels_utf8, text_padding, frame_padding);
     }
 
     FT_Face face;
     if (FT_New_Face(ft_library, font_path.c_str(), 0, &face) != 0) {
       FT_Done_FreeType(ft_library);
-      return estimate_legend_size(font_path, font_px, handle_wh,
-                                  row_spacing, labels_utf8, text_padding,
-                                  frame_padding);
+      return estimate_legend_size(font_px, handle_wh, row_spacing,
+                                  labels_utf8, text_padding, frame_padding);
     }
 
     if (FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(font_px)) != 0) {
       FT_Done_Face(face);
       FT_Done_FreeType(ft_library);
-      return estimate_legend_size(font_path, font_px, handle_wh,
-                                  row_spacing, labels_utf8, text_padding,
-                                  frame_padding);
+      return estimate_legend_size(font_px, handle_wh, row_spacing,
+                                  labels_utf8, text_padding, frame_padding);
     }
 
     // Measure actual text widths using FreeType
@@ -398,19 +394,17 @@ std::pair<int, int> estimate_legend_size_accurate(
     return {total_w, total_h};
   } catch (...) {
     // Fallback on any exception
-    return estimate_legend_size(font_path, font_px, handle_wh,
-                                row_spacing, labels_utf8, text_padding,
-                                frame_padding);
+    return estimate_legend_size(font_px, handle_wh, row_spacing,
+                                labels_utf8, text_padding, frame_padding);
   }
 }
 
 // Legend layout estimation
 LegendLayout estimate_legend_layout(
-    const std::string& font_path,
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding,
     int frame_padding,
     int video_w,
@@ -419,8 +413,8 @@ LegendLayout estimate_legend_layout(
     int margin_x,
     int margin_y) {
   const auto [total_w, total_h] = estimate_legend_size(
-      font_path, font_px, handle_wh, row_spacing,
-      labels_utf8, text_padding, frame_padding);
+      font_px, handle_wh, row_spacing, labels_utf8,
+      text_padding, frame_padding);
 
   int pos_x = margin_x;
   int pos_y = margin_y;

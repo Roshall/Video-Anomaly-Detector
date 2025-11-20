@@ -50,11 +50,10 @@ void draw_rectangles_yuv420p_fast(AVFrame* f,
                                   int thickness);
 
 LegendLayout estimate_legend_layout(
-    const std::string& font_path,
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding,
     int frame_padding,
     int video_w,
@@ -64,11 +63,10 @@ LegendLayout estimate_legend_layout(
     int margin_y = 40);
 
 std::pair<int, int> estimate_legend_size(
-    const std::string& font_path,
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding = 8,
     int frame_padding = 8);
 
@@ -78,7 +76,7 @@ std::pair<int, int> estimate_legend_size_accurate(
     int font_px,
     std::pair<int, int> handle_wh,
     int row_spacing,
-    const std::vector<std::string>& labels_utf8,
+    const std::vector<std::u8string>& labels_utf8,
     int text_padding = 8,
     int frame_padding = 8);
 
