@@ -216,6 +216,21 @@ target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMP
 target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
+add_executable(dynamic_annotator_test
+        Analyzer/Core/video_processing/dynamic_annotator.cpp
+        Analyzer/Core/video_processing/painter.cpp
+        Analyzer/Core/video_processing/painter_optimized.cpp
+        Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
+        tests/dynamic_annotator_test.cpp)
+target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE jsoncpp_lib)
+target_include_directories(dynamic_annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
+
 
 set(source
         Analyzer/main.cpp
