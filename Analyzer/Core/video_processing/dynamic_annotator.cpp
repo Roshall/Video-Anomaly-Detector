@@ -143,10 +143,12 @@ int DynamicAnnotator::init_filter_graph() {
       av_get_pix_fmt_name(video_ctx_.format),
       tnum, tden, num, den);
 
-    // Overlay filter expects a YUVA420P overlay frame of the same video size (full frame)
+    // Overlay filter expects a YUVA420P overlay frame of the legend size (small overlay)
+    const int overlay_w = legend_overlay_frame_->width;
+    const int overlay_h = legend_overlay_frame_->height;
     const auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
-      width, height,
+      overlay_w, overlay_h,
       av_get_pix_fmt_name(AV_PIX_FMT_YUVA420P),
       tnum, tden);
 
@@ -237,9 +239,9 @@ int DynamicAnnotator::init_filter_graph() {
 }
 
 AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
-                                           const std::vector<ROI>& rois,
-                                           const std::vector<DetectionBox>&
-                                           detections) const {
+                                           const std::vector<DynamicAnnotator::ROIEntry>& rois,
+                                           const std::vector<DynamicAnnotator::BBoxEntry>&
+                                           bboxes) const {
   if (!in_frame) return nullptr;
 
   // Make sure the frame is writable
@@ -249,74 +251,37 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
     return nullptr;
   }
 
-  // Draw detection bounding boxes directly on YUV420P frame (opaque boxes)
-  for (const auto& detection : detections) {
-    YUVColor color = detection.color;
+  // Use a single BatchPainter to draw both bounding boxes and ROI outlines directly on the
+  // YUV420P in_frame (no per-frame overlay allocation).
+  BatchPainter painter(in_frame);
+
+  // Draw bboxes: 'bboxes' is a vector of pairs<Task, cv::Rect>
+  for (const auto& entry : bboxes) {
+    const auto& task = entry.first;
+    const auto& rect = entry.second;
+    YUVColor color = Task2Color(task);
     if (static_cast<AVPixelFormat>(video_ctx_.format) == AV_PIX_FMT_YUV420P) {
       color = scale_for_limited(color);
     }
-    draw_rectangle_yuv420p_optimized(in_frame, detection.bbox, color,
-                                     detection.thickness);
+    painter.add_rectangle(rect, color, 2);
   }
 
-  // Prepare a full-frame YUVA overlay for ROIs + legend composition
-  AVFramePtr rois_overlay_frame(create_blank_yuva420p_optimized(video_ctx_.width, video_ctx_.height));
-  if (!rois_overlay_frame) {
-    // If overlay cannot be created, return input frame with rectangles only
-    AVFramePtr result(av_frame_clone(in_frame));
-    return result;
-  }
-
-  // Initialize overlay frame alpha to 0 (fully transparent)
-  for (int y = 0; y < rois_overlay_frame->height; ++y) {
-    memset(rois_overlay_frame->data[3] + y * rois_overlay_frame->linesize[3], 0, rois_overlay_frame->width);
-  }
-
-  // Draw ROI quadrilaterals into the overlay frame with YUVAColor (alpha)
-  BatchPainter roi_painter(rois_overlay_frame.get());
-  const std::vector<YUVAColor> default_roi_colors = {
-      {255, 128, 128, 200}, // Semi-transparent white
-      {76, 84, 255, 200}, // Semi-transparent blue
-      {149, 43, 21, 200}, // Semi-transparent green
-      {225, 211, 114, 200}, // Semi-transparent yellow
-      {174, 128, 128, 200}, // Semi-transparent gray
-  };
-  for (size_t i = 0; i < rois.size(); ++i) {
-    const auto& roi = rois[i];
-    YUVAColor color = roi.color;
-    if (color.a == 0) { // if not set, use default
-      color = default_roi_colors[i % default_roi_colors.size()];
-    }
-    roi_painter.add_quadrilateral(roi.quadrilateral, color, roi.thickness);
-  }
-  roi_painter.execute();
-  const std::vector<YUVColor> roi_colors = {
-      {255, 128, 128}, // White
-      {76, 84, 255}, // Blue
-      {149, 43, 21}, // Green
-      {225, 211, 114}, // Yellow
-      {174, 128, 128}, // Gray
-  };
-
-  for (size_t i = 0; i < rois.size(); ++i) {
-    const auto& roi = rois[i];
-    YUVColor color = (i < roi_colors.size()) ? roi_colors[i] : roi_colors[0];
-
-    // Scale for limited range if needed
+  // Draw ROIs: vector of pairs<Task, polygon>
+  for (const auto& entry : rois) {
+    const auto& task = entry.first;
+    const auto& polygon = entry.second;
+    YUVColor pcolor = Task2Color(task);
     if (static_cast<AVPixelFormat>(video_ctx_.format) == AV_PIX_FMT_YUV420P) {
-      color = scale_for_limited(color);
+      pcolor = scale_for_limited(pcolor);
     }
-
-    draw_polygon_yuv420p_optimized(in_frame, roi.quadrilateral, color,
-                                   roi.thickness);
+    // Default ROI thickness: 4
+    painter.add_polygon(polygon, pcolor, 4);
   }
 
-  // Overlay legend on overlay frame (composite legend into this full-sized overlay)
-  if (legend_overlay_frame_) {
-    overlay_yuva420p_region(rois_overlay_frame.get(), legend_overlay_frame_.get(),
-                           legend_layout_.pos_x, legend_layout_.pos_y,
-                           legend_overlay_frame_->width, legend_overlay_frame_->height);
-  }
+  // Execute all batched operations to draw directly into in_frame
+  painter.execute();
+
+  // Legend is pre-rendered; it will be pushed directly into the overlay buffer source
 
   // If no legend, return the frame as is
   if (!legend_overlay_frame_ || !filter_graph_) {
@@ -332,9 +297,10 @@ AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
     return nullptr;
   }
 
-  rois_overlay_frame->pts = in_frame->pts;
+  // Push legend overlay frame (small YUVA overlay) directly to buffersrc_ctx_overlay_
+  legend_overlay_frame_->pts = in_frame->pts;
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_overlay_,
-                                     rois_overlay_frame.get(),
+                                     legend_overlay_frame_.get(),
                                      AV_BUFFERSRC_FLAG_KEEP_REF);
   if (ret < 0) {
     LOGE_FFMPEG("Cannot add legend overlay frame to buffer source.", ret);

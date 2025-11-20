@@ -3,6 +3,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <utility>
 #include <string>
 #include <memory>
 
@@ -12,6 +13,9 @@
 #include "video_context.h"
 // Task enum used by update_legend API; include definition
 #include "task.h"
+
+// Ensure Task is visible in this namespace for type aliases
+namespace avs_analyzer { enum class Task; }
 
 struct AVFrame;
 struct AVFilterGraph;
@@ -30,19 +34,8 @@ namespace avs_analyzer {
  */
 class DynamicAnnotator {
 public:
-    struct ROI {
-        std::vector<cv::Point> quadrilateral;  // 4-point quadrilateral
-        YUVAColor color;
-        int thickness = 2;
-        std::string label;
-    };
-    
-    struct DetectionBox {
-        cv::Rect bbox;
-        YUVColor color;
-        int thickness = 2;
-        std::string label;
-    };
+    using ROIEntry = std::pair<Task, std::vector<cv::Point>>;  // (task, polygon)
+    using BBoxEntry = std::pair<Task, cv::Rect>;              // (task, bbox)
     
     struct LegendConfig {
         std::string font_path{"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
@@ -83,8 +76,8 @@ public:
      * @return Annotated frame (YUV420P) with legend overlay via FFmpeg filter
      */
     AVFramePtr draw_elements(AVFrame* in_frame,
-                            const std::vector<ROI>& rois,
-                            const std::vector<DetectionBox>& detections) const;
+                            const std::vector<ROIEntry>& rois,
+                            const std::vector<BBoxEntry>& bboxes) const;
 
 private:
     VideoContext video_ctx_;
