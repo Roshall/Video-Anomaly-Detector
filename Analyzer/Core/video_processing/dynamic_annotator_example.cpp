@@ -1,4 +1,5 @@
 #include "dynamic_annotator.h"
+#include "task.h"
 #include <iostream>
 
 // Example usage of the DynamicAnnotator
@@ -22,11 +23,10 @@ void example_usage() {
         return;
     }
     
-    // Set up labels for ROIs and detections
-    std::vector<std::string> roi_labels = {"Entrance", "Exit", "Restricted Area", "Parking"};
-    std::vector<std::string> detection_labels = {"Person", "Vehicle", "Package", "Animal"};
-    
-    annotator.set_labels(roi_labels, detection_labels);
+    // Set up tasks for legend
+    std::vector<Task> tasks = {Task::kPhonePlaying, Task::kSleepWork, Task::kWandering, Task::kBreakIn};
+    // Update legend once with global task list
+    annotator.update_legend(tasks);
     
     // Example usage in frame processing loop:
     /*

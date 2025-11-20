@@ -58,9 +58,10 @@ annotator.init(ctx, legend_config);
 
 ### Configure Legend
 ```cpp
-std::vector<std::string> roi_labels = {"Entrance", "Exit", "Restricted"};
-std::vector<std::string> detection_labels = {"Person", "Vehicle", "Package"};
-annotator.set_labels(roi_labels, detection_labels);
+// Legend uses global tasks list; update_legend takes a vector<Task> where each Task
+// maps to a label and color via `toChinese` and `Task2ColorAlpha`.
+std::vector<avs_analyzer::Task> tasks = {avs_analyzer::Task::kPhonePlaying, avs_analyzer::Task::kSleepWork, avs_analyzer::Task::kWandering};
+annotator.update_legend(tasks);
 ```
 
 ### Frame Processing
