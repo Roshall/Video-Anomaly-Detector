@@ -14,9 +14,6 @@
 // Task enum used by update_legend API; include definition
 #include "task.h"
 
-// Ensure Task is visible in this namespace for type aliases
-namespace avs_analyzer { enum class Task; }
-
 struct AVFrame;
 struct AVFilterGraph;
 struct AVFilterContext;
@@ -56,7 +53,15 @@ public:
     ~DynamicAnnotator() = default;
     
     /**
-     * @brief Initialize the annotator with video context and legend configuration
+     * @brief Initialize the annotator with video context and legend configuration.
+     *
+     * IMPORTANT: This will pre-allocate a single legend overlay (YUVA420P) and
+     * create an FFmpeg overlay filter graph once using the full Task enum set
+     * (get_enum_range<Task>()). The overlay and filter graph will not be
+     * re-created during the lifetime of this annotator instance. If you call
+     * init() with a different VideoContext after the overlay/filter graph is
+     * already initialized the call will return an error instead of
+     * silently reconfiguring the filter graph.
      */
     int init(const VideoContext& video_ctx, const LegendConfig& legend_config);
 
@@ -65,6 +70,11 @@ public:
     /**
      * @brief Redraw the legend in the buffer based on the overall Task vector
      * The legend order follows the order of tasks in this vector.
+     *
+     * NOTE: This only redraws the legend in-place into the pre-allocated
+     * overlay buffer. The overlay and filter graph are not reallocated. If the
+     * provided legend text does not fit inside the pre-allocated buffer, the
+     * content will be clipped and a warning will be logged.
      */
     void update_legend(const std::vector<Task>& tasks);
     
@@ -92,9 +102,16 @@ private:
     // Legend management (pre-rendered overlay)
     AVFramePtr legend_overlay_frame_;
     LegendLayout legend_layout_;
+    // Cache & reuse for overlay: dims and initialized graph flag
+    int cached_overlay_w_ = 0;
+    int cached_overlay_h_ = 0;
+    bool filter_graph_initialized_ = false;
     
     // Helper functions
-    int init_filter_graph();
+    void clear_legend_overlay();
+    int init_filter_graph(bool force_reinit = false);
+    // allocate legend overlay and init filter graph once using full Task enum set
+    bool ensure_legend_initialized();
 };
 
 /**

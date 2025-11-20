@@ -8,7 +8,9 @@
 
 #include "painter_text.h"
 #include "task.h"
+#include "Utils/enum_utils.h"
 #include <Utils/log.h>
+#include <cstring>
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -47,18 +49,100 @@ YUVAColor Task2ColorAlpha(const Task task) {
 
 int DynamicAnnotator::init(const VideoContext& video_ctx,
                            const LegendConfig& legend_config) {
+  // Preserve existing context for check if the graph is already initialized
+  const VideoContext prev_ctx = video_ctx_;
   video_ctx_ = video_ctx;
   legend_config_ = legend_config;
 
-  // Clear any existing legend overlay
-  legend_overlay_frame_.reset();
+  // If the graph is already initialized for a different video context, do not
+  // silently reconfigure it; the policy enforces single allocation and
+  // non-recreation of the overlay and graph. If the video context changes,
+  // return an error (unless filter_graph_initialized_ is false).
+  if (filter_graph_initialized_) {
+    // Basic mismatch check: width/height/pixfmt
+    if (prev_ctx.width != video_ctx.width || prev_ctx.height != video_ctx.height || prev_ctx.format != video_ctx.format) {
+      LOGE("DynamicAnnotator::init: filter graph already initialized with a different video context; refusing to reinit");
+      return -1;
+    }
+  }
+
+  // Ensure the legend overlay and filter graph are initialized once using the
+  // entire Task enumeration. This will pre-allocate a YUVA frame and build a
+  // single overlay filter graph that will be reused and never recreated.
+  ensure_legend_initialized();
 
   return 0;
 }
 
-void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
-  if (tasks.empty()) {
+bool DynamicAnnotator::ensure_legend_initialized() {
+  // If already initialized, just return success
+  if (filter_graph_initialized_ && legend_overlay_frame_) return true;
+
+  // Build labels and colors using the full Task enum set
+  std::vector<Task> all_tasks;
+  for (const auto t : get_enum_range<Task>()) {
+    all_tasks.push_back(t);
+  }
+  if (all_tasks.empty()) return false;
+
+  std::vector<std::u8string> labels_u8;
+  labels_u8.reserve(all_tasks.size());
+  std::vector<YUVAColor> colors;
+  colors.reserve(all_tasks.size());
+  for (const auto& t : all_tasks) {
+    labels_u8.emplace_back(toChinese(t));
+    colors.push_back(Task2ColorAlpha(t));
+  }
+
+  // Determine required legend size using accurate measurement
+  const auto [legend_width, legend_height] = estimate_legend_size_accurate(
+      legend_config_.font_path,
+      legend_config_.font_size,
+      legend_config_.handle_size,
+      legend_config_.row_spacing,
+      labels_u8,
+      legend_config_.text_padding,
+      legend_config_.frame_padding);
+
+  // Calculate legend position
+  legend_layout_ = estimate_legend_layout(
+      legend_config_.font_size,
+      legend_config_.handle_size,
+      legend_config_.row_spacing,
+      labels_u8,
+      legend_config_.text_padding,
+      legend_config_.frame_padding,
+      video_ctx_.width,
+      video_ctx_.height,
+      legend_config_.position,
+      legend_config_.margin_x,
+      legend_config_.margin_y);
+
+  // Pre-allocate overlay frame once using this legend size
+  try {
+    legend_overlay_frame_.reset(create_blank_yuva420p_optimized(legend_width, legend_height));
+    cached_overlay_w_ = legend_width;
+    cached_overlay_h_ = legend_height;
+
+    // Initialize filter graph (only once)
+    const int r = init_filter_graph(false);
+    if (r < 0) {
+      legend_overlay_frame_.reset();
+      LOGE("Failed initializing filter graph for legend overlay: {}", r);
+      return false;
+    }
+    return true;
+  } catch (const std::exception& e) {
     legend_overlay_frame_.reset();
+    LOGE("Failed to allocate legend overlay frame in ensure_legend_initialized: {}", e.what());
+    return false;
+  }
+}
+
+void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
+  // If ensure_legend_initialized failed, we cannot draw
+  if (!ensure_legend_initialized()) {
+    LOGW("Legend overlay not initialized; cannot update legend");
     return;
   }
 
@@ -84,24 +168,27 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
       legend_config_.frame_padding
       );
 
-  // Calculate legend position
-  legend_layout_ = estimate_legend_layout(
-      legend_config_.font_size,
-      legend_config_.handle_size,
-      legend_config_.row_spacing,
-      labels_u8,
-      legend_config_.text_padding,
-      legend_config_.frame_padding,
-      video_ctx_.width,
-      video_ctx_.height,
-      legend_config_.position,
-      legend_config_.margin_x,
-      legend_config_.margin_y
-      );
+  // Do not modify legend_layout_ here: we allocated and configured the filter
+  // graph using the layout determined when the overlay was pre-allocated in
+  // ensure_legend_initialized(). The overlay position cannot be changed
+  // without reconfiguring the filter graph, and that violates the single
+  // allocation requirement. Only redraw the legend content in-place.
 
-  // Create legend overlay buffer with exact size (YUVA420P for FFmpeg overlay filter)
+  // We pre-allocated the legend overlay using the full Task enum at init.
+  // Here, we will only redraw into the existing overlay buffer; do not
+  // reallocate or reinitialize filter graph under any circumstance.
   try {
-    legend_overlay_frame_.reset(create_blank_yuva420p_optimized(legend_width, legend_height));
+    if (!legend_overlay_frame_) {
+      LOGW("Legend overlay frame missing; cannot update legend");
+      return;
+    }
+    // If the requested legend size is larger than the pre-allocated overlay,
+    // log a warning but do not reallocate (we will clip the content)
+    if (legend_width > cached_overlay_w_ || legend_height > cached_overlay_h_) {
+      LOGW("Requested legend size ({},{}) exceeds pre-allocated overlay ({},{}). Clipping will occur.", legend_width, legend_height, cached_overlay_w_, cached_overlay_h_);
+    }
+    // Clear the buffer before re-drawing
+    clear_legend_overlay();
     // Draw legend in the buffer
     draw_legend_yuva420p_optimized(
         legend_overlay_frame_.get(),
@@ -115,15 +202,17 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
         {legend_config_.text_padding, legend_config_.frame_padding, legend_config_.frame_thickness, true, legend_config_.frame_color},
         true
     );
-    // Re-init filter graph
-    init_filter_graph();
+      LOGD("Redrew legend in-place into pre-allocated overlay ({}x{})", cached_overlay_w_, cached_overlay_h_);
   } catch (const std::exception& e) {
-    legend_overlay_frame_.reset();
-    LOGE("Failed to create legend overlay frame: {}", e.what());
+    LOGE("Failed to update legend overlay frame: {}", e.what());
   }
 }
 
-int DynamicAnnotator::init_filter_graph() {
+int DynamicAnnotator::init_filter_graph(bool force_reinit) {
+  if (filter_graph_initialized_) {
+    return 0;
+  }
+
   if (!legend_overlay_frame_) {
     return -1;
   }
@@ -146,6 +235,8 @@ int DynamicAnnotator::init_filter_graph() {
     // Overlay filter expects a YUVA420P overlay frame of the legend size (small overlay)
     const int overlay_w = legend_overlay_frame_->width;
     const int overlay_h = legend_overlay_frame_->height;
+    // We only get here if the graph was not yet initialized. Proceed to create
+    // the graph for the pre-allocated overlay frame.
     const auto args_overlay = std::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
       overlay_w, overlay_h,
@@ -157,6 +248,14 @@ int DynamicAnnotator::init_filter_graph() {
       "[in][legend]overlay=x={}:y={}:format=auto[out]",
       legend_layout_.pos_x, legend_layout_.pos_y);
 
+  // If a graph exists and we need to reinit, clear it first
+  if (filter_graph_) {
+    filter_graph_.reset();
+    buffersrc_ctx_main_ = nullptr;
+    buffersrc_ctx_overlay_ = nullptr;
+    buffersink_ctx_ = nullptr;
+    filter_graph_initialized_ = false;
+  }
   filter_graph_.reset(avfilter_graph_alloc());
   if (!filter_graph_) {
     LOGE("Failed to allocate filter graph");
@@ -234,8 +333,36 @@ int DynamicAnnotator::init_filter_graph() {
     LOGE_FFMPEG("Cannot configure filter graph.", ret);
     return ret;
   }
+  // Record cached overlay size and mark graph as initialized
+  cached_overlay_w_ = overlay_w;
+  cached_overlay_h_ = overlay_h;
+  filter_graph_initialized_ = true;
 
   return 0;
+}
+
+void DynamicAnnotator::clear_legend_overlay() {
+  if (!legend_overlay_frame_) return;
+  // Ensure writable
+  if (av_frame_make_writable(legend_overlay_frame_.get()) < 0) return;
+  AVFrame* f = legend_overlay_frame_.get();
+  const int w = f->width;
+  const int h = f->height;
+  // Y plane -> neutral 128
+  for (int y = 0; y < h; ++y) {
+    std::memset(f->data[0] + y * f->linesize[0], 128, static_cast<size_t>(w));
+  }
+  const int cw = (w + 1) >> 1;
+  const int ch = (h + 1) >> 1;
+  // U/V planes -> neutral 128
+  for (int y = 0; y < ch; ++y) {
+    std::memset(f->data[1] + y * f->linesize[1], 128, static_cast<size_t>(cw));
+    std::memset(f->data[2] + y * f->linesize[2], 128, static_cast<size_t>(cw));
+  }
+  // A plane -> transparent
+  for (int y = 0; y < h; ++y) {
+    std::memset(f->data[3] + y * f->linesize[3], 0, static_cast<size_t>(w));
+  }
 }
 
 AVFramePtr DynamicAnnotator::draw_elements(AVFrame* in_frame,
