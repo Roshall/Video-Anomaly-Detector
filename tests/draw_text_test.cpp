@@ -93,7 +93,7 @@ int test_draw_legend_on_first_frame(const std::string& video_path,
       u8"未知",
     };
 
-    avs_analyzer::draw_legend_yuva420p_optimized(
+    avs_analyzer::draw_legend_yuva420p(
         yuva,
         font_path,
         {1640, 40},     // origin

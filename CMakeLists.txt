@@ -219,7 +219,6 @@ target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing
 add_executable(dynamic_annotator_test
         Analyzer/Core/video_processing/dynamic_annotator.cpp
         Analyzer/Core/video_processing/painter.cpp
-        Analyzer/Core/video_processing/painter_optimized.cpp
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_shapes.cpp
         Analyzer/Core/video_processing/helper.cpp
@@ -275,14 +274,12 @@ set(source
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
-        Analyzer/Core/video_processing/painter.h
-        Analyzer/Core/video_processing/painter.cpp
         Analyzer/Core/video_processing/painter_base.h
         Analyzer/Core/video_processing/painter_primitives.h
         Analyzer/Core/video_processing/painter_shapes.h
         Analyzer/Core/video_processing/painter_shapes.cpp
-        Analyzer/Core/video_processing/painter_optimized.h
-        Analyzer/Core/video_processing/painter_optimized.cpp
+        Analyzer/Core/video_processing/painter.h
+        Analyzer/Core/video_processing/painter.cpp
         Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_types.h

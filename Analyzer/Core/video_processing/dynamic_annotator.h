@@ -9,7 +9,7 @@
 
 #include "helper.h"
 #include "painter_types.h"
-#include "painter_optimized.h"
+#include "painter.h"
 #include "video_context.h"
 // Task enum used by update_legend API; include definition
 #include "task.h"
@@ -109,7 +109,7 @@ private:
     
     // Helper functions
     void clear_legend_overlay();
-    int init_filter_graph(bool force_reinit = false);
+    int init_filter_graph();
     // allocate legend overlay and init filter graph once using full Task enum set
     bool ensure_legend_initialized();
 };

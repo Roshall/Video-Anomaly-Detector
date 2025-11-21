@@ -7,6 +7,7 @@
 #include <format>
 
 #include "painter.h"
+#include "painter_shapes.h"
 
 extern "C" {
 #include <libavfilter/avfilter.h>
@@ -53,7 +54,7 @@ AVFrame* create_polygon_overlay(int width, int height,
   }
 
   // Draw lines between consecutive vertices
-  draw_polygon_yuva420p_thick(overlay_frame, vertices, color, 4, true);
+  draw_polygon_yuva420p(overlay_frame, vertices, color, 4, true);
 
   return overlay_frame;
 }
@@ -175,7 +176,7 @@ AVFramePtr VideoOverlay::draw_elements(AVFrame* in_frame,
   // for (const auto& r : rects) {
   //   draw_rectangle_yuv420p(in_frame, r, {76, 84, 255}, thickness);
   // }
-  draw_rectangles_yuv420p_fast(in_frame, rects, bbox_color_, thickness);
+  draw_rectangles_yuv420p_batch(in_frame, rects, bbox_color_, thickness);
 
   // 3. Push the modified frame and the overlay into the static graph
   ret = av_buffersrc_add_frame_flags(buffersrc_ctx_main, in_frame,

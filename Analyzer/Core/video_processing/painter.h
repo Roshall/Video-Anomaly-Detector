@@ -1,18 +1,11 @@
-#ifndef ANALYZER_PAINTER_H
-#define ANALYZER_PAINTER_H
-#include <string>
+#ifndef ANALYZER_PAINTER_OPTIMIZED_H
+#define ANALYZER_PAINTER_OPTIMIZED_H
+
+#include "painter_base.h"
+#include "painter_shapes.h"
 #include <vector>
 
-#include "opencv2/core/types.hpp"
-
-#include "painter_types.h"
-
-extern "C" {
-#include "libavutil/frame.h"
-}
-
 namespace avs_analyzer {
-
 
 struct LegendLayout {
   int width;
@@ -38,16 +31,6 @@ inline YUVColor scale_for_limited(const YUVColor& c) noexcept {
   };
   return {sy(c.y), sc(c.u), sc(c.v)};
 }
-
-void draw_polygon_yuva420p_thick(AVFrame* f,
-                                 const std::vector<cv::Point>& poly,
-                                 const YUVAColor& c, int thickness = 2,
-                                 bool paint_chroma = true);
-
-void draw_rectangles_yuv420p_fast(AVFrame* f,
-                                  const std::vector<cv::Rect>& rects,
-                                  const YUVColor& color,
-                                  int thickness);
 
 LegendLayout estimate_legend_layout(
     int font_px,
@@ -79,23 +62,41 @@ std::pair<int, int> estimate_legend_size_accurate(
     const std::vector<std::u8string>& labels_utf8,
     int text_padding = 8,
     int frame_padding = 8);
-
+// Factory function to create optimized frame
 AVFrame* create_blank_yuva420p(int width, int height);
 
-void draw_legend_yuva420p(AVFrame* frame,
-                          const std::string& font_path,
-                          std::pair<int, int> origin,
-                          int font_size,
-                          std::pair<int, int> handle_size,
-                          int row_spacing,
-                          const std::vector<YUVAColor>& colors,
-                          const std::vector<std::u8string>& labels,
-                          bool write_chroma = true,
-                          int text_padding = 8,
-                          bool draw_frame = true,
-                          int frame_padding = 8,
-                          int frame_thickness = 2,
-                          YUVAColor frame_color = {210, 128, 128, 255});
-}
+// Optimized batch operations
+class BatchPainter {
+public:
+  explicit BatchPainter(AVFrame* frame);
 
-#endif  // ANALYZER_PAINTER_H
+  // Batch rectangle drawing
+  void add_rectangle(const cv::Rect& rect, const YUVColor& color,
+                     int thickness);
+  
+  // Batch polygon (outline) drawing with YUV (no alpha), used to directly draw ROIs on YUV420P
+  void add_polygon(const std::vector<cv::Point>& points, const YUVColor& color, int thickness);
+
+  // Execute all batched operations
+  void execute();
+  void clear();
+
+private:
+  AVFrame* frame_;
+  std::vector<std::tuple<cv::Rect, YUVColor, int>> rectangles_;
+  std::vector<std::tuple<std::vector<cv::Point>, YUVColor, int>> polygons_;
+};
+
+// High-level convenience functions
+void draw_detection_boxes(AVFrame* frame,
+                          const std::vector<cv::Rect>& boxes,
+                          const std::vector<YUVColor>& colors,
+                          int thickness = 2);
+
+void draw_tracking_paths(AVFrame* frame,
+                         const std::vector<std::vector<cv::Point>>& paths,
+                         const std::vector<YUVAColor>& colors,
+                         int thickness = 2);
+} // namespace avs_analyzer
+
+#endif  // ANALYZER_PAINTER_OPTIMIZED_H

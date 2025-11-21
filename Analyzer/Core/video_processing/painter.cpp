@@ -1,301 +1,149 @@
-/**
- * @file painter.cpp
- * @brief Optimized and modular painter implementation for YUV/YUVA frames
- * 
- * This is a complete rewrite of the original painter.cpp with:
- * - Better performance using SIMD and optimized memory access
- * - Modular design with separate concerns
- * - Improved error handling and bounds checking
- * - Support for batch operations
- * 
- * Key improvements:
- * - SIMD-optimized line drawing
- * - Efficient rectangle filling with memset
- * - Better cache locality in batch operations  
- * - Proper chroma subsampling handling
- * - Reduced code duplication
- */
-
 #include "painter.h"
-#include "painter_optimized.h"
+#include "painter_shapes.h"
 #include <algorithm>
 #include <cstring>
-#include <numeric>
 
-#include "Utils/log.h"
 #include "freetype/freetype.h"
-#include "freetype/ftimage.h"
-
 
 extern "C" {
 #include <libavutil/frame.h>
-#include <libavutil/pixfmt.h>
 }
 
 namespace avs_analyzer {
-// Legacy compatibility functions - these wrap the new optimized implementations
-
-void draw_polygon_yuva420p_thick(AVFrame* f,
-                                 const std::vector<cv::Point>& poly,
-                                 const YUVAColor& c, int thickness,
-                                 bool paint_chroma) {
-  draw_polygon_yuva420p_optimized(f, poly, c, thickness, paint_chroma);
-}
-
-void draw_rectangles_yuv420p_fast(AVFrame* f,
-                                  const std::vector<cv::Rect>& rects,
-                                  const YUVColor& color,
-                                  int thickness) {
-  draw_rectangles_yuv420p_batch(f, rects, color, thickness);
-}
-
 AVFrame* create_blank_yuva420p(int width, int height) {
-  return create_blank_yuva420p_optimized(width, height);
+  AVFrame* frame = av_frame_alloc();
+  if (!frame) {
+    throw std::runtime_error("Failed to allocate AVFrame");
+  }
+
+  frame->format = AV_PIX_FMT_YUVA420P;
+  frame->width = width;
+  frame->height = height;
+
+  if (av_frame_get_buffer(frame, 32) < 0) {
+    av_frame_free(&frame);
+    throw std::runtime_error("av_frame_get_buffer failed");
+  }
+
+  // Initialize with neutral values using optimized memset
+  // Y plane: neutral gray (128)
+  for (int y = 0; y < height; ++y) {
+    std::memset(frame->data[0] + y * frame->linesize[0], 128, width);
+  }
+
+  // U and V planes: neutral chroma (128)
+  const int chroma_width = (width + 1) >> 1;
+  const int chroma_height = (height + 1) >> 1;
+
+  for (int y = 0; y < chroma_height; ++y) {
+    std::memset(frame->data[1] + y * frame->linesize[1], 128, chroma_width);
+    std::memset(frame->data[2] + y * frame->linesize[2], 128, chroma_width);
+  }
+
+  // A plane: fully transparent (0)
+  for (int y = 0; y < height; ++y) {
+    std::memset(frame->data[3] + y * frame->linesize[3], 0, width);
+  }
+
+  return frame;
 }
 
-// Optimized implementations of core drawing functions
-
-namespace {
-// SIMD-optimized horizontal line fill
-inline void fill_horizontal_line_simd(uint8_t* row, int x_start, int x_end,
-                                      uint8_t value) noexcept {
-  if (x_end < x_start) return;
-
-  const int length = x_end - x_start + 1;
-
-  // Use memset for larger regions, SIMD for smaller ones
-  if (length >= 32) {
-    std::memset(row + x_start, value, length);
-  } else {
-#pragma omp simd aligned(row:32)
-    for (int i = 0; i < length; ++i) {
-      row[x_start + i] = value;
-    }
-  }
-}
-
-// Optimized bounds checking and clipping
-struct ClippedRect {
-  int x_start, x_end, y_start, y_end;
-  bool valid;
-
-  ClippedRect(int x, int y, int w, int h, int frame_w, int frame_h) {
-    x_start = std::max(0, x);
-    y_start = std::max(0, y);
-    x_end = std::min(frame_w - 1, x + w - 1);
-    y_end = std::min(frame_h - 1, y + h - 1);
-    valid = (x_end >= x_start) && (y_end >= y_start);
-  }
-};
-
-// Validate and get pixel format
-bool validate_yuv_format(AVFrame* frame, const bool require_alpha = false) {
-  if (!frame) return false;
-
-  const auto fmt = static_cast<AVPixelFormat>(frame->format);
-
-  if (require_alpha) {
-    return fmt == AV_PIX_FMT_YUVA420P;
-  }
-  return fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P;
-}
-} // anonymous namespace
-
-// Optimized rectangle drawing for YUV420P
-void draw_rectangle_yuv420p_optimized_impl(AVFrame* frame, const cv::Rect& rect,
-                                           const YUVColor& color,
-                                           int thickness) {
-  if (!validate_yuv_format(frame) || thickness <= 0) return;
-
-  const ClippedRect clip(rect.x, rect.y, rect.width, rect.height,
-                         frame->width, frame->height);
-  if (!clip.valid) return;
-
-  // If thickness is large enough, fill the entire rectangle
-  if (thickness >= std::min(rect.width, rect.height) / 2) {
-    draw_filled_rectangle_yuv420p_optimized(frame, rect, color);
-    return;
-  }
-
-  uint8_t* const y_data = frame->data[0];
-  uint8_t* const u_data = frame->data[1];
-  uint8_t* const v_data = frame->data[2];
-  const int y_stride = frame->linesize[0];
-  const int u_stride = frame->linesize[1];
-  const int v_stride = frame->linesize[2];
-
-  // Draw horizontal edges
-  for (int t = 0; t < thickness; ++t) {
-    // Top edge
-    const int top_y = clip.y_start + t;
-    if (top_y <= clip.y_end) {
-      uint8_t* y_row = y_data + top_y * y_stride;
-      fill_horizontal_line_simd(y_row, clip.x_start, clip.x_end, color.y);
-    }
-
-    // Bottom edge
-    const int bottom_y = clip.y_end - t;
-    if (bottom_y >= clip.y_start && bottom_y != top_y) {
-      uint8_t* y_row = y_data + bottom_y * y_stride;
-      fill_horizontal_line_simd(y_row, clip.x_start, clip.x_end, color.y);
-    }
-  }
-
-  // Draw vertical edges (excluding corners already drawn)
-  const int inner_y_start = clip.y_start + thickness;
-  const int inner_y_end = clip.y_end - thickness;
-
-  if (inner_y_end >= inner_y_start) {
-    for (int y = inner_y_start; y <= inner_y_end; ++y) {
-      uint8_t* y_row = y_data + y * y_stride;
-
-      // Left edge
-      for (int t = 0; t < thickness; ++t) {
-        const int x = clip.x_start + t;
-        if (x <= clip.x_end) y_row[x] = color.y;
-      }
-
-      // Right edge
-      for (int t = 0; t < thickness; ++t) {
-        const int x = clip.x_end - t;
-        if (x >= clip.x_start && x != clip.x_start + t) {
-          y_row[x] = color.y;
-        }
-      }
-    }
-  }
-
-  // Handle chroma planes (subsampled)
-  const int chroma_thickness = std::max(1, thickness / 2);
-  const int chroma_x_start = clip.x_start >> 1;
-  const int chroma_x_end = clip.x_end >> 1;
-  const int chroma_y_start = clip.y_start >> 1;
-  const int chroma_y_end = clip.y_end >> 1;
-
-  // Chroma horizontal edges
-  for (int t = 0; t < chroma_thickness; ++t) {
-    // Top edge
-    const int top_cy = chroma_y_start + t;
-    if (top_cy <= chroma_y_end) {
-      uint8_t* u_row = u_data + top_cy * u_stride;
-      uint8_t* v_row = v_data + top_cy * v_stride;
-      fill_horizontal_line_simd(u_row, chroma_x_start, chroma_x_end, color.u);
-      fill_horizontal_line_simd(v_row, chroma_x_start, chroma_x_end, color.v);
-    }
-
-    // Bottom edge
-    const int bottom_cy = chroma_y_end - t;
-    if (bottom_cy >= chroma_y_start && bottom_cy != top_cy) {
-      uint8_t* u_row = u_data + bottom_cy * u_stride;
-      uint8_t* v_row = v_data + bottom_cy * v_stride;
-      fill_horizontal_line_simd(u_row, chroma_x_start, chroma_x_end, color.u);
-      fill_horizontal_line_simd(v_row, chroma_x_start, chroma_x_end, color.v);
-    }
-  }
-
-  // Chroma vertical edges
-  const int inner_cy_start = chroma_y_start + chroma_thickness;
-  const int inner_cy_end = chroma_y_end - chroma_thickness;
-
-  if (inner_cy_end >= inner_cy_start) {
-    for (int cy = inner_cy_start; cy <= inner_cy_end; ++cy) {
-      uint8_t* u_row = u_data + cy * u_stride;
-      uint8_t* v_row = v_data + cy * v_stride;
-
-      // Left edge
-      for (int t = 0; t < chroma_thickness; ++t) {
-        const int cx = chroma_x_start + t;
-        if (cx <= chroma_x_end) {
-          u_row[cx] = color.u;
-          v_row[cx] = color.v;
-        }
-      }
-
-      // Right edge
-      for (int t = 0; t < chroma_thickness; ++t) {
-        const int cx = chroma_x_end - t;
-        if (cx >= chroma_x_start && cx != chroma_x_start + t) {
-          u_row[cx] = color.u;
-          v_row[cx] = color.v;
-        }
-      }
-    }
+BatchPainter::BatchPainter(AVFrame* frame) : frame_(frame) {
+  if (!frame_) {
+    throw std::invalid_argument("Frame cannot be null");
   }
 }
 
-// Optimized filled rectangle for YUV420P
-void draw_filled_rectangle_yuv420p_optimized_impl(
-    AVFrame* frame, const cv::Rect& rect,
-    const YUVColor& color) {
-  if (!validate_yuv_format(frame)) return;
-
-  const ClippedRect clip(rect.x, rect.y, rect.width, rect.height,
-                         frame->width, frame->height);
-  if (!clip.valid) return;
-
-  // Fill Y plane
-  uint8_t* const y_data = frame->data[0];
-  const int y_stride = frame->linesize[0];
-
-  for (int y = clip.y_start; y <= clip.y_end; ++y) {
-    uint8_t* y_row = y_data + y * y_stride;
-    fill_horizontal_line_simd(y_row, clip.x_start, clip.x_end, color.y);
-  }
-
-  // Fill chroma planes (subsampled)
-  const int chroma_x_start = clip.x_start >> 1;
-  const int chroma_x_end = clip.x_end >> 1;
-  const int chroma_y_start = clip.y_start >> 1;
-  const int chroma_y_end = clip.y_end >> 1;
-
-  uint8_t* const u_data = frame->data[1];
-  uint8_t* const v_data = frame->data[2];
-  const int u_stride = frame->linesize[1];
-  const int v_stride = frame->linesize[2];
-
-  for (int cy = chroma_y_start; cy <= chroma_y_end; ++cy) {
-    uint8_t* u_row = u_data + cy * u_stride;
-    uint8_t* v_row = v_data + cy * v_stride;
-    fill_horizontal_line_simd(u_row, chroma_x_start, chroma_x_end, color.u);
-    fill_horizontal_line_simd(v_row, chroma_x_start, chroma_x_end, color.v);
-  }
+void BatchPainter::add_rectangle(const cv::Rect& rect, const YUVColor& color,
+                                 int thickness) {
+  rectangles_.emplace_back(rect, color, thickness);
 }
 
-// Batch rectangle drawing with optimized memory access
-void draw_rectangles_yuv420p_batch_impl(AVFrame* frame,
-                                        const std::vector<cv::Rect>& rects,
-                                        const YUVColor& color,
-                                        int thickness) {
-  if (!validate_yuv_format(frame) || thickness <= 0 || rects.empty()) {
-    return;
-  }
+void BatchPainter::add_polygon(const std::vector<cv::Point>& points,
+                               const YUVColor& color, int thickness) {
+  polygons_.emplace_back(points, color, thickness);
+}
 
-  // Sort rectangles by Y position for better cache locality
-  std::vector<size_t> indices(rects.size());
-  std::iota(indices.begin(), indices.end(), 0);
+void BatchPainter::execute() {
 
-  std::sort(indices.begin(), indices.end(),
-            [&rects](size_t a, size_t b) {
-              return rects[a].y < rects[b].y;
+  // Group rectangles by color and thickness for better cache efficiency
+  std::sort(rectangles_.begin(), rectangles_.end(),
+            [](const auto& a, const auto& b) {
+              const auto& [rect_a, color_a, thickness_a] = a;
+              const auto& [rect_b, color_b, thickness_b] = b;
+
+              if (thickness_a != thickness_b) return thickness_a < thickness_b;
+              if (color_a.y != color_b.y) return color_a.y < color_b.y;
+              if (color_a.u != color_b.u) return color_a.u < color_b.u;
+              return color_a.v < color_b.v;
             });
 
-  // Process rectangles in sorted order
-  for (size_t idx : indices) {
-    draw_rectangle_yuv420p_optimized_impl(frame, rects[idx], color, thickness);
+  // Process rectangles
+  for (const auto& [rect, color, thickness] : rectangles_) {
+    draw_rectangle_yuv420p(frame_, rect, color, thickness);
+  }
+
+  // Process polygon outlines (YUV, no alpha)
+  for (const auto& [points, color, thickness] : polygons_) {
+    draw_polygon_yuv420p(frame_, points, color, thickness);
   }
 }
 
-// Public interface functions that delegate to optimized implementations
-void draw_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
-                            const YUVColor& color, int thickness) {
-  draw_rectangle_yuv420p_optimized_impl(f, rect, color, thickness);
+void BatchPainter::clear() {
+  rectangles_.clear();
+  polygons_.clear();
 }
 
-void draw_filled_rectangle_yuv420p(AVFrame* f, const cv::Rect& rect,
-                                   const YUVColor& color) {
-  draw_filled_rectangle_yuv420p_optimized_impl(f, rect, color);
+void draw_detection_boxes(AVFrame* frame,
+                          const std::vector<cv::Rect>& boxes,
+                          const std::vector<YUVColor>& colors,
+                          int thickness) {
+  if (!frame || boxes.empty()) return;
+
+  const size_t num_boxes = std::min(boxes.size(), colors.size());
+
+  BatchPainter painter(frame);
+
+  for (size_t i = 0; i < num_boxes; ++i) {
+    painter.add_rectangle(boxes[i], colors[i], thickness);
+  }
+
+  painter.execute();
 }
 
+void draw_tracking_paths(AVFrame* frame,
+                         const std::vector<std::vector<cv::Point>>& paths,
+                         const std::vector<YUVAColor>& colors,
+                         int thickness) {
+  if (!frame || paths.empty() || !is_yuva420_format(
+          static_cast<AVPixelFormat>(frame->format))) {
+    return;
+  }
+
+  const size_t num_paths = std::min(paths.size(), colors.size());
+
+  for (size_t i = 0; i < num_paths; ++i) {
+    const auto& path = paths[i];
+    const auto& color = colors[i];
+
+    if (path.size() < 2) continue;
+
+    // Draw lines between consecutive points
+    for (size_t j = 1; j < path.size(); ++j) {
+      draw_line_yuva420p(frame,
+                                   path[j - 1].x, path[j - 1].y,
+                                   path[j].x, path[j].y,
+                                   color, thickness, true);
+    }
+
+    // Draw end point as a small circle
+    if (!path.empty()) {
+      const auto& end_point = path.back();
+      draw_filled_circle_yuva420p(frame, end_point.x, end_point.y,
+                                            thickness + 1, color, true);
+    }
+  }
+}
 // Estimate legend size (simplified version without FreeType dependency)
 std::pair<int, int> estimate_legend_size(
     int font_px,
@@ -364,8 +212,8 @@ std::pair<int, int> estimate_legend_size_accurate(
       int text_width = 0;
 
       // Simple character-by-character width measurement
-      for (char c : label) {
-        if (FT_Load_Char(face, static_cast<unsigned char>(c), FT_LOAD_DEFAULT)
+      for (const auto c : label) {
+        if (FT_Load_Char(face, c, FT_LOAD_DEFAULT)
             == 0) {
           text_width += static_cast<int>(face->glyph->advance.x >> 6);
         }
@@ -441,67 +289,4 @@ LegendLayout estimate_legend_layout(
   return {total_w, total_h, pos_x, pos_y};
 }
 
-// Simplified legend drawing without FreeType dependency
-void draw_legend_yuva420p(AVFrame* frame,
-                          const std::string& font_path,
-                          std::pair<int, int> origin,
-                          int font_size,
-                          std::pair<int, int> handle_size,
-                          int row_spacing,
-                          const std::vector<YUVAColor>& colors,
-                          const std::vector<std::u8string>& labels,
-                          bool write_chroma,
-                          int text_padding,
-                          bool draw_frame,
-                          int frame_padding,
-                          int frame_thickness,
-                          YUVAColor frame_color) {
-  if (!validate_yuv_format(frame, true) || colors.size() != labels.size()) {
-    // LOGE("unable to validate yuv format or colors is incompatible with labels");
-    return;
-  }
-
-  const int start_x = origin.first;
-  int current_y = origin.second;
-  const int handle_width = std::max(0, handle_size.first);
-  const int handle_height = std::max(0, handle_size.second);
-  const int row_height = std::max(handle_height, font_size);
-  const int row_step = row_height + std::max(0, row_spacing);
-
-  // Draw legend items (handles only, no text rendering without FreeType)
-  for (auto color : colors) {
-    if (current_y >= frame->height) break;
-
-    // Draw color handle
-    const cv::Rect handle_rect(start_x, current_y, handle_width, handle_height);
-    draw_filled_rectangle_yuva420p_optimized(frame, handle_rect, color,
-                                             write_chroma);
-
-    current_y += row_step;
-  }
-
-  // Draw frame if requested
-  if (draw_frame) {
-    const int content_width = handle_width + text_padding + font_size * 10;
-    // Estimate
-    const int content_height = colors.empty()
-                                 ? 0
-                                 : static_cast<int>(colors.size()) * row_height
-                                   +
-                                   std::max(0, row_spacing) * (
-                                     static_cast<int>(colors.size()) - 1);
-
-    if (content_width > 0 && content_height > 0) {
-      const cv::Rect frame_rect(
-          start_x - frame_padding,
-          origin.second - frame_padding,
-          content_width + 2 * frame_padding,
-          content_height + 2 * frame_padding
-          );
-
-      draw_rectangle_yuva420p_optimized(frame, frame_rect, frame_color,
-                                        frame_thickness, write_chroma);
-    }
-  }
-}
 } // namespace avs_analyzer

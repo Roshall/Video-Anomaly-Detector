@@ -175,8 +175,8 @@ void render_glyph_to_yuva420p(AVFrame* frame, int dest_x, int dest_y,
     return;
   }
 
-  for (int row = 0; row < bitmap.rows; ++row) {
-    for (int col = 0; col < bitmap.width; ++col) {
+  for (unsigned row = 0; row < bitmap.rows; ++row) {
+    for (unsigned col = 0; col < bitmap.width; ++col) {
       const int pixel_x = dest_x + col;
       const int pixel_y = dest_y + row;
 
@@ -252,7 +252,7 @@ void render_text_yuva420p(AVFrame* frame, FT_Face face,
   }
 }
 
-void draw_legend_yuva420p_optimized(AVFrame* frame,
+void draw_legend_yuva420p(AVFrame* frame,
                                     const std::string& font_path,
                                     std::pair<int, int> origin,
                                     int font_size,
@@ -311,8 +311,8 @@ void draw_legend_yuva420p_optimized(AVFrame* frame,
         content_height + 2 * style.frame_padding
         );
 
-    draw_rectangle_yuva420p_optimized(frame, frame_rect, style.frame_color,
-                                      style.frame_thickness, write_chroma);
+    draw_filled_rectangle_yuva420p(frame, frame_rect, style.frame_color,
+                                      write_chroma);
   }
 
   // Draw legend items
@@ -321,7 +321,7 @@ void draw_legend_yuva420p_optimized(AVFrame* frame,
 
     // Draw color handle
     const cv::Rect handle_rect(start_x, current_y, handle_width, handle_height);
-    draw_filled_rectangle_yuva420p_optimized(frame, handle_rect, colors[i],
+    draw_filled_rectangle_yuva420p(frame, handle_rect, colors[i],
                                              write_chroma);
 
     // Draw text label

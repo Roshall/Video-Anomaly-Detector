@@ -1,7 +1,7 @@
 #include "dynamic_annotator.h"
 #include "painter.h"
 #include "painter_shapes.h"
-#include "painter_optimized.h"
+#include "painter.h"
 #include <algorithm>
 #include <stdexcept>
 #include <format>
@@ -120,13 +120,12 @@ bool DynamicAnnotator::ensure_legend_initialized() {
 
   // Pre-allocate overlay frame once using this legend size
   try {
-    legend_overlay_frame_.reset(create_blank_yuva420p_optimized(legend_width, legend_height));
+    legend_overlay_frame_.reset(create_blank_yuva420p(legend_width, legend_height));
     cached_overlay_w_ = legend_width;
     cached_overlay_h_ = legend_height;
 
     // Initialize filter graph (only once)
-    const int r = init_filter_graph(false);
-    if (r < 0) {
+    if (const int r = init_filter_graph(); r < 0) {
       legend_overlay_frame_.reset();
       LOGE("Failed initializing filter graph for legend overlay: {}", r);
       return false;
@@ -190,7 +189,7 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
     // Clear the buffer before re-drawing
     clear_legend_overlay();
     // Draw legend in the buffer
-    draw_legend_yuva420p_optimized(
+    draw_legend_yuva420p(
         legend_overlay_frame_.get(),
         legend_config_.font_path,
         {legend_config_.frame_padding, legend_config_.frame_padding + legend_config_.font_size},
@@ -208,7 +207,7 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
   }
 }
 
-int DynamicAnnotator::init_filter_graph(bool force_reinit) {
+int DynamicAnnotator::init_filter_graph() {
   if (filter_graph_initialized_) {
     return 0;
   }
@@ -248,7 +247,7 @@ int DynamicAnnotator::init_filter_graph(bool force_reinit) {
       "[in][legend]overlay=x={}:y={}:format=auto[out]",
       legend_layout_.pos_x, legend_layout_.pos_y);
 
-  // If a graph exists and we need to reinit, clear it first
+  // If a graph exists, and we need to reinit, clear it first
   if (filter_graph_) {
     filter_graph_.reset();
     buffersrc_ctx_main_ = nullptr;

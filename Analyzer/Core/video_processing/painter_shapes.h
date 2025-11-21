@@ -9,10 +9,10 @@
 
 namespace avs_analyzer {
 // Rectangle drawing functions
-void draw_rectangle_yuv420p_optimized(AVFrame* frame, const cv::Rect& rect,
+void draw_rectangle_yuv420p(AVFrame* frame, const cv::Rect& rect,
                                       const YUVColor& color, int thickness);
 
-void draw_filled_rectangle_yuv420p_optimized(AVFrame* frame,
+void draw_filled_rectangle_yuv420p(AVFrame* frame,
                                              const cv::Rect& rect,
                                              const YUVColor& color);
 
@@ -23,38 +23,38 @@ void draw_rectangles_yuv420p_batch(AVFrame* frame,
                                    int thickness);
 
 // YUVA420P versions
-void draw_rectangle_yuva420p_optimized(AVFrame* frame, const cv::Rect& rect,
+void draw_rectangle_yuva420p(AVFrame* frame, const cv::Rect& rect,
                                        const YUVAColor& color, int thickness,
                                        bool write_chroma = true);
 
-void draw_filled_rectangle_yuva420p_optimized(AVFrame* frame,
+void draw_filled_rectangle_yuva420p(AVFrame* frame,
                                               const cv::Rect& rect,
                                               const YUVAColor& color,
                                               bool write_chroma = true);
 
 // Line drawing
-void draw_line_yuva420p_optimized(AVFrame* frame, int x0, int y0, int x1,
+void draw_line_yuva420p(AVFrame* frame, int x0, int y0, int x1,
                                   int y1,
                                   const YUVAColor& color, int thickness = 2,
                                   bool write_chroma = true);
 
 // Polygon drawing
-void draw_polygon_yuv420p_optimized(AVFrame* frame,
+void draw_polygon_yuv420p(AVFrame* frame,
                                     const std::vector<cv::Point>& points,
                                     const YUVColor& color, int thickness = 2);
 
-void draw_polygon_yuva420p_optimized(AVFrame* frame,
+void draw_polygon_yuva420p(AVFrame* frame,
                                      const std::vector<cv::Point>& points,
                                      const YUVAColor& color, int thickness = 2,
                                      bool write_chroma = true);
 
 // Circle/disk drawing
-void draw_circle_yuva420p_optimized(AVFrame* frame, int center_x, int center_y,
+void draw_circle_yuva420p(AVFrame* frame, int center_x, int center_y,
                                     int radius, const YUVAColor& color,
                                     int thickness = 2,
                                     bool write_chroma = true);
 
-void draw_filled_circle_yuva420p_optimized(AVFrame* frame, int center_x,
+void draw_filled_circle_yuva420p(AVFrame* frame, int center_x,
                                            int center_y,
                                            int radius, const YUVAColor& color,
                                            bool write_chroma = true);

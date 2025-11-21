@@ -76,7 +76,7 @@ inline void paint_pixel_yuva420p(AVFrame* frame, int x, int y,
 }
 
 // Optimized horizontal line for YUV420P
-inline void draw_horizontal_line_yuv420p_optimized(
+inline void draw_horizontal_line_yuv420p(
     AVFrame* frame, int x1, int x2, int y,
     const YUVColor& color, int thickness) noexcept {
   const auto bounds = BoundingRect::clip_to_frame(
@@ -108,7 +108,7 @@ inline void draw_horizontal_line_yuv420p_optimized(
 }
 
 // Optimized vertical line for YUV420P
-inline void draw_vertical_line_yuv420p_optimized(
+inline void draw_vertical_line_yuv420p(
     AVFrame* frame, int x, int y1, int y2,
     const YUVColor& color, int thickness) noexcept {
   const auto bounds = BoundingRect::clip_to_frame(

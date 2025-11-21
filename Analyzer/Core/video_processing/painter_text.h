@@ -72,7 +72,7 @@ struct LegendStyle {
   YUVAColor frame_color = {210, 128, 128, 255};
 };
 
-void draw_legend_yuva420p_optimized(AVFrame* frame,
+void draw_legend_yuva420p(AVFrame* frame,
                                     const std::string& font_path,
                                     std::pair<int, int> origin,
                                     int font_size,

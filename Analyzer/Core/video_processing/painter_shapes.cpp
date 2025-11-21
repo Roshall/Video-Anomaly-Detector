@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace avs_analyzer {
-void draw_rectangle_yuv420p_optimized(AVFrame* frame, const cv::Rect& rect,
+void draw_rectangle_yuv420p(AVFrame* frame, const cv::Rect& rect,
                                       const YUVColor& color, int thickness) {
   if (thickness <= 0 || !frame) return;
 
@@ -19,19 +19,19 @@ void draw_rectangle_yuv420p_optimized(AVFrame* frame, const cv::Rect& rect,
 
   // If thickness is too large, fill the entire rectangle
   if (thickness >= std::min(rect.width, rect.height) / 2) {
-    draw_filled_rectangle_yuv420p_optimized(frame, rect, color);
+    draw_filled_rectangle_yuv420p(frame, rect, color);
     return;
   }
 
   // Draw four edges efficiently
   // Top edge
-  draw_horizontal_line_yuv420p_optimized(frame, bounds.x_start, bounds.x_end,
+  draw_horizontal_line_yuv420p(frame, bounds.x_start, bounds.x_end,
                                          bounds.y_start, color, thickness);
 
   // Bottom edge
   const int bottom_y = bounds.y_end - thickness + 1;
   if (bottom_y > bounds.y_start + thickness) {
-    draw_horizontal_line_yuv420p_optimized(frame, bounds.x_start, bounds.x_end,
+    draw_horizontal_line_yuv420p(frame, bounds.x_start, bounds.x_end,
                                            bottom_y, color, thickness);
   }
 
@@ -39,7 +39,7 @@ void draw_rectangle_yuv420p_optimized(AVFrame* frame, const cv::Rect& rect,
   const int left_start_y = bounds.y_start + thickness;
   const int left_end_y = bounds.y_end - thickness;
   if (left_end_y >= left_start_y) {
-    draw_vertical_line_yuv420p_optimized(frame, bounds.x_start,
+    draw_vertical_line_yuv420p(frame, bounds.x_start,
                                          left_start_y, left_end_y,
                                          color, thickness);
   }
@@ -49,13 +49,13 @@ void draw_rectangle_yuv420p_optimized(AVFrame* frame, const cv::Rect& rect,
   const int right_end_y = bounds.y_end - thickness;
   const int right_x = bounds.x_end - thickness + 1;
   if (right_end_y >= right_start_y && right_x <= bounds.x_end) {
-    draw_vertical_line_yuv420p_optimized(frame, right_x,
+    draw_vertical_line_yuv420p(frame, right_x,
                                          right_start_y, right_end_y,
                                          color, thickness);
   }
 }
 
-void draw_filled_rectangle_yuv420p_optimized(AVFrame* frame,
+void draw_filled_rectangle_yuv420p(AVFrame* frame,
                                              const cv::Rect& rect,
                                              const YUVColor& color) {
   if (!frame) return;
@@ -101,11 +101,11 @@ void draw_rectangles_yuv420p_batch(AVFrame* frame,
 
   // Process rectangles in batches for better cache locality
   for (const auto& rect : rects) {
-    draw_rectangle_yuv420p_optimized(frame, rect, color, thickness);
+    draw_rectangle_yuv420p(frame, rect, color, thickness);
   }
 }
 
-void draw_rectangle_yuva420p_optimized(AVFrame* frame, const cv::Rect& rect,
+void draw_rectangle_yuva420p(AVFrame* frame, const cv::Rect& rect,
                                        const YUVAColor& color, int thickness,
                                        bool write_chroma) {
   if (thickness <= 0 || !frame) return;
@@ -120,7 +120,7 @@ void draw_rectangle_yuva420p_optimized(AVFrame* frame, const cv::Rect& rect,
 
   // If thickness is too large, fill the entire rectangle
   if (thickness >= std::min(rect.width, rect.height) / 2) {
-    draw_filled_rectangle_yuva420p_optimized(frame, rect, color, write_chroma);
+    draw_filled_rectangle_yuva420p(frame, rect, color, write_chroma);
     return;
   }
 
@@ -151,7 +151,7 @@ void draw_rectangle_yuva420p_optimized(AVFrame* frame, const cv::Rect& rect,
   }
 }
 
-void draw_filled_rectangle_yuva420p_optimized(AVFrame* frame,
+void draw_filled_rectangle_yuva420p(AVFrame* frame,
                                               const cv::Rect& rect,
                                               const YUVAColor& color,
                                               bool write_chroma) {
@@ -196,7 +196,7 @@ void draw_filled_rectangle_yuva420p_optimized(AVFrame* frame,
 }
 
 // Optimized Bresenham line algorithm
-void draw_line_yuva420p_optimized(AVFrame* frame, int x0, int y0, int x1,
+void draw_line_yuva420p(AVFrame* frame, int x0, int y0, int x1,
                                   int y1,
                                   const YUVAColor& color, int thickness,
                                   bool write_chroma) {
@@ -218,7 +218,7 @@ void draw_line_yuva420p_optimized(AVFrame* frame, int x0, int y0, int x1,
     if (radius <= 1) {
       paint_pixel_yuva420p(frame, x, y, color, write_chroma);
     } else {
-      draw_filled_circle_yuva420p_optimized(frame, x, y, radius, color,
+      draw_filled_circle_yuva420p(frame, x, y, radius, color,
                                             write_chroma);
     }
 
@@ -236,7 +236,7 @@ void draw_line_yuva420p_optimized(AVFrame* frame, int x0, int y0, int x1,
   }
 }
 
-void draw_polygon_yuva420p_optimized(AVFrame* frame,
+void draw_polygon_yuva420p(AVFrame* frame,
                                      const std::vector<cv::Point>& points,
                                      const YUVAColor& color, int thickness,
                                      bool write_chroma) {
@@ -246,12 +246,12 @@ void draw_polygon_yuva420p_optimized(AVFrame* frame,
   for (size_t i = 0; i < points.size(); ++i) {
     const auto& p1 = points[i];
     const auto& p2 = points[(i + 1) % points.size()];
-    draw_line_yuva420p_optimized(frame, p1.x, p1.y, p2.x, p2.y,
+    draw_line_yuva420p(frame, p1.x, p1.y, p2.x, p2.y,
                                  color, thickness, write_chroma);
   }
 }
 
-void draw_circle_yuva420p_optimized(AVFrame* frame, int center_x, int center_y,
+void draw_circle_yuva420p(AVFrame* frame, int center_x, int center_y,
                                     int radius, const YUVAColor& color,
                                     int thickness, bool write_chroma) {
   if (!frame || radius <= 0 || thickness <= 0) return;
@@ -276,7 +276,7 @@ void draw_circle_yuva420p_optimized(AVFrame* frame, int center_x, int center_y,
   }
 }
 
-void draw_filled_circle_yuva420p_optimized(AVFrame* frame, int center_x,
+void draw_filled_circle_yuva420p(AVFrame* frame, int center_x,
                                            int center_y,
                                            int radius, const YUVAColor& color,
                                            bool write_chroma) {
@@ -302,7 +302,7 @@ void draw_filled_circle_yuva420p_optimized(AVFrame* frame, int center_x,
 }
 
 // YUV420P polygon drawing (no alpha channel)
-void draw_polygon_yuv420p_optimized(AVFrame* frame,
+void draw_polygon_yuv420p(AVFrame* frame,
                                     const std::vector<cv::Point>& points,
                                     const YUVColor& color, int thickness) {
   if (points.size() < 2 || !frame || thickness <= 0) return;
