@@ -11,6 +11,7 @@
 
 #include "event.h"
 #include "frame.h"
+#include "task.h"
 #include "video_processing/annotator.h"
 
 extern "C" {
@@ -30,6 +31,7 @@ class CombinedEventManager {
  public:
   struct DetectorFrameInfo {
     std::string_view monitor_code{};
+    Task task;
     const VideoOverlay* overlay{nullptr};
     EventDetector::State state{EventDetector::kNoEvent};
     const std::vector<cv::Rect>* detections{nullptr};

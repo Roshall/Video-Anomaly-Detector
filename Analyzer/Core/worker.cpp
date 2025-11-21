@@ -254,13 +254,15 @@ void Worker::OfflineAnalyze() {
 
     const auto state = checker.ProcessFrame({timestamp_ms, frame});
 
-    CombinedEventManager::DetectorFrameInfo info;
-    info.monitor_code = monitor.code;
-    info.overlay = overlay.get();
-    info.state = state;
-    info.detections = &checker.detections();
-    info.event_start_timestamp_ms = checker.event_start_timestamp();
-    info.event_start_pts = checker.start_ts();
+    CombinedEventManager::DetectorFrameInfo info{
+      .monitor_code = monitor.code,
+      .task = monitor.task,
+      .overlay = overlay.get(),
+      .state = state,
+      .detections = &checker.detections(),
+      .event_start_timestamp_ms = checker.event_start_timestamp(),
+      .event_start_pts = checker.start_ts(),
+    };
 
     std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
     info_vec.emplace_back(info);
@@ -491,27 +493,26 @@ void Worker::DecodeVideo() {
         const auto state =
             ctx_ptr->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
 
-        CombinedEventManager::DetectorFrameInfo info;
-        info.monitor_code = ctx_ptr->monitor->code;
-        info.overlay = ctx_ptr->overlay.get();
-        info.state = state;
-        info.detections = &ctx_ptr->detector->detections();
-        info.event_start_timestamp_ms = ctx_ptr->detector->event_start_timestamp();
-        info.event_start_pts = ctx_ptr->detector->start_ts();
-        detector_infos.emplace_back(info);
+        detector_infos.emplace_back(
+            ctx_ptr->monitor->code,
+            ctx_ptr->monitor->task,
+            ctx_ptr->overlay.get(),
+            state,
+            &ctx_ptr->detector->detections(),
+            ctx_ptr->detector->event_start_timestamp(),
+            ctx_ptr->detector->start_ts());
 
         // Capture snapshot for alarm processing (no pointers, thread-safe)
-        MonitorEventSnapshot snapshot;
-        snapshot.monitor_code = ctx_ptr->monitor->code;
-        snapshot.state = state;
-        snapshot.start_pts = ctx_ptr->detector->start_ts();
-        snapshot.timestamp = ctx_ptr->detector->timestamp();
-        snapshot.num_detection = ctx_ptr->detector->num_detection();
-        snapshot.event_duration = ctx_ptr->detector->event_duration();
-        snapshot.levels = ctx_ptr->monitor->levels;
-        snapshot.level_mode = ctx_ptr->monitor->level_mode;
-        snapshot.current_highest_level = ctx_ptr->current_highest_level;
-        event_snapshots.emplace_back(std::move(snapshot));
+        event_snapshots.emplace_back(
+        ctx_ptr->monitor->code,
+        state,
+        ctx_ptr->detector->start_ts(),
+        ctx_ptr->detector->timestamp(),
+        ctx_ptr->detector->num_detection(),
+        ctx_ptr->detector->event_duration(),
+        ctx_ptr->monitor->levels,
+        ctx_ptr->monitor->level_mode,
+        ctx_ptr->current_highest_level);
       }
     }
     // Lock released here - safe to process snapshots
