@@ -101,8 +101,8 @@ bool DynamicAnnotator::ensure_legend_initialized() {
       legend_config_.handle_size,
       legend_config_.row_spacing,
       labels_u8,
-      legend_config_.text_padding,
-      legend_config_.frame_padding);
+      legend_config_.legend_style.text_padding,
+      legend_config_.legend_style.frame_padding);
 
   // Calculate legend position
   legend_layout_ = estimate_legend_layout(
@@ -110,8 +110,8 @@ bool DynamicAnnotator::ensure_legend_initialized() {
       legend_config_.handle_size,
       legend_config_.row_spacing,
       labels_u8,
-      legend_config_.text_padding,
-      legend_config_.frame_padding,
+      legend_config_.legend_style.text_padding,
+      legend_config_.legend_style.frame_padding,
       video_ctx_.width,
       video_ctx_.height,
       legend_config_.position,
@@ -163,8 +163,8 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
       legend_config_.handle_size,
       legend_config_.row_spacing,
       labels_u8,
-      legend_config_.text_padding,
-      legend_config_.frame_padding
+      legend_config_.legend_style.text_padding,
+      legend_config_.legend_style.frame_padding
       );
 
   // Do not modify legend_layout_ here: we allocated and configured the filter
@@ -192,13 +192,13 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
     draw_legend_yuva420p(
         legend_overlay_frame_.get(),
         legend_config_.font_path,
-        {legend_config_.frame_padding, legend_config_.frame_padding + legend_config_.font_size},
+        {legend_config_.legend_style.frame_padding, legend_config_.legend_style.frame_padding + legend_config_.font_size},
         legend_config_.font_size,
         legend_config_.handle_size,
         legend_config_.row_spacing,
         colors,
         labels_u8,
-        {legend_config_.text_padding, legend_config_.frame_padding, legend_config_.frame_thickness, true, legend_config_.frame_color},
+        legend_config_.legend_style,
         true
     );
       LOGD("Redrew legend in-place into pre-allocated overlay ({}x{})", cached_overlay_w_, cached_overlay_h_);

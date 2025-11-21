@@ -67,7 +67,6 @@ void render_text_yuva420p(AVFrame* frame, FT_Face face,
 struct LegendStyle {
   int text_padding = 8;
   int frame_padding = 8;
-  int frame_thickness = 2;
   bool draw_frame = true;
   YUVAColor frame_color = {210, 128, 128, 255};
 };

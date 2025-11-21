@@ -12,6 +12,7 @@
 #include "painter.h"
 #include "video_context.h"
 // Task enum used by update_legend API; include definition
+#include "painter_text.h"
 #include "task.h"
 
 struct AVFrame;
@@ -39,10 +40,7 @@ public:
         int font_size = 24;
         std::pair<int, int> handle_size = {20, 16};
         int row_spacing = 4;
-        int text_padding = 8;
-        int frame_padding = 8;
-        int frame_thickness = 2;
-        YUVAColor frame_color = {210, 128, 128, 255};
+        LegendStyle legend_style{};
         LegendPosition position = LegendPosition::kTopRight;
         int margin_x = 40;
         int margin_y = 40;
