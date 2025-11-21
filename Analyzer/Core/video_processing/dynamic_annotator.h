@@ -36,7 +36,7 @@ public:
     
     struct LegendConfig {
         std::string font_path{"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
-        int font_size = 16;
+        int font_size = 24;
         std::pair<int, int> handle_size = {20, 16};
         int row_spacing = 4;
         int text_padding = 8;

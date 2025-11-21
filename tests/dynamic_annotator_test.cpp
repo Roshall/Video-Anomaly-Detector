@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
 
     DynamicAnnotator::LegendConfig lconf;
     lconf.font_path = font_path;
-    lconf.font_size = 18;
+    lconf.font_size = 24;
     // init with legend config; this will pre-allocate legend overlay using full Task enum
     if (annotator.init(vctx, lconf) < 0) {
         std::cerr << "Annotator init failed\n";

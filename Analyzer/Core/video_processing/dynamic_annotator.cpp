@@ -31,7 +31,7 @@ YUVColor Task2Color(const Task task) {
       case Task::kSleepWork:
         return {107, 133, 62};
       case Task::kWandering:
-        return {199, 55, 145};
+        return {155, 48, 170};
       case Task::kBreakIn:
         return {91, 173, 74};
       case Task::kWallClimbing:
