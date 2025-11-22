@@ -128,9 +128,6 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   if (annotator_) {
     std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
     annotator_->update_legend(GetMonitorTasks());
-    if (event_manager_ && !event_manager_->HasAnnotator()) {
-      event_manager_->SetAnnotator(annotator_.get());
-    }
   }
 }
 
@@ -274,8 +271,6 @@ void Worker::OfflineAnalyze() {
   }
   if (annotator) {
     event_manager.SetAnnotator(annotator.get());
-    // Offline manager uses local annotator, not protected by worker mutex.
-    event_manager.SetAnnotatorMutex(nullptr);
   }
 
   JPEGEncoder pict_writer(width, height);
@@ -451,10 +446,10 @@ void Worker::RebuildEventManager() {
   std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
   if (!event_manager_) {
     event_manager_ = std::make_unique<CombinedEventManager>();
+    event_manager_->SetAnnotatorMutex(&annotator_mutex_);
+    event_manager_->SetAnnotator(annotator_.get());
   }
   event_manager_->UpdateConfig(cfg);
-  event_manager_->SetAnnotator(annotator_.get());
-  event_manager_->SetAnnotatorMutex(&annotator_mutex_);
 }
 
 void Worker::EnsureAnnotatorReady() {
@@ -490,7 +485,7 @@ void Worker::EnsureAnnotatorReady() {
   {
     std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
     annotator_ = std::move(candidate);
-    if (event_manager_) {
+    if (event_manager_ && !event_manager_->HasAnnotator()) {
       event_manager_->SetAnnotator(annotator_.get());
     }
   }
@@ -772,10 +767,6 @@ void Worker::RemoveMonitor(const std::string& code) {
     if (annotator_) {
       std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
       annotator_->update_legend(GetMonitorTasks());
-      if (event_manager_ && !event_manager_->HasAnnotator()) {
-        event_manager_->SetAnnotator(annotator_.get());
-        event_manager_->SetAnnotatorMutex(&annotator_mutex_);
-      }
     }
   }
 }
@@ -878,17 +869,6 @@ void Worker::OnStreamOpened(VideoContext context) {
     }
   }
   // Reinitialize or update annotator with current monitor tasks
-  EnsureAnnotatorReady();
-  if (annotator_) {
-    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
-    annotator_->update_legend(GetMonitorTasks());
-    if (event_manager_) {
-      event_manager_->SetAnnotator(annotator_.get());
-      event_manager_->SetAnnotatorMutex(&annotator_mutex_);
-    }
-  }
-
   StartPushThreadIfNeeded();
-  RebuildEventManager();
 }
 } // namespace avs_analyzer
