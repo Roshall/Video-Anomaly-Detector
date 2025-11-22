@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <mutex>
 #include <ranges>
 #include <utility>
 
@@ -177,10 +178,15 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
   static const std::vector<cv::Rect> kEmptyRects{};
 
   for (const auto& info : detectors) {
-    if (!info.annotator) {
-      continue;
-    }
+    const auto* rects = info.detections ? info.detections : &kEmptyRects;
+    object_count += static_cast<uint32_t>(rects->size());
+  }
 
+  if (!annotator_) {
+    return working;
+  }
+
+  for (const auto& info : detectors) {
     const auto* rects = info.detections ? info.detections : &kEmptyRects;
     std::vector<DynamicAnnotator::BBoxEntry> bbox_entries;
     bbox_entries.reserve(rects->size());
@@ -189,14 +195,20 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
     }
 
     const auto& roi_entries = info.rois ? *info.rois : kEmptyRois;
-    if (AVFramePtr annotated = info.annotator->draw_elements(
+    if (bbox_entries.empty() && roi_entries.empty()) {
+      continue;
+    }
+
+    std::unique_lock<std::mutex> guard;
+    if (annotator_mutex_) {
+      guard = std::unique_lock<std::mutex>(*annotator_mutex_);
+    }
+    if (AVFramePtr annotated = annotator_->draw_elements(
             working.get(), roi_entries, bbox_entries)) {
       working = std::move(annotated);
     } else {
       LOGW("Failed to draw dynamic annotation for monitor {}", info.monitor_code);
     }
-
-    object_count += static_cast<uint32_t>(rects->size());
   }
 
   return working;

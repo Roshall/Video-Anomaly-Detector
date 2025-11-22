@@ -3,7 +3,6 @@
 #include <json/value.h>
 
 #include <algorithm>
-#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -16,7 +15,6 @@
 #include <vector>
 
 #include "Utils/common.h"
-#include "Utils/enum_utils.h"
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "alarm.h"
@@ -37,14 +35,18 @@ extern "C" {
 
 namespace avs_analyzer {
 
-static const std::vector<Task>& AllLegendTasks() {
-  static const std::vector<Task> tasks = [] {
-    std::vector<Task> values;
-    for (const auto task : get_enum_range<Task>()) {
-      values.push_back(task);
+// Utility: collect the Task list from the current worker's monitors.
+std::vector<Task> Worker::GetMonitorTasks() const {
+  std::vector<Task> tasks;
+  std::shared_lock lock(monitors_mutex_);
+  tasks.reserve(monitors_.size());
+  for (const auto& ctx : monitors_) {
+    if (!ctx || !ctx->monitor) continue;
+    const auto t = ctx->monitor->task;
+    if (std::find(tasks.begin(), tasks.end(), t) == tasks.end()) {
+      tasks.push_back(t);
     }
-    return values;
-  }();
+  }
   return tasks;
 }
 
@@ -120,6 +122,16 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   ctx->current_highest_level = 0;
   RebuildEventManager();
   StartPushThreadIfNeeded();
+
+  // Update annotator legend whenever monitors are added
+  EnsureAnnotatorReady();
+  if (annotator_) {
+    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
+    annotator_->update_legend(GetMonitorTasks());
+    if (event_manager_ && !event_manager_->HasAnnotator()) {
+      event_manager_->SetAnnotator(annotator_.get());
+    }
+  }
 }
 
 size_t Worker::num_task() const {
@@ -215,6 +227,10 @@ void Worker::OfflineAnalyze() {
     LOGE("cannot parse recognition region for {}", monitor.code);
     return;
   }
+  std::vector<DynamicAnnotator::ROIEntry> offline_rois;
+  if (!monitor.roi_points.empty()) {
+    offline_rois.emplace_back(monitor.task, monitor.roi_points);
+  }
 
   auto analyzer_ptr = std::make_unique<Analyzer>(
       ctx->monitor.get(), scheduler->GetConfig(), monitor.conf_threshold);
@@ -249,13 +265,19 @@ void Worker::OfflineAnalyze() {
       LOGE("offline analyze: failed to init annotator for {}: {}",
            monitor.code, ret);
     } else {
-      candidate->update_legend(AllLegendTasks());
+      candidate->update_legend(GetMonitorTasks());
       annotator = std::move(candidate);
     }
   } catch (const std::exception& ex) {
     LOGE("offline analyze: failed to init annotator for {}: {}", monitor.code,
          ex.what());
   }
+  if (annotator) {
+    event_manager.SetAnnotator(annotator.get());
+    // Offline manager uses local annotator, not protected by worker mutex.
+    event_manager.SetAnnotatorMutex(nullptr);
+  }
+
   JPEGEncoder pict_writer(width, height);
   const auto& levels = monitor.levels.second;
   const std::string level = levels.empty() ? std::string{} : levels.front();
@@ -272,18 +294,13 @@ void Worker::OfflineAnalyze() {
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
 
     const auto state = checker.ProcessFrame({timestamp_ms, frame});
-    std::vector<DynamicAnnotator::ROIEntry> roi_entries;
-    if (!monitor.roi_points.empty()) {
-      roi_entries.emplace_back(monitor.task, monitor.roi_points);
-    }
 
     CombinedEventManager::DetectorFrameInfo info{
       .monitor_code = monitor.code,
       .task = monitor.task,
-      .annotator = annotator.get(),
       .state = state,
       .detections = &checker.detections(),
-      .rois = roi_entries.empty() ? nullptr : &roi_entries,
+      .rois = offline_rois.empty() ? nullptr : &offline_rois,
       .event_start_timestamp_ms = checker.event_start_timestamp(),
       .event_start_pts = checker.start_ts(),
     };
@@ -431,11 +448,52 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
-  std::lock_guard lock(event_manager_mutex_);
+  std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
   if (!event_manager_) {
     event_manager_ = std::make_unique<CombinedEventManager>();
   }
   event_manager_->UpdateConfig(cfg);
+  event_manager_->SetAnnotator(annotator_.get());
+  event_manager_->SetAnnotatorMutex(&annotator_mutex_);
+}
+
+void Worker::EnsureAnnotatorReady() {
+  if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
+    return;
+  }
+
+  // Quick-path: avoid reinitializing if it already exists
+  {
+    std::scoped_lock lock(annotator_mutex_);
+    if (annotator_) return;
+  }
+
+  std::unique_ptr<DynamicAnnotator> candidate;
+  try {
+    candidate = std::make_unique<DynamicAnnotator>();
+    const int ret = candidate->init(video_context_);
+    if (ret < 0) {
+      LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
+           video_context_.width, video_context_.height,
+           static_cast<int>(video_context_.format), ret);
+      return;
+    }
+    // Build legend from monitors snapshot
+    candidate->update_legend(GetMonitorTasks());
+  } catch (const std::exception& ex) {
+    LOGE("Failed to initialize worker annotator: {}", ex.what());
+    candidate.reset();
+    return;
+  }
+
+  // Set annotator and the event_manager's pointer under both locks to avoid races
+  {
+    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
+    annotator_ = std::move(candidate);
+    if (event_manager_) {
+      event_manager_->SetAnnotator(annotator_.get());
+    }
+  }
 }
 
 int Worker::ComputeLevelIndex(
@@ -486,6 +544,7 @@ void Worker::DecodeVideo() {
 
   JPEGEncoder pict_writer(width, height);
 
+  EnsureAnnotatorReady();
   RebuildEventManager();
 
   while (State()) {
@@ -521,7 +580,6 @@ void Worker::DecodeVideo() {
         CombinedEventManager::DetectorFrameInfo info{
           .monitor_code = ctx_ptr->monitor->code,
           .task = ctx_ptr->monitor->task,
-          .annotator = ctx_ptr->annotator.get(),
           .state = state,
           .detections = &ctx_ptr->detector->detections(),
           .rois = ctx_ptr->roi_entries.empty() ? nullptr :
@@ -641,12 +699,14 @@ void Worker::DecodeVideo() {
     }
   }
   for (auto& event_ptr : tail_events) {
-      if (!event_ptr) continue;
-      scheduler->AddAlarm(std::make_unique<Alarm>(
-          timer_.compute(event_ptr->start_timestamp), video_code_,
-          std::move(event_ptr), out_width, out_height));
+    if (!event_ptr) {
+      continue;
     }
+    scheduler->AddAlarm(std::make_unique<Alarm>(
+        timer_.compute(event_ptr->start_timestamp), video_code_,
+        std::move(event_ptr), out_width, out_height));
   }
+}
 
 
 bool Worker::GrabFrame(AVFrame* frame) const {
@@ -706,6 +766,17 @@ void Worker::RemoveMonitor(const std::string& code) {
   } else {
     ClosePushThreadIfNeeded();
     RebuildEventManager();
+
+    // Refresh annotator legend after a monitor removal
+    EnsureAnnotatorReady();
+    if (annotator_) {
+      std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
+      annotator_->update_legend(GetMonitorTasks());
+      if (event_manager_ && !event_manager_->HasAnnotator()) {
+        event_manager_->SetAnnotator(annotator_.get());
+        event_manager_->SetAnnotatorMutex(&annotator_mutex_);
+      }
+    }
   }
 }
 
@@ -723,28 +794,15 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
   if (!monitor.roi_points.empty()) {
     ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);
   }
-  ctx.annotator.reset();
-  try {
-    auto candidate = std::make_unique<DynamicAnnotator>();
-    const int ret = candidate->init(video_context_);
-    if (ret < 0) {
-      LOGE("Failed to initialize annotator for monitor {}: {}", monitor.code,
-           ret);
-    } else {
-      candidate->update_legend(AllLegendTasks());
-      ctx.annotator = std::move(candidate);
-    }
-  } catch (const std::exception& ex) {
-    LOGE("Failed to initialize annotator for monitor {}: {}", monitor.code,
-         ex.what());
-    ctx.annotator.reset();
-  }
 }
 
-void Worker::EnsureAllPipelinesReady(int out_width, int out_height) const {
+void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
   if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
     return;
   }
+
+  EnsureAnnotatorReady();
+
   std::unique_lock lock(monitors_mutex_);
   for (auto& ctx_ptr : monitors_) {
     auto& ctx = *ctx_ptr;
@@ -817,6 +875,16 @@ void Worker::OnStreamOpened(VideoContext context) {
     std::unique_lock lock(monitors_mutex_);
     for (auto& ctx : monitors_) {
       PrepareMonitorForStream(*ctx);
+    }
+  }
+  // Reinitialize or update annotator with current monitor tasks
+  EnsureAnnotatorReady();
+  if (annotator_) {
+    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
+    annotator_->update_legend(GetMonitorTasks());
+    if (event_manager_) {
+      event_manager_->SetAnnotator(annotator_.get());
+      event_manager_->SetAnnotatorMutex(&annotator_mutex_);
     }
   }
 

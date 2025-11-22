@@ -8,6 +8,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 #include "event.h"
 #include "frame.h"
@@ -32,7 +33,6 @@ class CombinedEventManager {
   struct DetectorFrameInfo {
     std::string_view monitor_code{};
     Task task;
-    const DynamicAnnotator* annotator{nullptr};
     EventDetector::State state{EventDetector::kNoEvent};
     const std::vector<cv::Rect>* detections{nullptr};
     const std::vector<DynamicAnnotator::ROIEntry>* rois{nullptr};
@@ -48,6 +48,10 @@ class CombinedEventManager {
   CombinedEventManager() = default;
 
   void UpdateConfig(const CombinedEventConfig& config);
+  void SetAnnotator(const DynamicAnnotator* annotator) noexcept {
+    annotator_ = annotator;
+  }
+  void SetAnnotatorMutex(std::mutex* m) noexcept { annotator_mutex_ = m; }
 
   Result ProcessFrame(const AVFrame* source_frame, int64_t timestamp_ms,
                       int64_t best_effort_pts,
@@ -57,6 +61,9 @@ class CombinedEventManager {
 
   [[nodiscard]] bool HasActiveEvent() const noexcept {
     return state_ != CombinedState::kIdle;
+  }
+  [[nodiscard]] bool HasAnnotator() const noexcept {
+    return annotator_ != nullptr;
   }
 
  private:
@@ -89,6 +96,9 @@ class CombinedEventManager {
   int64_t segment_start_ts_{0};
   int64_t segment_start_pts_{0};
   int64_t event_end_candidate_ts_{0};
+
+  const DynamicAnnotator* annotator_{nullptr};
+  std::mutex* annotator_mutex_{nullptr};
 };
 
 }  // namespace avs_analyzer

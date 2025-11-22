@@ -67,7 +67,6 @@ class Worker {
       std::unique_ptr<Monitor> monitor;
       std::unique_ptr<Analyzer> analyzer;
       std::unique_ptr<EventDetector> detector;
-      std::unique_ptr<DynamicAnnotator> annotator;
       std::vector<DynamicAnnotator::ROIEntry> roi_entries;
       EventDetectorConfig event_cfg;
       int current_highest_level{0};
@@ -89,10 +88,12 @@ class Worker {
   };
 
   void PrepareMonitorForStream(MonitorContext& ctx) const;
-  void EnsureAllPipelinesReady(int out_width, int out_height) const;
+  void EnsureAllPipelinesReady(int out_width, int out_height);
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();
   void RebuildEventManager();
+  void EnsureAnnotatorReady();
+  std::vector<Task> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
   int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
@@ -112,6 +113,8 @@ class Worker {
   mutable std::mutex push_stream_mutex_;
   std::unique_ptr<CombinedEventManager> event_manager_;
   mutable std::mutex event_manager_mutex_;
+  std::unique_ptr<DynamicAnnotator> annotator_;
+  mutable std::mutex annotator_mutex_;
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
