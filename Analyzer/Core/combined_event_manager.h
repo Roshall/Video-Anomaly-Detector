@@ -12,7 +12,7 @@
 #include "event.h"
 #include "frame.h"
 #include "task.h"
-#include "video_processing/annotator.h"
+#include "video_processing/dynamic_annotator.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -32,9 +32,10 @@ class CombinedEventManager {
   struct DetectorFrameInfo {
     std::string_view monitor_code{};
     Task task;
-    const VideoOverlay* overlay{nullptr};
+    const DynamicAnnotator* annotator{nullptr};
     EventDetector::State state{EventDetector::kNoEvent};
     const std::vector<cv::Rect>* detections{nullptr};
+    const std::vector<DynamicAnnotator::ROIEntry>* rois{nullptr};
     int64_t event_start_timestamp_ms{0};
     int64_t event_start_pts{0};
   };

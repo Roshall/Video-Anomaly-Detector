@@ -16,11 +16,11 @@
 #include <vector>
 
 #include "Utils/common.h"
+#include "Utils/enum_utils.h"
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "alarm.h"
 #include "analyzer.h"
-#include "annotator.h"
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "config.h"
@@ -36,6 +36,17 @@ extern "C" {
 }
 
 namespace avs_analyzer {
+
+static const std::vector<Task>& AllLegendTasks() {
+  static const std::vector<Task> tasks = [] {
+    std::vector<Task> values;
+    for (const auto task : get_enum_range<Task>()) {
+      values.push_back(task);
+    }
+    return values;
+  }();
+  return tasks;
+}
 
 Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
                const EventDetectorConfig& event_cfg, bool file)
@@ -230,11 +241,19 @@ void Worker::OfflineAnalyze() {
                            .width = width,
                            .height = height,
                            .video_index = -1};
-  std::unique_ptr<VideoOverlay> overlay;
+  std::unique_ptr<DynamicAnnotator> annotator;
   try {
-    overlay = std::make_unique<VideoOverlay>(monitor.roi_points, overlay_ctx);
+    auto candidate = std::make_unique<DynamicAnnotator>();
+    const int ret = candidate->init(overlay_ctx);
+    if (ret < 0) {
+      LOGE("offline analyze: failed to init annotator for {}: {}",
+           monitor.code, ret);
+    } else {
+      candidate->update_legend(AllLegendTasks());
+      annotator = std::move(candidate);
+    }
   } catch (const std::exception& ex) {
-    LOGE("offline analyze: failed to init overlay for {}: {}", monitor.code,
+    LOGE("offline analyze: failed to init annotator for {}: {}", monitor.code,
          ex.what());
   }
   JPEGEncoder pict_writer(width, height);
@@ -253,13 +272,18 @@ void Worker::OfflineAnalyze() {
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
 
     const auto state = checker.ProcessFrame({timestamp_ms, frame});
+    std::vector<DynamicAnnotator::ROIEntry> roi_entries;
+    if (!monitor.roi_points.empty()) {
+      roi_entries.emplace_back(monitor.task, monitor.roi_points);
+    }
 
     CombinedEventManager::DetectorFrameInfo info{
       .monitor_code = monitor.code,
       .task = monitor.task,
-      .overlay = overlay.get(),
+      .annotator = annotator.get(),
       .state = state,
       .detections = &checker.detections(),
+      .rois = roi_entries.empty() ? nullptr : &roi_entries,
       .event_start_timestamp_ms = checker.event_start_timestamp(),
       .event_start_pts = checker.start_ts(),
     };
@@ -407,6 +431,7 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
+  std::lock_guard lock(event_manager_mutex_);
   if (!event_manager_) {
     event_manager_ = std::make_unique<CombinedEventManager>();
   }
@@ -493,14 +518,18 @@ void Worker::DecodeVideo() {
         const auto state =
             ctx_ptr->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
 
-        detector_infos.emplace_back(
-            ctx_ptr->monitor->code,
-            ctx_ptr->monitor->task,
-            ctx_ptr->overlay.get(),
-            state,
-            &ctx_ptr->detector->detections(),
-            ctx_ptr->detector->event_start_timestamp(),
-            ctx_ptr->detector->start_ts());
+        CombinedEventManager::DetectorFrameInfo info{
+          .monitor_code = ctx_ptr->monitor->code,
+          .task = ctx_ptr->monitor->task,
+          .annotator = ctx_ptr->annotator.get(),
+          .state = state,
+          .detections = &ctx_ptr->detector->detections(),
+          .rois = ctx_ptr->roi_entries.empty() ? nullptr :
+              &ctx_ptr->roi_entries,
+          .event_start_timestamp_ms = ctx_ptr->detector->event_start_timestamp(),
+          .event_start_pts = ctx_ptr->detector->start_ts(),
+        };
+        detector_infos.push_back(info);
 
         // Capture snapshot for alarm processing (no pointers, thread-safe)
         event_snapshots.emplace_back(
@@ -518,9 +547,12 @@ void Worker::DecodeVideo() {
     // Lock released here - safe to process snapshots
 
     CombinedEventManager::Result combined_result;
-    if (event_manager_) {
-      combined_result = event_manager_->ProcessFrame(
-          frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
+    {
+      std::lock_guard lock(event_manager_mutex_);
+      if (event_manager_) {
+        combined_result = event_manager_->ProcessFrame(
+            frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
+      }
     }
 
     Frame* annotated_frame = combined_result.annotated_frame.get();
@@ -601,15 +633,21 @@ void Worker::DecodeVideo() {
     av_frame_unref(frame_yuv420p.get());
   }
 
-  if (event_manager_) {
-    for (auto tail_events = event_manager_->FlushPending(); auto& event_ptr : tail_events) {
+  std::vector<std::unique_ptr<Event>> tail_events;
+  {
+    std::lock_guard lock(event_manager_mutex_);
+    if (event_manager_) {
+      tail_events = event_manager_->FlushPending();
+    }
+  }
+  for (auto& event_ptr : tail_events) {
       if (!event_ptr) continue;
       scheduler->AddAlarm(std::make_unique<Alarm>(
           timer_.compute(event_ptr->start_timestamp), video_code_,
           std::move(event_ptr), out_width, out_height));
     }
   }
-}
+
 
 bool Worker::GrabFrame(AVFrame* frame) const {
   while (true) {
@@ -681,13 +719,25 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
                                       video_context_.height)) {
     LOGE("ParseRecognitionRegion() error for monitor {}", monitor.code);
   }
+  ctx.roi_entries.clear();
+  if (!monitor.roi_points.empty()) {
+    ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);
+  }
+  ctx.annotator.reset();
   try {
-    ctx.overlay = std::make_unique<VideoOverlay>(monitor.roi_points,
-                                                 video_context_);
+    auto candidate = std::make_unique<DynamicAnnotator>();
+    const int ret = candidate->init(video_context_);
+    if (ret < 0) {
+      LOGE("Failed to initialize annotator for monitor {}: {}", monitor.code,
+           ret);
+    } else {
+      candidate->update_legend(AllLegendTasks());
+      ctx.annotator = std::move(candidate);
+    }
   } catch (const std::exception& ex) {
-    LOGE("Failed to initialize overlay for monitor {}: {}", monitor.code,
+    LOGE("Failed to initialize annotator for monitor {}: {}", monitor.code,
          ex.what());
-    ctx.overlay.reset();
+    ctx.annotator.reset();
   }
 }
 

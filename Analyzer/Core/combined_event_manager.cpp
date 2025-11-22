@@ -173,18 +173,29 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
     return nullptr;
   }
 
-  static constexpr std::vector<cv::Rect> kEmptyRects{};
-  // TODO: use different color for different task, also add a legend.
+  static const std::vector<DynamicAnnotator::ROIEntry> kEmptyRois{};
+  static const std::vector<cv::Rect> kEmptyRects{};
+
   for (const auto& info : detectors) {
-    if (!info.overlay) {
+    if (!info.annotator) {
       continue;
     }
+
     const auto* rects = info.detections ? info.detections : &kEmptyRects;
-    if (AVFramePtr annotated = info.overlay->draw_elements(working.get(), *rects, 4)) {
+    std::vector<DynamicAnnotator::BBoxEntry> bbox_entries;
+    bbox_entries.reserve(rects->size());
+    for (const auto& rect : *rects) {
+      bbox_entries.emplace_back(info.task, rect);
+    }
+
+    const auto& roi_entries = info.rois ? *info.rois : kEmptyRois;
+    if (AVFramePtr annotated = info.annotator->draw_elements(
+            working.get(), roi_entries, bbox_entries)) {
       working = std::move(annotated);
     } else {
-      LOGW("Failed to draw overlay for monitor {}", info.monitor_code);
+      LOGW("Failed to draw dynamic annotation for monitor {}", info.monitor_code);
     }
+
     object_count += static_cast<uint32_t>(rects->size());
   }
 

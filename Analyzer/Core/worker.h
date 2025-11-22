@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include "annotator.h"
+#include "video_processing/dynamic_annotator.h"
 #include "combined_event_manager.h"
 #include "event.h"
 #include "frame_walk_time.h"
@@ -63,14 +63,15 @@ class Worker {
   std::unique_ptr<AvPullStream> in_stream{};
   std::unique_ptr<AvPushStream> out_stream{};
  private:
-  struct MonitorContext {
-       std::unique_ptr<Monitor> monitor;
-       std::unique_ptr<Analyzer> analyzer;
-       std::unique_ptr<EventDetector> detector;
-    std::unique_ptr<VideoOverlay> overlay;
-       EventDetectorConfig event_cfg;
-       int current_highest_level{0};
-  };
+    struct MonitorContext {
+      std::unique_ptr<Monitor> monitor;
+      std::unique_ptr<Analyzer> analyzer;
+      std::unique_ptr<EventDetector> detector;
+      std::unique_ptr<DynamicAnnotator> annotator;
+      std::vector<DynamicAnnotator::ROIEntry> roi_entries;
+      EventDetectorConfig event_cfg;
+      int current_highest_level{0};
+    };
 
   using MonitorContextPtr = std::unique_ptr<MonitorContext>;
 
@@ -110,6 +111,7 @@ class Worker {
   mutable std::shared_mutex monitors_mutex_;
   mutable std::mutex push_stream_mutex_;
   std::unique_ptr<CombinedEventManager> event_manager_;
+  mutable std::mutex event_manager_mutex_;
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
