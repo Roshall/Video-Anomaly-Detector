@@ -12,8 +12,8 @@ class YOLODetector;
 
 std::shared_ptr<const YOLODetector> GetDetector(std::string_view model_path,
                                                 Task task, bool use_accelerator);
+void StopAllDetectors();
 void ClearYoloDetectorPool();
-}
-
+}  // namespace avs_analyzer
 
 #endif  // ANALYZER_CONSTANT_YOLO_H

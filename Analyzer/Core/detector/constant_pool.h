@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 namespace avs_analyzer{
 
 template<class Key, class T,
@@ -60,6 +61,18 @@ class ConstPool {
     std::shared_lock lk(m_);
     return map_.size();
   }
+
+  // Return all values in the pool
+  std::vector<const_ptr> all() const {
+    std::shared_lock lk(m_);
+    std::vector<const_ptr> result;
+    result.reserve(map_.size());
+    for (const auto& [key, value] : map_) {
+      result.push_back(value);
+    }
+    return result;
+  }
+
   void clear() {
     std::unique_lock lk(m_);
     map_.clear();

@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
     event_base_loopbreak(base);
   }
 
+  StopAllDetectors();
   ClearYoloDetectorPool();
 
   scheduler.SetState(false);

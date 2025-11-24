@@ -33,6 +33,7 @@ class YOLODetector {
   void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
   void Run();
   void Stop();
+  [[nodiscard]] bool isRunning() const { return running_.load(); }
 
  private:
   struct Task {
