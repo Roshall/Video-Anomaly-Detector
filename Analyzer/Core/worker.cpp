@@ -273,7 +273,7 @@ void Worker::OfflineAnalyze() {
     event_manager.SetAnnotator(annotator.get());
   }
 
-  JPEGEncoder pict_writer(width, height);
+  auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
   const auto& levels = monitor.levels.second;
   const std::string level = levels.empty() ? std::string{} : levels.front();
 
@@ -356,7 +356,7 @@ void Worker::OfflineAnalyze() {
 
 void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
                         int64_t event_pts, const Frame& frame,
-                        JPEGEncoder& pict_writer, std::string_view level,
+                        std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
                         bool push) noexcept {
   if (!frame.data) {
     LOGW("AlarmImage skipped for monitor {}: missing frame data",
@@ -381,7 +381,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
   async_frame->object_count = frame.object_count;
   async_frame->data = std::move(frame_clone);
 
-  g_th_pool.detach_task([&pict_writer, &conf = scheduler->GetConfig(),
+  g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
         code = monitor_code, start_timestamp, event_timestamp,
         level = std::string(level), push,
         frame = std::move(async_frame)]() mutable {
@@ -391,8 +391,8 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         std::filesystem::create_directories(std::filesystem::path(img_path));
         auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
         auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
-        if (const int ret = pict_writer.saveFrame(
-              frame->data.get(), img_path_str);
+          if (const int ret = pict_writer->saveFrame(
+            frame->data.get(), img_path_str);
           ret < 0) {
           LOGE_FFMPEG("failed to save picture", ret);
           return;
@@ -537,7 +537,7 @@ void Worker::DecodeVideo() {
   int out_width = out_stream ? out_stream->width() : width;
   int out_height = out_stream ? out_stream->height() : height;
 
-  JPEGEncoder pict_writer(width, height);
+  auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
   EnsureAnnotatorReady();
   RebuildEventManager();
