@@ -21,7 +21,8 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
       width(width),
       height(height),
       fps(fps) {}
-bool Alarm::Finalize(const std::string& upload_dir,
+
+void Alarm::Finalize(const std::string& upload_dir,
                      const std::string& admin_host) const {
   Recorder recorder({width, height, fps});
   std::filesystem::path prefix_dir{upload_dir};
@@ -36,14 +37,12 @@ bool Alarm::Finalize(const std::string& upload_dir,
     } catch (std::filesystem::filesystem_error& e) {
       std::cout << "genAlarmVideo() create_directorys error:" << e.what()
                 << std::endl;
-      return false;
     }
   }
   prefix_dir /= std::to_string(event->frames[0]->data->best_effort_timestamp) + ".ts";
   std::string path = prefix_dir.c_str();
   if (!recorder.Initialize(path, true)) {
     std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
-    return false;
   }
 
   // report saved video
@@ -64,7 +63,5 @@ bool Alarm::Finalize(const std::string& upload_dir,
       recorder.AddVideoFrame(frame->data.get());
     }
   }
-
-  return true;
 }
 }  // namespace avs_analyzer
