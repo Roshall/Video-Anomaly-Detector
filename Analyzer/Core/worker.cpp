@@ -84,29 +84,11 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   }
 
   auto ctx = std::make_unique<MonitorContext>();
-  ctx->monitor = std::move(monitor);
+  
   ctx->event_cfg = event_cfg;
-  auto* ctx_raw = ctx.get();
-
-  {
-    std::unique_lock lock(monitors_mutex_);
-    if (stream_url_.empty()) {
-      stream_url_ = ctx_raw->monitor->stream_url;
-    }
-    if (ctx_raw->monitor->stream_url != stream_url_) {
-      LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
-           video_code_, ctx_raw->monitor->code, ctx_raw->monitor->stream_url,
-           stream_url_);
-      ctx_raw->monitor->stream_url = stream_url_;
-    }
-    monitors_.push_back(std::move(ctx));
-    if (video_context_.valid()) {
-      PrepareMonitorForStream(*ctx_raw);
-    }
-  }
-  ctx_raw->analyzer = std::make_unique<Analyzer>(
-      ctx_raw->monitor.get(), scheduler->GetConfig(),
-      ctx_raw->monitor->conf_threshold);
+  ctx->analyzer = std::make_unique<Analyzer>(
+      monitor.get(), scheduler->GetConfig(),
+      monitor->conf_threshold);
   if (out_stream) {
     try {
       ctx->detector = std::make_unique<EventDetector>(
@@ -116,10 +98,28 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
                           out_stream->height()});
     } catch (const std::exception& ex) {
       LOGE("Failed to create event detector for monitor {}: {}",
-           ctx->monitor->code, ex.what());
+           monitor->code, ex.what());
     }
   }
   ctx->current_highest_level = 0;
+  {
+    std::unique_lock lock(monitors_mutex_);
+    if (stream_url_.empty()) {
+      stream_url_ = monitor->stream_url;
+    }
+    if (monitor->stream_url != stream_url_) {
+      LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
+           video_code_, monitor->code, monitor->stream_url,
+           stream_url_);
+      monitor->stream_url = stream_url_;
+    }
+    if (video_context_.valid()) {
+      PrepareMonitorForStream(*ctx);
+    }
+    ctx->monitor = std::move(monitor);
+    monitors_.push_back(std::move(ctx));
+  }
+  
   RebuildEventManager();
   StartPushThreadIfNeeded();
 
