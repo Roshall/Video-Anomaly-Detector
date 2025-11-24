@@ -10,7 +10,7 @@
 
 int main() {
   avs_analyzer::Config config{"/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/config.json"};
-  avs_analyzer::TrackAlgorithm track_algo(&config);
+  avs_analyzer::TrackAlgorithm track_algo(config);
   cv::VideoWriter writer("output_video.mp4", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 30, cv::Size(1920, 1080));
 
   for (int i =1; i < 601; ++i) {
