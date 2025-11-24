@@ -466,8 +466,7 @@ void Worker::EnsureAnnotatorReady() {
   std::unique_ptr<DynamicAnnotator> candidate;
   try {
     candidate = std::make_unique<DynamicAnnotator>();
-    const int ret = candidate->init(video_context_);
-    if (ret < 0) {
+    if (const int ret = candidate->init(video_context_); ret < 0) {
       LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
            video_context_.width, video_context_.height,
            static_cast<int>(video_context_.format), ret);
@@ -494,7 +493,7 @@ void Worker::EnsureAnnotatorReady() {
 int Worker::ComputeLevelIndex(
     const std::pair<std::vector<int>, std::vector<std::string>>& levels,
     LevelMode level_mode, int64_t num_detection, int64_t event_duration,
-    std::string_view monitor_code) const {
+    std::string_view monitor_code) {
   if (levels.first.empty() || levels.second.empty()) {
     LOGE("monitor {} has invalid/empty levels configuration", monitor_code);
     return 0;  // Always return lowest level (0) to avoid missing alarms

@@ -95,10 +95,10 @@ class Worker {
   void EnsureAnnotatorReady();
   std::vector<Task> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
-  int ComputeLevelIndex(
+  static int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,
-      std::string_view monitor_code) const;
+      std::string_view monitor_code);
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
