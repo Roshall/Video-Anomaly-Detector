@@ -6,7 +6,8 @@
 #include "constant_pool.h"
 #include "yolo_detector_onnx.h"
 #include "constant_yolo.h"
-
+using avs_analyzer::YOLODetector;
+using avs_analyzer::Task;
 void Detector(std::shared_ptr<const YOLODetector> p, std::string path) {
 
       cv::Mat img = cv::imread(path);
@@ -49,10 +50,10 @@ void Detector(std::shared_ptr<const YOLODetector> p, std::string path) {
 }
 
 int main() {
-  std::vector<std::string> tasks{"break-in", "sleep-at-work", "wall-climbing", "phone-at-work"};
+  std::vector<Task> tasks{Task::kBreakIn, Task::kSleepWork, Task::kWallClimbing, Task::kPhonePlaying};
   std::vector<std::string> test_img{"ireland10h.jpg", "sleep.jpg", "ireland10h.jpg", "phone.jpg"};
   for(int i =2; i < tasks.size(); ++i) {
-    auto detector = GetDetector(tasks[i]);
+    auto detector = avs_analyzer::GetDetector("/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models", tasks[i], false);
     Detector(detector, std::format("/home/lg/Pictures/{}", test_img[i]));
   }
   return 0;

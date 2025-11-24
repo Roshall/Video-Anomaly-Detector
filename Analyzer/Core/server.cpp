@@ -264,7 +264,6 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
       int64_t startTimestamp = 0;
       for (auto& monitor : monitors) {
         startTimestamp = monitor.start_timestamp;
-
         result_data_item["code"] = monitor.code.data();
         result_data_item["streamUrl"] = monitor.stream_url.data();
         result_data_item["pushStream"] = monitor.push_stream;
@@ -313,21 +312,22 @@ void ApiMonitor(evhttp_request* req, void* arg) {
 
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
-    Monitor* monitor = nullptr;
-    if (root["code"].isString()) {
-      std::string code = root["code"].asCString();
-      monitor = scheduler->GetMonitorByCode(code);
-    }
-
-    if (monitor) {
-      result_monitor["code"] = monitor->code;
-
-      result_code = 1000;
-      result_msg = "success";
-
+    Monitor monitor;
+    if (!root["code"].isString() || !root["CamaraId"].isString()) {
+      result_msg = "invalid request parameter";
     } else {
-      result_msg = "the monitor does not exist";
+      std::string code = root["code"].asCString();
+      std::string video_code = root["CameraId"].asCString();
+      if (scheduler->ContainsMonitor(video_code, code)) {
+        result_monitor["code"] = code;
+        result_code = 1000;
+        result_msg = "success";
+
+      } else {
+        result_msg = "the monitor does not exist";
+      }
     }
+
   } else {
     result_msg = "invalid request parameter";
   }
@@ -370,14 +370,16 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       LevelMode mode;
       Monitor monitor{
           .code = root["code"].asCString(),
+          .video_code = root["CameraId"].asCString(),
           .source_type = root["sourceType"].asCString(),
           .stream_url = root["streamUrl"].asString(),
           .push_stream = root["pushStream"].asBool(),
           .push_stream_url = root["pushStreamUrl"].asString(),
           .task = static_cast<Task>(task),
+          .conf_threshold = root["modelConfidenceThreshold"].asFloat(),
           .roi_str = root["recognitionRegion"].asString(),
           .levels = parse_levels(root["levels"], mode),
-          .level_mode = mode
+          .level_mode = mode,
       };
       auto ws = root["alertWindowSize"].asInt();
       auto duration = mode == LevelMode::kDuration ? monitor.levels.first[0]: 0;
@@ -390,10 +392,9 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
           .latest_duration_ms = duration,
           .minimum_num = mode == LevelMode::kNumPeople ? monitor.levels.first[0] : 1,
       };
-      float conf_th = root["modelConfidenceThreshold"].asFloat();
       if (monitor.ValidateAdd(result_msg)) {
         scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)),
-                              result_code, result_msg, event_cfg, conf_th);
+                              result_code, result_msg, event_cfg);
       } else {
         LOGE("invalid message.");
         return;
@@ -440,12 +441,14 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
     std::string code;
+    std::string video_code;
 
-    if (root["code"].isString()) {
+    if (root["code"].isString() && root["cameraId"].isString()) {
       code = root["code"].asCString();
+      video_code = root["videoCode"].asCString();
     }
     if (!code.empty()) {
-      scheduler->MonitorRemove(code, result_code, result_msg);
+      scheduler->MonitorRemove(video_code, code, result_code, result_msg);
     } else {
       result_msg = "validate parameter error";
     }

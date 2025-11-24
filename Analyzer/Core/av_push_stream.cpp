@@ -1,7 +1,6 @@
 ﻿#include "av_push_stream.h"
 
 #include "Utils/log.h"
-#include "monitor.h"
 #include "frame_recorder.h"
 #include "worker.h"
 #include "frame.h"
@@ -14,12 +13,12 @@ namespace avs_analyzer {
 AvPushStream::AvPushStream(Worker* worker)
     : worker_(worker),
       recorder_(
-          {worker->monitor_->video_width, worker->monitor_->video_height}) {}
+          {worker->VideoWidth(), worker->VideoHeight()}) {}
 
 AvPushStream::~AvPushStream() { CloseConnect(); }
 
 bool AvPushStream::Connect() {
-  return recorder_.Initialize(worker_->monitor_->push_stream_url, false);
+  return recorder_.Initialize(std::string(worker_->PushStreamUrl()), false);
 }
 bool AvPushStream::Reconnect() {
   if (connect_count <= 100) {
@@ -61,7 +60,7 @@ void AvPushStream::ClearVideoFrameQueue() {
 void AvPushStream::EncodeVideo() {
   int continuity_error_count = 0;
 
-  while (worker_->getState()) {
+  while (worker_->State()) {
     if (auto frame = PopVideoFrame()) {
       if (not recorder_.AddVideoFrame(frame->data.get())) {
         continuity_error_count++;
@@ -75,7 +74,9 @@ void AvPushStream::EncodeVideo() {
             LOGI("reConnect success : mConnectCount={}", connect_count);
           } else {
             LOGI("reConnect error : mConnectCount={}", connect_count);
-            worker_->remove();
+            CloseConnect();
+            worker_->CleanUpPushThread();
+            return;
           }
         } else {
           std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -83,10 +84,6 @@ void AvPushStream::EncodeVideo() {
       }
     }
   }
-
-  // av_write_trailer(mFmtCtx);//写文件尾
-
-
 }
 void AvPushStream::SignalShutdown() { video_frame_cs_.release(); }
 int AvPushStream::width() const { return recorder_.config.width; }

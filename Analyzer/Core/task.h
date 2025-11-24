@@ -13,9 +13,11 @@ enum class Task {
   kWandering,
   kBreakIn,
   kWallClimbing,
-  kBunkOff
+  kBunkOff,
+  kCount
 };
 
 std::string toString(Task task);
+std::u8string toChinese(Task task);
 }
 #endif  // ANALYZER_TASK_H

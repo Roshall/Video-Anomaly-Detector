@@ -17,13 +17,15 @@ enum class LevelMode{
 
 struct Monitor {
   // 布控请求必需参数
-
+  uint64_t id{NextId()};
   std::string code;           // 布控编号
+  std::string video_code;
   std::string source_type;   // stream or file
   std::string stream_url;      // 拉流地址
   bool push_stream = false;    // 是否推流
   std::string push_stream_url;  // 推流地址
-  Task task;  // 算法编号
+  Task task;
+  float conf_threshold = 0.5f; // 置信度阈值
 
   std::string roi_str;
 
@@ -34,11 +36,12 @@ struct Monitor {
 
   LevelMode level_mode; // 0 -> number of people, 1 -> time
   int64_t start_timestamp = 0;  // 执行器启动时毫秒级时间戳（13位）
-  int video_width = 0;          // 布控视频流的像素宽
-  int video_height = 0;         // 布控视频流的像素高
-  int video_index = -1;
 
-  bool ParseRecognitionRegion() {
+  bool operator==(const Monitor& other) const {
+    return code == other.code;
+  }
+
+  bool ParseRecognitionRegion(int video_width, int video_height) {
     bool res = false;
     if (video_width > 0 && video_height > 0) {
       std::vector<std::string> xys = split(roi_str, ",");
@@ -78,6 +81,10 @@ struct Monitor {
     }
     result_msg = "validate success";
     return true;
+  }
+  static uint64_t NextId() {
+    static uint64_t id = 0;
+    return id++;
   }
 };
 }  // namespace avs_analyzer

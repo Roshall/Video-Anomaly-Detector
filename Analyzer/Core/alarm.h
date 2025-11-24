@@ -18,7 +18,8 @@ struct Alarm {
   Alarm(Alarm&&) noexcept = default;
   Alarm& operator=(Alarm&&) noexcept = default;
 
-  bool Finalize(const std::string& upload_dir, const std::string& admin_host) const;
+  void Finalize(const std::string& upload_dir,
+                                 const std::string& admin_host) const;
 
   std::chrono::time_point<std::chrono::system_clock> start_ts{}; // ms
   std::string control_code;
