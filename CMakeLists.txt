@@ -169,11 +169,13 @@ add_executable(yolo_test
         Analyzer/Core/detector/yolo_detector_onnx.cpp
         Analyzer/Core/detector/constant_pool.h
         Analyzer/Core/detector/constant_yolo.cpp
+        Analyzer/Core/detector/inference.cpp
+        Analyzer/Core/task.cpp
         tests/yolo_test.cpp
 )
 target_link_libraries(yolo_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect onnxruntime)
 target_include_directories(yolo_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_include_directories(yolo_test PRIVATE Analyzer/Core/detector)
+target_include_directories(yolo_test PRIVATE Analyzer/Core/detector Analyzer/Core)
 target_compile_definitions(yolo_test PRIVATE
         __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
