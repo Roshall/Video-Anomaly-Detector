@@ -8,7 +8,6 @@
 #include "Core/config.h"
 #include "Core/scheduler.h"
 #include "Core/server.h"
-#include "Core/detector/constant_yolo.h"
 
 using namespace avs_analyzer;
 
@@ -90,9 +89,6 @@ int main(int argc, char** argv) {
   if (base) {
     event_base_loopbreak(base);
   }
-
-  StopAllDetectors();
-  ClearYoloDetectorPool();
 
   scheduler.SetState(false);
   scheduler.NotifyCleanUp();

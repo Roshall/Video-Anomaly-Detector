@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <semaphore>
 #include <shared_mutex>
 #include <utility>
@@ -31,8 +32,11 @@ class YOLODetector {
 
   void AddTask(unsigned long id1, unsigned long id2, const cv::Mat& image);
   void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
-    void DeregisterCallback(unsigned long id1, unsigned long id2);
+  void DeregisterCallback(unsigned long id1, unsigned long id2);
+  // Asynchronous consumer loop (run in dedicated thread)
   void Run();
+  // Synchronous detection (backward compatible)
+  [[nodiscard]] std::vector<DL_RESULT> Run(const cv::Mat& image) const;
   void Stop();
   [[nodiscard]] bool isRunning() const { return running_.load(); }
 
@@ -48,6 +52,7 @@ class YOLODetector {
 
   DL_INIT_PARAM params_;
   std::unique_ptr<YOLOv8Detect> model_;
+  mutable std::mutex mutex_;
   moodycamel::ConcurrentQueue<Task> task_queue_;
   std::counting_semaphore<> task_sem_{0};
   std::map<ResourceID, Callback> callbacks_;
