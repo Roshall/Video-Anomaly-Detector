@@ -36,6 +36,7 @@ class YOLODetector {
   // Asynchronous consumer loop (run in dedicated thread)
   void Run();
   // Synchronous detection (backward compatible)
+  [[deprecated("Use Asynchronous version instead")]]
   [[nodiscard]] std::vector<DL_RESULT> Run(const cv::Mat& image) const;
   void Stop();
   [[nodiscard]] bool isRunning() const { return running_.load(); }
