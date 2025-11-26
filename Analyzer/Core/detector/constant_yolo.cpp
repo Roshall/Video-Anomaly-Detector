@@ -6,6 +6,7 @@
 
 #include <thread>
 
+#include "Utils/enum_utils.h"
 #include "yolo_detector_onnx.h"
 
 namespace avs_analyzer {
@@ -18,52 +19,89 @@ DetectorPool::~DetectorPool() {
 }
 
 std::shared_ptr<const YOLODetector> DetectorPool::RegisterToDetector(
-    Task task, unsigned long id1, unsigned long id2, Callback cb) {
-  auto task_string = toString(task);
+  Task task, unsigned long id1, unsigned long id2, Callback cb) {
 
-  std::shared_ptr<const YOLODetector> detector;
+  std::string model_name;
   switch (task) {
     case Task::kBreakIn:
     case Task::kWandering:
     case Task::kBunkOff:
-      detector = detector_pool_.get_or_emplace(
-          task_string, (model_path_ / "yolov8n.onnx").string(), use_accelerator_);
+      model_name = "yolov8n.onnx";
       break;
     case Task::kSleepWork:
-      detector = detector_pool_.get_or_emplace(
-          task_string, (model_path_ / "sleeping_m.onnx").string(), use_accelerator_);
+      model_name = "sleeping_m.onnx";
       break;
     case Task::kWallClimbing:
-      detector = detector_pool_.get_or_emplace(
-          task_string, (model_path_ / "climbing_m.onnx").string(), use_accelerator_, 1);
+      model_name = "climbing_m.onnx";
       break;
     case Task::kPhonePlaying:
-      detector = detector_pool_.get_or_emplace(
-          task_string, (model_path_ / "phone_playing_m.onnx").string(), use_accelerator_, 1);
+      model_name = "phone_playing_m.onnx";
       break;
     default:
       return nullptr;
   }
+  auto detector = detector_pool_.get_or_emplace(
+          task, (model_path_ / model_name).string(), use_accelerator_);
 
   if (detector) {
     // Register the callback for this resource
     const_cast<YOLODetector*>(detector.get())->RegisterCallback(id1, id2, std::move(cb));
 
-    // Launch worker thread if detector is not running
-    if (!detector->isRunning()) {
-      std::thread([detector]() {
-        const_cast<YOLODetector*>(detector.get())->Run();
-      }).detach();
+    // Launch worker thread if not already running
+    int idx = enum_order(task);
+    if (idx >= 0) {
+      std::lock_guard<std::mutex> lock(threads_mutex_);
+      if (!threads_[idx].joinable()) {
+        threads_[idx] = std::thread([detector]() {
+          const_cast<YOLODetector*>(detector.get())->Run();
+        });
+      }
     }
   }
 
   return detector;
 }
 
+bool DetectorPool::RemoveDetector(Task task) {
+  auto detector = detector_pool_.get(task);
+  if (!detector) {
+    return false;  // Not in pool
+  }
+
+  // If still running, cannot remove
+  if (detector->isRunning()) {
+    return false;
+  }
+
+  // Join the thread if joinable
+  int idx = enum_order(task);
+  if (idx >= 0) {
+    std::unique_lock<std::mutex> lock(threads_mutex_);
+    if (threads_[idx].joinable()) {
+      // Unlock while joining to avoid blocking other operations
+      std::thread t = std::move(threads_[idx]);
+      lock.unlock();
+      t.join();
+    }
+  }
+
+  // Erase from pool
+  return detector_pool_.erase(task);
+}
+
 void DetectorPool::StopAllDetectors() {
+  // Stop all detectors first
   auto detectors = detector_pool_.all();
   for (auto& detector : detectors) {
     const_cast<YOLODetector*>(detector.get())->Stop();
+  }
+
+  // Join all threads
+  std::lock_guard<std::mutex> lock(threads_mutex_);
+  for (auto& t : threads_) {
+    if (t.joinable()) {
+      t.join();
+    }
   }
 }
 

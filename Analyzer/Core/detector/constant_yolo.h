@@ -5,12 +5,16 @@
 #ifndef ANALYZER_CONSTANT_YOLO_H
 #define ANALYZER_CONSTANT_YOLO_H
 
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "Utils/enum_utils.h"
 #include "constant_pool.h"
 #include "inference.h"
 #include "task.h"
@@ -29,12 +33,17 @@ class DetectorPool {
   std::shared_ptr<const YOLODetector> RegisterToDetector(
       Task task, unsigned long id1, unsigned long id2, Callback cb);
 
+  // Remove detector if it has stopped running
+  bool RemoveDetector(Task task);
+
   void StopAllDetectors();
 
  private:
   std::filesystem::path model_path_;
   bool use_accelerator_;
-  ConstPool<std::string, YOLODetector> detector_pool_;
+  ConstPool<Task, YOLODetector> detector_pool_;
+  std::array<std::thread, static_cast<size_t>(Task::kCount)> threads_;
+  std::mutex threads_mutex_;
 };
 
 // Deprecated: legacy helper for sync callers—will be removed
