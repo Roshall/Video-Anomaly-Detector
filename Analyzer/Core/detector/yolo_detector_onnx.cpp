@@ -2,6 +2,7 @@
 // Created by lg on 10/11/25.
 //
 #include "yolo_detector_onnx.h"
+#include <mutex>
 
 namespace avs_analyzer {
 YOLODetector::YOLODetector(const DL_INIT_PARAM& params)
@@ -20,6 +21,15 @@ void YOLODetector::RegisterCallback(unsigned long id1, unsigned long id2,
                                     Callback cb) {
   std::unique_lock<std::shared_mutex> lock(callback_mutex_);
   callbacks_[{id1, id2}] = std::move(cb);
+}
+
+void YOLODetector::DeregisterCallback(unsigned long id1, unsigned long id2) {
+  std::unique_lock<std::shared_mutex> lock(callback_mutex_);
+  callbacks_.erase({id1, id2});
+  bool isEmpty = callbacks_.empty();
+  if (isEmpty) {
+    Stop();
+  }
 }
 
 void YOLODetector::Run() {

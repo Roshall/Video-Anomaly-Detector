@@ -31,6 +31,7 @@ class YOLODetector {
 
   void AddTask(unsigned long id1, unsigned long id2, const cv::Mat& image);
   void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
+    void DeregisterCallback(unsigned long id1, unsigned long id2);
   void Run();
   void Stop();
   [[nodiscard]] bool isRunning() const { return running_.load(); }
