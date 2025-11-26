@@ -57,7 +57,7 @@ class EventDetector {
 
   // Processes a single frame and returns an Event if one has just been
   // completed.
-  State ProcessFrame(const RawFrame& frame);
+  EventDetector::State ProcessFrame(const int64_t current_ts, const int64_t best_effort_ts);
 
   [[nodiscard]] const std::vector<cv::Rect>& detections() const {
     return kept_bboxes_;

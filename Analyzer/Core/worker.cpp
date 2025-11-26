@@ -288,7 +288,7 @@ void Worker::OfflineAnalyze() {
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
 
-    const auto state = checker.ProcessFrame({timestamp_ms, frame});
+    const auto state = checker.ProcessFrame(timestamp_ms, timestamp);
 
     CombinedEventManager::DetectorFrameInfo info{
       .monitor_code = monitor.code,
@@ -569,7 +569,7 @@ void Worker::DecodeVideo() {
           continue;
         }
         const auto state =
-            ctx_ptr->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
+            ctx_ptr->detector->ProcessFrame(timestamp_ms, timestamp);
 
         CombinedEventManager::DetectorFrameInfo info{
           .monitor_code = ctx_ptr->monitor->code,

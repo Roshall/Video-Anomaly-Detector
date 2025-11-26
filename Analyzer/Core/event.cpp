@@ -39,12 +39,10 @@ std::pair<int64_t, int64_t> EventDetector::FindFirstVoteTimestamp() const {
   return {last_timestamp_ms_, last_best_effort_ts_};
 }
 
-EventDetector::State EventDetector::ProcessFrame(const RawFrame& frame) {
+EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const int64_t best_effort_ts) {
   State state{kNoEvent};
-  last_timestamp_ms_ = frame.timestamp;
-  last_best_effort_ts_ = frame.data ? frame.data->best_effort_timestamp : 0;
-  const auto current_ts = last_timestamp_ms_;
-  const auto best_effort_ts = last_best_effort_ts_;
+  last_timestamp_ms_ = current_ts;
+  last_best_effort_ts_ = best_effort_ts;
 
   switch (current_state_) {
     case InnerState::kMajorCheck: {
