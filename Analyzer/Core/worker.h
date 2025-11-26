@@ -38,8 +38,7 @@ class Worker {
   Worker(const Worker& other) = delete;
   Worker operator= (const Worker& other) = delete;
 
-  // （线程）解码视频帧和实时分析视频帧
-  void DecodeVideo();
+  void DetectEvent();
 
   bool start(std::string& msg);
 

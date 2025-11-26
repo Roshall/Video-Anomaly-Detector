@@ -167,7 +167,7 @@ bool Worker::start(std::string& msg) {
   threads_.push_back(
       std::make_unique<std::thread>([this]() { this->in_stream->Read(); }));
   threads_.push_back(
-      std::make_unique<std::thread>([this]() { this->DecodeVideo(); }));
+      std::make_unique<std::thread>([this]() { this->DetectEvent(); }));
   if (out_stream) {
     EnsureAllPipelinesReady(out_stream->width(), out_stream->height());
     threads_.push_back(std::make_unique<std::thread>(
@@ -517,7 +517,7 @@ int Worker::ComputeLevelIndex(
   return idx;
 }
 
-void Worker::DecodeVideo() {
+void Worker::DetectEvent() {
   if (!in_stream || !in_stream->video_codec_ctx) {
     LOGW("decode video without active pull stream");
     return;
@@ -609,7 +609,7 @@ void Worker::DecodeVideo() {
 
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
-    // Process alarms using snapshots (no data race)
+    // Process alarms using snapshots
     for (auto& snapshot : event_snapshots) {
       auto level_idx = ComputeLevelIndex(
           snapshot.levels, snapshot.level_mode,
@@ -619,7 +619,7 @@ void Worker::DecodeVideo() {
       switch (snapshot.state) {
         case EventDetector::kEventStart: {
           if (annotated_frame) {
-            // Update the highest level in context (need lock)
+            // Update the highest level in context
             {
               std::shared_lock lock(monitors_mutex_);
               for (auto& ctx : monitors_) {
