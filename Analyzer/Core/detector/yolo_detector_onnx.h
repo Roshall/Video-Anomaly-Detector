@@ -57,7 +57,6 @@ class YOLODetector {
   moodycamel::ConcurrentQueue<Task> task_queue_;
   std::counting_semaphore<> task_sem_{0};
   std::map<ResourceID, Callback> callbacks_;
-  mutable std::shared_mutex callback_mutex_;
   std::atomic<bool> running_{true};
   static constexpr size_t kMaxQueueSize = 100;
 };

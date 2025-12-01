@@ -4,6 +4,7 @@
 
 #include "constant_yolo.h"
 
+#include <memory>
 #include <thread>
 
 #include "Utils/enum_utils.h"
@@ -18,8 +19,9 @@ DetectorPool::~DetectorPool() {
   StopAllDetectors();
 }
 
-std::shared_ptr<const YOLODetector> DetectorPool::RegisterToDetector(
-  Task task, unsigned long id1, unsigned long id2, Callback cb) {
+std::function<void(unsigned long id1, unsigned long id2, const cv::Mat& image)>
+DetectorPool::RegisterToDetector(Task task, unsigned long id1, unsigned long id2,
+                                 Callback cb) {
 
   std::string model_name;
   switch (task) {
@@ -38,66 +40,83 @@ std::shared_ptr<const YOLODetector> DetectorPool::RegisterToDetector(
       model_name = "phone_playing_m.onnx";
       break;
     default:
-      return nullptr;
+      return [](unsigned long, unsigned long, const cv::Mat&) {};
   }
+  std::unique_lock<std::mutex> lock(detector_mutex_);
   auto detector = detector_pool_.get_or_emplace(
-          task, (model_path_ / model_name).string(), use_accelerator_);
+      task, (model_path_ / model_name).string(), use_accelerator_);
 
+  if (!detector) {
+    // Return a no-op adder
+    return [](unsigned long, unsigned long, const cv::Mat&) {};
+  }
+
+  // Register callback and start worker if needed
   if (detector) {
     // Register the callback for this resource
     const_cast<YOLODetector*>(detector.get())->RegisterCallback(id1, id2, std::move(cb));
-
+    
     // Launch worker thread if not already running
-    int idx = enum_order(task);
-    if (idx >= 0) {
-      std::lock_guard<std::mutex> lock(threads_mutex_);
-      if (!threads_[idx].joinable()) {
-        threads_[idx] = std::thread([detector]() {
-          const_cast<YOLODetector*>(detector.get())->Run();
-        });
+    if (!detector->isRunning()){
+      int idx = enum_order(task);
+      assert (idx >= 0 && "Invalid task enum value");
+      if (threads_[idx].joinable()) {
+        threads_[idx].join();
       }
+      threads_[idx] = std::thread([detector]() {
+        const_cast<YOLODetector*>(detector.get())->Run();
+      });
     }
+    
   }
 
-  return detector;
+  // Return callable for enqueuing tasks
+  return [detector](unsigned long id1, unsigned long id2, const cv::Mat& image) {
+    const_cast<YOLODetector*>(detector.get())->AddTask(id1, id2, image);
+  };
 }
 
-bool DetectorPool::RemoveDetector(Task task) {
-  auto detector = detector_pool_.get(task);
-  if (!detector) {
-    return false;  // Not in pool
-  }
+bool DetectorPool::RemoveDetector(Task task, bool force) {
+  if (force) {
+    auto detector = detector_pool_.get(task);
+    if (!detector) {
+      return false;  // Not in pool
+    }
 
-  // If still running, cannot remove
-  if (detector->isRunning()) {
-    return false;
-  }
-
-  // Join the thread if joinable
-  int idx = enum_order(task);
-  if (idx >= 0) {
-    std::unique_lock<std::mutex> lock(threads_mutex_);
-    if (threads_[idx].joinable()) {
-      // Unlock while joining to avoid blocking other operations
-      std::thread t = std::move(threads_[idx]);
-      lock.unlock();
-      t.join();
+    // If still running, cannot remove
+    if (detector->isRunning()) {
+      return false;
     }
   }
-
   // Erase from pool
   return detector_pool_.erase(task);
 }
 
+bool DetectorPool::DeregisterToDetector(Task task, unsigned long id1,
+                                        unsigned long id2) {
+  std::unique_lock<std::mutex> lock(detector_mutex_);
+  auto detector = detector_pool_.get(task);
+  if (!detector) return false;
+
+  // Call into detector to remove the callback -- this will stop the detector if
+  // it's now empty.
+  const_cast<YOLODetector*>(detector.get())->DeregisterCallback(id1, id2);
+
+  // If the detector has already stopped, try to remove it from the pool.
+  if (!detector->isRunning()) {
+    return RemoveDetector(task, false);
+  }
+  return true;  // deregistered, but the detector still runs
+}
+
 void DetectorPool::StopAllDetectors() {
   // Stop all detectors first
+  std::lock_guard<std::mutex> lock(detector_mutex_);
   auto detectors = detector_pool_.all();
   for (auto& detector : detectors) {
     const_cast<YOLODetector*>(detector.get())->Stop();
   }
-
   // Join all threads
-  std::lock_guard<std::mutex> lock(threads_mutex_);
   for (auto& t : threads_) {
     if (t.joinable()) {
       t.join();

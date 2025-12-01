@@ -30,11 +30,15 @@ class DetectorPool {
   ~DetectorPool();
 
   // Get or create detector for the task, register callback, and return handle
-  std::shared_ptr<const YOLODetector> RegisterToDetector(
-      Task task, unsigned long id1, unsigned long id2, Callback cb);
+    // Register a detector for `task` and callback; returns an Adder callable to push tasks.
+    std::function<void(unsigned long id1, unsigned long id2, const cv::Mat& image)>
+    RegisterToDetector(Task task, unsigned long id1, unsigned long id2, Callback cb);
 
   // Remove detector if it has stopped running
-  bool RemoveDetector(Task task);
+  bool RemoveDetector(Task task, bool force=true);
+  // Deregister a previously registered callback from a detector and try to remove it
+  // Returns true if deregistration succeeded and the detector was removed; false otherwise.
+  bool DeregisterToDetector(Task task, unsigned long id1, unsigned long id2);
 
   void StopAllDetectors();
 
@@ -43,7 +47,7 @@ class DetectorPool {
   bool use_accelerator_;
   ConstPool<Task, YOLODetector> detector_pool_;
   std::array<std::thread, static_cast<size_t>(Task::kCount)> threads_;
-  std::mutex threads_mutex_;
+  std::mutex detector_mutex_;
 };
 
 // Deprecated: legacy helper for sync callers—will be removed
