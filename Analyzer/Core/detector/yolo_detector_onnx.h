@@ -12,6 +12,7 @@
 #include <mutex>
 #include <semaphore>
 #include <shared_mutex>
+#include <thread>
 #include <utility>
 
 #include <concurrentqueue/moodycamel/concurrentqueue.h>
@@ -29,6 +30,7 @@ class YOLODetector {
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
   explicit YOLODetector(std::string_view mode_path,
                         bool use_accelerator = false, int target_id = 0);
+  ~YOLODetector();
 
   void AddTask(unsigned long id1, unsigned long id2, const cv::Mat& image);
   void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
@@ -58,7 +60,9 @@ class YOLODetector {
   std::counting_semaphore<> task_sem_{0};
   std::map<ResourceID, Callback> callbacks_;
   std::atomic<bool> running_{true};
+  mutable std::shared_mutex callback_mutex_;
   static constexpr size_t kMaxQueueSize = 100;
+  std::jthread worker_thread_;
 };
 
 }  // namespace avs_analyzer

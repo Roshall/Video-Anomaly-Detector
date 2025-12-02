@@ -8,6 +8,10 @@ namespace avs_analyzer {
 YOLODetector::YOLODetector(const DL_INIT_PARAM& params)
     : params_(params), model_(std::make_unique<YOLOv8Detect>()) {
   model_->CreateSession(params_);
+  worker_thread_ = std::jthread(&YOLODetector::Run, this);
+}
+YOLODetector::~YOLODetector() {
+  Stop();
 }
 
 void YOLODetector::AddTask(unsigned long id1, unsigned long id2,
@@ -19,10 +23,12 @@ void YOLODetector::AddTask(unsigned long id1, unsigned long id2,
 
 void YOLODetector::RegisterCallback(unsigned long id1, unsigned long id2,
                                     Callback cb) {
+  std::unique_lock<std::shared_mutex> lock(callback_mutex_);
   callbacks_[{id1, id2}] = std::move(cb);
 }
 
 void YOLODetector::DeregisterCallback(unsigned long id1, unsigned long id2) {
+  std::unique_lock<std::shared_mutex> lock(callback_mutex_);
   callbacks_.erase({id1, id2});
   bool isEmpty = callbacks_.empty();
   if (isEmpty) {
