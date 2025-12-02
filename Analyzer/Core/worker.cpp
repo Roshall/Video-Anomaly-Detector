@@ -8,7 +8,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
-#include <ranges>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -24,6 +24,7 @@
 #include "config.h"
 #include "event.h"
 #include "format_convertor.h"
+#include "frame.h"
 #include "jpeg_encoder.h"
 #include "monitor.h"
 #include "scheduler.h"
@@ -87,18 +88,16 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   
   ctx->event_cfg = event_cfg;
   ctx->analyzer = std::make_unique<Analyzer>(
-      monitor.get(), scheduler->GetConfig(),
-      monitor->conf_threshold);
+      monitor.get(), scheduler->GetConfig());
+  ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
   if (out_stream) {
     try {
       ctx->detector = std::make_unique<EventDetector>(
-          event_cfg, *ctx->analyzer,
-          FormatConvertor{video_context_.width, video_context_.height,
-                          video_context_.format, out_stream->width(),
-                          out_stream->height()});
+          event_cfg, *ctx->analyzer);
     } catch (const std::exception& ex) {
       LOGE("Failed to create event detector for monitor {}: {}",
            monitor->code, ex.what());
+      return;
     }
   }
   ctx->current_highest_level = 0;
@@ -173,6 +172,10 @@ bool Worker::start(std::string& msg) {
     threads_.push_back(std::make_unique<std::thread>(
         [this]() { this->out_stream->EncodeVideo(); }));
   }
+  convertor_ = std::make_unique<FormatConvertor>(video_context_.width, video_context_.height,
+                                                video_context_.format,
+                                                out_stream ? out_stream->width() : video_context_.width,
+                                                out_stream ? out_stream->height() : video_context_.height);
   return true;
 }
 
@@ -230,12 +233,12 @@ void Worker::OfflineAnalyze() {
   }
 
   auto analyzer_ptr = std::make_unique<Analyzer>(
-      ctx->monitor.get(), scheduler->GetConfig(), monitor.conf_threshold);
+      ctx->monitor.get(), scheduler->GetConfig());
+  analyzer_ptr->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*analyzer_ptr));
   auto in_stream_ = in.stream();
   timer_.init(in.format_context(), in_stream_);
   EventDetector checker{ctx->event_cfg,
-                        *analyzer_ptr,
-                        {width, height, in.PixelFormat(), width, height}};
+                        *analyzer_ptr};
   CombinedEventManager event_manager;
   CombinedEventConfig cfg{};
   cfg.pre_event_buffer_ms = ctx->event_cfg.pre_event_buffer_ms;
@@ -490,6 +493,17 @@ void Worker::EnsureAnnotatorReady() {
   }
 }
 
+void Worker::AddTasks(AVFrame* frame) const {
+  auto img = (*convertor_)(frame);
+  const auto timestamp = frame->best_effort_timestamp;
+  const auto timestamp_ms =
+  av_rescale_q(timestamp, in_stream->stream->time_base, AVRational{1, 1000});
+  std::shared_lock lock(monitors_mutex_);
+  for (auto& ctx : monitors_) {
+    ctx->analyzer->AddVideoFrame(id_, timestamp_ms, img);
+  }
+}
+
 int Worker::ComputeLevelIndex(
     const std::pair<std::vector<int>, std::vector<std::string>>& levels,
     LevelMode level_mode, int64_t num_detection, int64_t event_duration,
@@ -515,6 +529,11 @@ int Worker::ComputeLevelIndex(
   }
   idx = std::min(idx, static_cast<int>(levels.second.size()) - 1);
   return idx;
+}
+
+uint64_t Worker::NextId() {
+  static uint64_t global_id = 0;
+  return global_id++;
 }
 
 void Worker::DetectEvent() {
@@ -723,6 +742,7 @@ bool Worker::GrabFrame(AVFrame* frame) const {
       LOGE_FFMPEG("worker cannot decode a packet:", ret);
       return false;
     }
+    AddTasks(frame);
     return true;
   }
 }
@@ -747,6 +767,7 @@ void Worker::RemoveMonitor(const std::string& code) {
       LOGW("trying to remove unknown monitor code: {}", code);
       return;
     }
+    scheduler->DeregisterAnalyzerCallback(*(*it)->analyzer);
 
     if (monitors_.size() == 1) {
       remove_worker = true;
@@ -800,8 +821,9 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
     if (!ctx.analyzer) {
       try {
         ctx.analyzer = std::make_unique<Analyzer>(ctx.monitor.get(),
-                                                  scheduler->GetConfig(),
-                                                  ctx.monitor->conf_threshold);
+                                                  scheduler->GetConfig());
+        ctx.analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx.analyzer));
+        
       } catch (const std::exception& ex) {
         LOGE("Failed to create analyzer for monitor {}: {}", ctx.monitor->code,
              ex.what());
@@ -810,10 +832,8 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
     }
     if (ctx.analyzer && !ctx.detector) {
       try {
-        FormatConvertor convertor(video_context_.width, video_context_.height,
-                                  video_context_.format, out_width, out_height);
         ctx.detector = std::make_unique<EventDetector>(
-            ctx.event_cfg, *ctx.analyzer, std::move(convertor));
+            ctx.event_cfg, *ctx.analyzer);
         ctx.current_highest_level = 0;
       } catch (const std::exception& ex) {
         LOGE("Failed to create event detector for monitor {}: {}",

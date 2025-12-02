@@ -1,6 +1,8 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
 
+#include <libavutil/frame.h>
+#include <opencv2/core/hal/interface.h>
 #include <atomic>
 #include <memory>
 #include <shared_mutex>
@@ -8,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "format_convertor.h"
 #include "video_processing/dynamic_annotator.h"
 #include "combined_event_manager.h"
 #include "event.h"
@@ -92,12 +95,14 @@ class Worker {
   void ClosePushThreadIfNeeded();
   void RebuildEventManager();
   void EnsureAnnotatorReady();
+  void AddTasks(AVFrame* frame) const;
   std::vector<Task> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
   static int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,
       std::string_view monitor_code);
+  static uint64_t NextId();
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
@@ -114,6 +119,8 @@ class Worker {
   mutable std::mutex event_manager_mutex_;
   std::unique_ptr<DynamicAnnotator> annotator_;
   mutable std::mutex annotator_mutex_;
+  uint64_t id_{NextId()};
+  std::unique_ptr<FormatConvertor> convertor_;
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
