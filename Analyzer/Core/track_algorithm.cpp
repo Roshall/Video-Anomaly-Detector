@@ -5,18 +5,17 @@
 #include "track_algorithm.h"
 
 #include "ByteTrack/Object.h"
-#include "ByteTrack/Rect.h"
-#include "config.h"
-#include "detector/yolo_detector_onnx.h"
-#include "task.h"
 
 namespace avs_analyzer {
-TrackAlgorithm::TrackAlgorithm(const Config& config)
-    : detector_(GetDetector(config.model_dir, Task::kWandering,
-                            config.use_accelerator)), min_frame_stride_{30} {}
 
-Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
-  auto res = detector_->Run(image);
+TrackAlgorithm::TrackAlgorithm(uint64_t min_frame_duration)
+  : min_frame_duration_(min_frame_duration)
+{
+  
+}
+
+Detection TrackAlgorithm::ProcessDetections() {
+  auto [res, frame_ms] = FetchOneFrameResults();
   std::vector<byte_track::Object> objects;
   objects.reserve(res.size());
   for (auto& obj : res) {
@@ -26,13 +25,12 @@ Detection TrackAlgorithm::DetectObjects(const cv::Mat& image) {
                                           static_cast<float>(obj.box.height)),
                          obj.classId, obj.confidence);
   }
-  auto tracks = tracker_.update(objects);
+  auto tracks = tracker_.update(objects, frame_ms);
 
   std::vector<cv::Rect> bbox;
   std::vector<float> confs;
   for (auto& t : tracks) {
-    // TODO: replace min_frame_stride_ with min_ms_stride_
-    if (t->getFrameId() - t->getStartFrameId() >= min_frame_stride_) {
+    if (t->getFrameDuration() >= min_frame_duration_) {
       auto rec_f = t->getRect();
       bbox.emplace_back(rec_f.x(), rec_f.y(), rec_f.width(), rec_f.height());
       confs.push_back(t->getScore());
