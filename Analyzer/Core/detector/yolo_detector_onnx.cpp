@@ -3,13 +3,14 @@
 //
 #include "yolo_detector_onnx.h"
 #include <mutex>
-
+#include <thread>
 namespace avs_analyzer {
 YOLODetector::YOLODetector(const DL_INIT_PARAM& params)
     : params_(params), model_(std::make_unique<YOLOv8Detect>()) {
   model_->CreateSession(params_);
-  worker_thread_ = std::jthread(&YOLODetector::Run, this);
+  worker_thread_ = std::jthread([this] { Run(); });
 }
+
 YOLODetector::~YOLODetector() {
   Stop();
 }
@@ -20,15 +21,14 @@ void YOLODetector::AddTask(Task task) {
   task_sem_.release();
 }
 
-void YOLODetector::RegisterCallback(unsigned long id1, unsigned long id2,
-                                    Callback cb) {
+void YOLODetector::RegisterCallback(unsigned long id, Callback cb) {
   std::unique_lock<std::shared_mutex> lock(callback_mutex_);
-  callbacks_[{id1, id2}] = std::move(cb);
+  callbacks_[id] = std::move(cb);
 }
 
-void YOLODetector::DeregisterCallback(unsigned long id1, unsigned long id2) {
+void YOLODetector::DeregisterCallback(unsigned long id) {
   std::unique_lock<std::shared_mutex> lock(callback_mutex_);
-  callbacks_.erase({id1, id2});
+  callbacks_.erase(id);
   bool isEmpty = callbacks_.empty();
   if (isEmpty) {
     Stop();
@@ -75,7 +75,7 @@ void YOLODetector::DropOverflowTasks() {
 void YOLODetector::InvokeCallback(const ResourceID& id,
                                   const std::vector<DL_RESULT>& results) const {
   std::shared_lock<std::shared_mutex> lock(callback_mutex_);
-  if (auto it = callbacks_.find(id); it != callbacks_.end()) {
+  if (auto it = callbacks_.find(id[0]); it != callbacks_.end()) {
     it->second({results, id[2]});
   }
 }

@@ -39,8 +39,8 @@ class YOLODetector {
   ~YOLODetector();
 
   void AddTask(Task task);
-  void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
-  void DeregisterCallback(unsigned long id1, unsigned long id2);
+  void RegisterCallback(unsigned long id, Callback cb);
+  void DeregisterCallback(unsigned long id);
   // Asynchronous consumer loop (run in dedicated thread)
   void Run();
   // Synchronous detection (backward compatible)
@@ -59,7 +59,7 @@ class YOLODetector {
   mutable std::mutex mutex_;
   moodycamel::ConcurrentQueue<Task> task_queue_;
   std::counting_semaphore<> task_sem_{0};
-  std::map<ResourceID, Callback> callbacks_;
+  std::map<unsigned long, Callback> callbacks_;
   std::atomic<bool> running_{true};
   mutable std::shared_mutex callback_mutex_;
   static constexpr size_t kMaxQueueSize = 100;
