@@ -1,7 +1,6 @@
 ﻿#ifndef ANALYZER_WORKER_H
 #define ANALYZER_WORKER_H
 
-#include <libavutil/frame.h>
 #include <opencv2/core/hal/interface.h>
 #include <atomic>
 #include <memory>
@@ -19,6 +18,7 @@
 #include "monitor.h"
 
 extern "C" {
+#include <libavutil/frame.h>
 #include <libavutil/pixfmt.h>
 }
 
