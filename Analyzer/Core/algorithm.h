@@ -2,7 +2,7 @@
 #define ANALYZER_ALGORITHM_H
 
 #include <opencv2/opencv.hpp>
-#include <readerwriterqueue.h>
+#include <readerwriterqueue/readerwriterqueue.h>
 #include <vector>
 #include "detector/yolo_detector_onnx.h"
 

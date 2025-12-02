@@ -4,7 +4,7 @@
 namespace avs_analyzer {
 Algorithm::~Algorithm() = default;
 
-ResultType Algorithm::FetchOneFrameResults() {
+Algorithm::ResultType Algorithm::FetchOneFrameResults() {
     ResultType result;
     result_queue_.wait_dequeue(result);
     return result;
