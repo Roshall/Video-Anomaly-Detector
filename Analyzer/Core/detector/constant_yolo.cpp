@@ -18,10 +18,7 @@ DetectorPool::~DetectorPool() {
   StopAllDetectors();
 }
 
-std::function<void(unsigned long id1, unsigned long id2, unsigned long id3, const cv::Mat& image)>
-DetectorPool::RegisterToDetector(Task task, unsigned long id1, unsigned long id2,
-                                 Callback cb) {
-
+DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(Task task, unsigned long id, Callback cb) {
   std::string model_name;
   switch (task) {
     case Task::kBreakIn:
@@ -51,7 +48,7 @@ DetectorPool::RegisterToDetector(Task task, unsigned long id1, unsigned long id2
     return [](unsigned long, unsigned long, unsigned long, const cv::Mat&) {};
   } else{
     // Register the callback for this resource
-    const_cast<YOLODetector*>(detector.get())->RegisterCallback(id1, id2, std::move(cb));
+    const_cast<YOLODetector*>(detector.get())->RegisterCallback(id, std::move(cb));
   }
 
   // Return callable for enqueuing tasks
@@ -76,15 +73,14 @@ bool DetectorPool::RemoveDetector(Task task, bool force) {
   return detector_pool_.erase(task);
 }
 
-bool DetectorPool::DeregisterToDetector(Task task, unsigned long id1,
-                                        unsigned long id2) {
+bool DetectorPool::DeregisterToDetector(Task task, unsigned long id) {
   std::unique_lock<std::mutex> lock(detector_mutex_);
   auto detector = detector_pool_.get(task);
   if (!detector) return false;
 
   // Call into detector to remove the callback -- this will stop the detector if
   // it's now empty.
-  const_cast<YOLODetector*>(detector.get())->DeregisterCallback(id1, id2);
+  const_cast<YOLODetector*>(detector.get())->DeregisterCallback(id);
 
   // If the detector has already stopped, try to remove it from the pool.
   if (!detector->isRunning()) {
