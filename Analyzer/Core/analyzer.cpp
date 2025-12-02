@@ -2,7 +2,6 @@
 
 #include <json/json.h>
 
-#include <fstream>
 
 #include "algorithm.h"
 #include "detection_algorithm.h"
@@ -28,25 +27,25 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
   return {minX, minY, maxX - minX, maxY - minY};
 }
 
-Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
-    : monitor_(monitor),
-      conf_th_(conf_th),
+Analyzer::Analyzer(Monitor* monitor, const Config& config)
+    : task_(monitor->task),
+      conf_th_(monitor->conf_threshold),
       roi_area_(cv::contourArea(monitor->roi_points)),
-      roi_bbox_(computeBoundingBox(monitor_->roi_points)) {
-  if (monitor->task == Task::kWandering) {
-
-    algorithm_ = std::make_unique<TrackAlgorithm>(config);
+      roi_bbox_(computeBoundingBox(monitor->roi_points)),
+      roi_points_(monitor->roi_points) {
+  if (task_ == Task::kWandering) {
+    algorithm_ = std::make_unique<TrackAlgorithm>(monitor->levels.first[0]);
   } else {
-    algorithm_ = std::make_unique<DetectionAlgorithm>(config, monitor->task);
+    algorithm_ = std::make_unique<DetectionAlgorithm>();
   }
 }
 
 Analyzer::~Analyzer() = default;
 
-std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
+[[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection() const {
   std::vector<cv::Rect> detection_results;
-  Detection det = algorithm_->DetectObjects(image);
-  if (monitor_->task == Task::kBunkOff) {
+  auto det = algorithm_->ProcessDetections();
+  if (task_ == Task::kBunkOff) {
     bool work{false};
     if (!det.bbox.empty()) {
       for (size_t i = 0; i < det.confidences.size(); ++i) {
@@ -58,7 +57,7 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
         auto x2 = x + w;
         auto y2 = y + h;
         auto interaction_area = cv::intersectConvexConvex(
-            monitor_->roi_points,
+            roi_points_,
             std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}},
             intersectionPoly);
         auto min_area = std::min(roi_area_, static_cast<double>(w * h));
@@ -81,7 +80,7 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
       auto m_y = static_cast<float>(y + h);
 
       auto point_to_polygon =
-          cv::pointPolygonTest(monitor_->roi_points, {m_x, m_y}, false);
+          cv::pointPolygonTest(roi_points_, {m_x, m_y}, false);
       if (point_to_polygon > 0) {
         detection_results.push_back(det.bbox[i]);
       }
@@ -89,5 +88,14 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
   }
 
   return detection_results;
+}
+
+void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, const cv::Mat& image) {
+  add_task_callback_(id_, video_id, frame_id, image);
+}
+
+uint64_t Analyzer::NextId() {
+  static uint64_t global_id = 0;
+  return global_id++;
 }
 }  // namespace avs_analyzer
