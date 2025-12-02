@@ -31,12 +31,13 @@ public:
     const size_t& getFrameId() const;
     const size_t& getStartFrameId() const;
     const size_t& getTrackletLength() const;
+    const uint64_t getFrameDuration() const;
 
-    void activate(const size_t& frame_id, const size_t& track_id);
-    void reActivate(const STrack &new_track, const size_t &frame_id, const int &new_track_id = -1);
+    void activate(const size_t frame_id, const uint64_t frame_ms, const size_t track_id);
+    void reActivate(const STrack &new_track, const size_t frame_id, const uint64_t frame_ms, const int new_track_id = -1);
 
     void predict();
-    void update(const STrack &new_track, const size_t &frame_id);
+    void update(const STrack &new_track, const size_t frame_id, const uint64_t frame_ms);
 
     void markAsLost();
     void markAsRemoved();
@@ -58,6 +59,8 @@ private:
     size_t start_frame_id_;
     size_t tracklet_len_;
     int idx_;
+    uint64_t frame_ms_;
+    uint64_t start_frame_ms_;
 
     void updateRect();
 };
