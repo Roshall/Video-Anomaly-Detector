@@ -8,8 +8,7 @@
 #include <deque>
 #include <optional>
 #include <vector>
-
-#include "video_processing/format_convertor.h"
+#include <opencv2/opencv.hpp>
 #include "frame.h"
 
 namespace avs_analyzer {
@@ -52,8 +51,7 @@ class EventDetector {
     kEventEnd,
   };
 
-  EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer,
-                FormatConvertor convertor);
+  EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer);
 
   // Processes a single frame and returns an Event if one has just been
   // completed.
@@ -114,7 +112,7 @@ class EventDetector {
     int votes_{0};
   };
 
-  std::vector<cv::Rect> Detect(AVFrame* frame);
+  std::vector<cv::Rect> Detect() const;
 
   // Helper to find the timestamp of the first positive vote in the window.
   [[nodiscard]] std::pair<int64_t, int64_t> FindFirstVoteTimestamp() const;
@@ -122,7 +120,6 @@ class EventDetector {
   const EventDetectorConfig config_;
   InnerState current_state_{InnerState::kMajorCheck};
 
-  FormatConvertor convertor_;
   const Analyzer& analyzer_;
 
   int64_t last_major_check_ts_{-2000};

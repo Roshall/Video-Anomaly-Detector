@@ -1,21 +1,13 @@
 #include "event.h"
 
 #include "Utils/log.h"
-#include "format_convertor.h"
-
-extern "C" {
-#include <libavutil/frame.h>
-}
 
 #include <analyzer.h>
 
 namespace avs_analyzer {
 
-EventDetector::EventDetector(const EventDetectorConfig& config,
-                             const Analyzer& analyzer,
-                             FormatConvertor convertor)
+EventDetector::EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer)
     : config_(config),
-      convertor_(std::move(convertor)),
       analyzer_(analyzer),
       object_votes_window_(config.window_size) {
   last_major_check_ts_ = -config_.major_stride_ms;
@@ -48,7 +40,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kMajorCheck: {
       if (current_ts - last_major_check_ts_ >= config_.major_stride_ms) {
         last_major_check_ts_ = current_ts;
-        if (auto bboxes = Detect(frame.data); not bboxes.empty()) {
+        if (auto bboxes = Detect(); not bboxes.empty()) {
           LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.",
                current_ts);
           current_state_ = InnerState::kMinorCheck;
@@ -63,7 +55,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kMinorCheck: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect(frame.data);
+        auto bboxes = Detect();
         const auto has_obj = not bboxes.empty();
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
@@ -97,7 +89,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kDoubleCheck: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect(frame.data);
+        auto bboxes = Detect();
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {
@@ -128,7 +120,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kEventActive: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect(frame.data);
+        auto bboxes = Detect();
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {
@@ -159,8 +151,8 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
   return state;
 }
 
-std::vector<cv::Rect> EventDetector::Detect(AVFrame* frame) {
-  return analyzer_.ProcessVideoFrame(convertor_(frame));
+std::vector<cv::Rect> EventDetector::Detect() const {
+  return analyzer_.RetrieveDetection();
 }
 int64_t EventDetector::timestamp() const {
   return last_best_effort_ts_;
