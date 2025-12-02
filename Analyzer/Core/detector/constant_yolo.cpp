@@ -5,10 +5,9 @@
 #include "constant_yolo.h"
 
 #include <memory>
-#include <thread>
 
-#include "Utils/enum_utils.h"
 #include "yolo_detector_onnx.h"
+#include "Utils/log.h"
 
 namespace avs_analyzer {
 
@@ -48,26 +47,11 @@ DetectorPool::RegisterToDetector(Task task, unsigned long id1, unsigned long id2
 
   if (!detector) {
     // Return a no-op adder
+    LOGE("Failed to create or get detector for task {}", toString(task));
     return [](unsigned long, unsigned long, const cv::Mat&) {};
-  }
-
-  // Register callback and start worker if needed
-  if (detector) {
+  } else{
     // Register the callback for this resource
     const_cast<YOLODetector*>(detector.get())->RegisterCallback(id1, id2, std::move(cb));
-    
-    // Launch worker thread if not already running
-    if (!detector->isRunning()){
-      int idx = enum_order(task);
-      assert (idx >= 0 && "Invalid task enum value");
-      if (threads_[idx].joinable()) {
-        threads_[idx].join();
-      }
-      threads_[idx] = std::thread([detector]() {
-        const_cast<YOLODetector*>(detector.get())->Run();
-      });
-    }
-    
   }
 
   // Return callable for enqueuing tasks
@@ -104,7 +88,7 @@ bool DetectorPool::DeregisterToDetector(Task task, unsigned long id1,
 
   // If the detector has already stopped, try to remove it from the pool.
   if (!detector->isRunning()) {
-    return RemoveDetector(task, false);
+    return detector_pool_.erase(task);
   }
   return true;  // deregistered, but the detector still runs
 }
@@ -115,12 +99,6 @@ void DetectorPool::StopAllDetectors() {
   auto detectors = detector_pool_.all();
   for (auto& detector : detectors) {
     const_cast<YOLODetector*>(detector.get())->Stop();
-  }
-  // Join all threads
-  for (auto& t : threads_) {
-    if (t.joinable()) {
-      t.join();
-    }
   }
 }
 

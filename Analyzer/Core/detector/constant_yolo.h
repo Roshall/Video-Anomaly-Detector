@@ -5,16 +5,12 @@
 #ifndef ANALYZER_CONSTANT_YOLO_H
 #define ANALYZER_CONSTANT_YOLO_H
 
-#include <array>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
-#include <thread>
 #include <vector>
 
-#include "Utils/enum_utils.h"
 #include "constant_pool.h"
 #include "inference.h"
 #include "task.h"
@@ -46,7 +42,6 @@ class DetectorPool {
   std::filesystem::path model_path_;
   bool use_accelerator_;
   ConstPool<Task, YOLODetector> detector_pool_;
-  std::array<std::thread, static_cast<size_t>(Task::kCount)> threads_;
   std::mutex detector_mutex_;
 };
 
