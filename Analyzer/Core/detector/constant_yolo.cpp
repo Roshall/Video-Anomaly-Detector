@@ -98,38 +98,4 @@ void DetectorPool::StopAllDetectors() {
   }
 }
 
-// Deprecated shim for legacy sync callers
-static ConstPool<std::string, YOLODetector> g_legacy_pool;
-
-std::shared_ptr<const YOLODetector> GetDetector(
-    std::string_view model_path, Task task, bool use_accelerator) {
-  auto path_prefix = std::filesystem::path(model_path);
-  auto task_string = toString(task);
-
-  std::shared_ptr<const YOLODetector> detector;
-  switch (task) {
-    case Task::kBreakIn:
-    case Task::kWandering:
-    case Task::kBunkOff:
-      detector = g_legacy_pool.get_or_emplace(
-          task_string, (path_prefix / "yolov8n.onnx").string(), use_accelerator);
-      break;
-    case Task::kSleepWork:
-      detector = g_legacy_pool.get_or_emplace(
-          task_string, (path_prefix / "sleeping_m.onnx").string(), use_accelerator);
-      break;
-    case Task::kWallClimbing:
-      detector = g_legacy_pool.get_or_emplace(
-          task_string, (path_prefix / "climbing_m.onnx").string(), use_accelerator, 1);
-      break;
-    case Task::kPhonePlaying:
-      detector = g_legacy_pool.get_or_emplace(
-          task_string, (path_prefix / "phone_playing_m.onnx").string(), use_accelerator, 1);
-      break;
-    default:
-      return nullptr;
-  }
-  return detector;
-}
-
 }  // namespace avs_analyzer

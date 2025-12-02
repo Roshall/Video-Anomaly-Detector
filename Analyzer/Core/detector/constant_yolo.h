@@ -42,12 +42,6 @@ class DetectorPool {
   ConstPool<Task, YOLODetector> detector_pool_;
   std::mutex detector_mutex_;
 };
-
-// Deprecated: legacy helper for sync callers—will be removed
-[[deprecated("Use DetectorPool::RegisterToDetector instead")]]
-std::shared_ptr<const YOLODetector> GetDetector(
-    std::string_view model_path, Task task, bool use_accelerator);
-
 }  // namespace avs_analyzer
 
 #endif  // ANALYZER_CONSTANT_YOLO_H

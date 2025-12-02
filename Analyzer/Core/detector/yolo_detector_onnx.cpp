@@ -49,13 +49,6 @@ void YOLODetector::Run() {
     InvokeCallback(task.id, filtered);
   }
 }
-
-std::vector<DL_RESULT> YOLODetector::Run(const cv::Mat& image) const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto res = model_->RunSession(image);
-  return FilterResults(std::move(res));
-}
-
 void YOLODetector::Stop() {
   running_.store(false, std::memory_order_release);
   task_sem_.release();
