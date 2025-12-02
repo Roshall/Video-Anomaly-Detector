@@ -24,15 +24,21 @@ inline constexpr DL_INIT_PARAM kDefaultParam{};
 
 class YOLODetector {
  public:
-  using ResourceID = std::pair<unsigned long, unsigned long>;
-  using Callback = std::function<void(const std::vector<DL_RESULT>&)>;
+  // Resource identifier: (output_id, video_id, frame_ts)
+  using ResourceID = std::array<unsigned long, 3>;
+  using ResultType = std::pair<std::vector<DL_RESULT>, unsigned long>;
+  using Callback = std::function<void(const ResultType&)>;
+  struct Task {
+    ResourceID id;
+    cv::Mat image;
+  };
 
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
   explicit YOLODetector(std::string_view mode_path,
                         bool use_accelerator = false, int target_id = 0);
   ~YOLODetector();
 
-  void AddTask(unsigned long id1, unsigned long id2, const cv::Mat& image);
+  void AddTask(Task task);
   void RegisterCallback(unsigned long id1, unsigned long id2, Callback cb);
   void DeregisterCallback(unsigned long id1, unsigned long id2);
   // Asynchronous consumer loop (run in dedicated thread)
@@ -44,11 +50,6 @@ class YOLODetector {
   [[nodiscard]] bool isRunning() const { return running_.load(); }
 
  private:
-  struct Task {
-    ResourceID id;
-    cv::Mat image;
-  };
-
   void InvokeCallback(const ResourceID& id, const std::vector<DL_RESULT>& results) const;
   void DropOverflowTasks();
   std::vector<DL_RESULT> FilterResults(std::vector<DL_RESULT> input) const;

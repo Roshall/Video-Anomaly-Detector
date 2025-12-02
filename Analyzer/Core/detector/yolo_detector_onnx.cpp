@@ -14,10 +14,9 @@ YOLODetector::~YOLODetector() {
   Stop();
 }
 
-void YOLODetector::AddTask(unsigned long id1, unsigned long id2,
-                           const cv::Mat& image) {
+void YOLODetector::AddTask(Task task) {
   DropOverflowTasks();
-  task_queue_.enqueue(Task{{id1, id2}, image});
+  task_queue_.enqueue(task);
   task_sem_.release();
 }
 
@@ -77,7 +76,7 @@ void YOLODetector::InvokeCallback(const ResourceID& id,
                                   const std::vector<DL_RESULT>& results) const {
   std::shared_lock<std::shared_mutex> lock(callback_mutex_);
   if (auto it = callbacks_.find(id); it != callbacks_.end()) {
-    it->second(results);
+    it->second({results, id[2]});
   }
 }
 
