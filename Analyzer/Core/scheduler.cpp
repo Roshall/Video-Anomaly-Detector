@@ -7,14 +7,16 @@
 #include <vector>
 
 #include "alarm.h"
+#include "analyzer.h"
 #include "config.h"
+#include "detector/constant_yolo.h"
 #include "monitor.h"
 #include "worker.h"
 
 namespace avs_analyzer {
 BS::thread_pool<> g_th_pool{3};
 
-Scheduler::Scheduler(Config& config) : config_(config) {}
+Scheduler::Scheduler(Config& config) : config_(config), detector_pool_(config.model_dir, config.use_accelerator) {}
 
 Scheduler::~Scheduler() = default;
 
@@ -205,5 +207,13 @@ bool Scheduler::ContainsMonitor(const std::string& video_code,
     return false;
   }
   return it->second->ContainsMonitor(code);
+}
+
+DetectorPool::AddTaskFunc Scheduler::RegisterAnalyzerCallback(Analyzer& analyzer) {
+  return detector_pool_.RegisterToDetector(analyzer.task(), analyzer.id(), analyzer.detector_callback());
+}
+
+void Scheduler::DeregisterAnalyzerCallback(Analyzer& analyzer) {
+  detector_pool_.DeregisterToDetector(analyzer.task(), analyzer.id());
 }
 }  // namespace avs_analyzer

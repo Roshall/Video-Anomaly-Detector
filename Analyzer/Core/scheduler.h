@@ -3,7 +3,6 @@
 
 #include <concurrentqueue/moodycamel/concurrentqueue.h>  // lock-free queue
 
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -12,6 +11,7 @@
 #include <vector>
 
 #include "analyzer.h"
+#include "detector/constant_yolo.h"
 #include "event.h"
 
 using namespace moodycamel;
@@ -56,6 +56,9 @@ class Scheduler {
   void NotifyCleanUp();
   void ClearWorker();
   bool ContainsMonitor(const std::string& video_code, const std::string& code);
+  DetectorPool::AddTaskFunc RegisterAnalyzerCallback(Analyzer& analyzer);
+
+  void DeregisterAnalyzerCallback(Analyzer& analyzer);
 
  private:
   Config& config_;
@@ -75,6 +78,7 @@ class Scheduler {
 
 
   ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
+  DetectorPool detector_pool_;
 
   std::counting_semaphore<> clean_up_cs_{0};
 
