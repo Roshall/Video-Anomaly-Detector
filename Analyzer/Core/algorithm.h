@@ -2,7 +2,9 @@
 #define ANALYZER_ALGORITHM_H
 
 #include <opencv2/opencv.hpp>
+#include <readerwriterqueue.h>
 #include <vector>
+#include "detector/yolo_detector_onnx.h"
 
 namespace avs_analyzer {
 struct Detection {
@@ -12,14 +14,16 @@ struct Detection {
 
 class Algorithm {
  public:
+  using ResultType = YOLODetector::ResultType;
   Algorithm() = default;
   virtual ~Algorithm();
 
-  virtual Detection DetectObjects(const cv::Mat& image) = 0;
-  bool CreateState() const;
+  virtual Detection ProcessDetections() = 0;
+  ResultType FetchOneFrameResults();
+  void PushResult(const ResultType& results);
 
  protected:
-  bool create_state_{false};  // 创建状态，默认false
+  moodycamel::BlockingReaderWriterQueue<ResultType> result_queue_;
 };
 
 }  // namespace avs_analyzer
