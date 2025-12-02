@@ -9,10 +9,9 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <vector>
 
 #include "constant_pool.h"
-#include "inference.h"
+#include "yolo_detector_onnx.h"
 #include "task.h"
 
 namespace avs_analyzer {
@@ -20,15 +19,14 @@ class YOLODetector;
 
 class DetectorPool {
  public:
-  using Callback = std::function<void(const std::vector<DL_RESULT>&)>;
-
+  using Callback = YOLODetector::Callback;
   DetectorPool(std::string_view model_path, bool use_accelerator);
   ~DetectorPool();
 
   // Get or create detector for the task, register callback, and return handle
     // Register a detector for `task` and callback; returns an Adder callable to push tasks.
-    std::function<void(unsigned long id1, unsigned long id2, const cv::Mat& image)>
-    RegisterToDetector(Task task, unsigned long id1, unsigned long id2, Callback cb);
+    std::function<void(unsigned long id1, unsigned long id2, unsigned long id3, const cv::Mat& image)>
+RegisterToDetector(Task task, unsigned long id1, unsigned long id2, Callback cb);
 
   // Remove detector if it has stopped running
   bool RemoveDetector(Task task, bool force=true);
