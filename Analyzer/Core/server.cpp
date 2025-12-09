@@ -443,9 +443,15 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
     std::string code;
     std::string video_code;
 
-    if (root["code"].isString() && root["cameraId"].isString()) {
+    try {
+      if (root["code"].isString() && root["cameraId"].isString()) {
       code = root["code"].asCString();
       video_code = root["videoCode"].asCString();
+      }
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "Exception: %s\n", e.what());
+      LOGE("Exception when parsing remove monitor: {}. Request json: {}", e.what(), root.toStyledString().data());
+      return;
     }
     if (!code.empty()) {
       scheduler->MonitorRemove(video_code, code, result_code, result_msg);
