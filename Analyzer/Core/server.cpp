@@ -370,7 +370,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       LevelMode mode;
       Monitor monitor{
           .code = root["code"].asCString(),
-          .video_code = root["CameraId"].asCString(),
+          .video_code = root["cameraId"].asCString(),
           .source_type = root["sourceType"].asCString(),
           .stream_url = root["streamUrl"].asString(),
           .push_stream = root["pushStream"].asBool(),
@@ -446,12 +446,14 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
     try {
       if (root["code"].isString() && root["cameraId"].isString()) {
       code = root["code"].asCString();
-      video_code = root["videoCode"].asCString();
+      video_code = root["cameraId"].asCString();
+      } else {
+        LOGE("invalid parameter type of 'cameraId' and 'code' when removing monitor.");
+        result_msg = "validate parameter error";
       }
     } catch (const std::exception& e) {
-      std::fprintf(stderr, "Exception: %s\n", e.what());
-      LOGE("Exception when parsing remove monitor: {}. Request json: {}", e.what(), root.toStyledString().data());
-      return;
+      LOGE("Exception when parsing remove request json: {}.", e.what());
+      result_msg = "validate parameter error";
     }
     if (!code.empty()) {
       scheduler->MonitorRemove(video_code, code, result_code, result_msg);
