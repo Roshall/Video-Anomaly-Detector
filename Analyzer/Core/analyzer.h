@@ -16,6 +16,7 @@ class Analyzer {
   ~Analyzer();
 
   [[nodiscard]] std::vector<cv::Rect> ProcessVideoFrame(const cv::Mat& image) const;
+  void SetROI();
 
  private:
   Monitor* monitor_;

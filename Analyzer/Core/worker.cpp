@@ -780,6 +780,7 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
                                       video_context_.height)) {
     LOGE("ParseRecognitionRegion() error for monitor {}", monitor.code);
   }
+  ctx.analyzer->SetROI();
   ctx.roi_entries.clear();
   if (!monitor.roi_points.empty()) {
     ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);

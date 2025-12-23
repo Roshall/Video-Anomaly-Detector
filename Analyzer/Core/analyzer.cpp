@@ -30,9 +30,7 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
 
 Analyzer::Analyzer(Monitor* monitor, const Config& config, float conf_th)
     : monitor_(monitor),
-      conf_th_(conf_th),
-      roi_area_(cv::contourArea(monitor->roi_points)),
-      roi_bbox_(computeBoundingBox(monitor_->roi_points)) {
+      conf_th_(conf_th) {
   if (monitor->task == Task::kWandering) {
 
     algorithm_ = std::make_unique<TrackAlgorithm>(config);
@@ -89,5 +87,10 @@ std::vector<cv::Rect> Analyzer::ProcessVideoFrame(const cv::Mat& image) const {
   }
 
   return detection_results;
+}
+
+void Analyzer::SetROI() {
+  roi_area_ = cv::contourArea(monitor_->roi_points);
+  roi_bbox_ = computeBoundingBox(monitor_->roi_points);
 }
 }  // namespace avs_analyzer
