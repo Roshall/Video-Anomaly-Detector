@@ -18,7 +18,7 @@ AvPushStream::AvPushStream(Worker* worker)
 AvPushStream::~AvPushStream() { CloseConnect(); }
 
 bool AvPushStream::Connect() {
-  return recorder_.Initialize(std::string(worker_->PushStreamUrl()), false);
+  return recorder_.Initialize(worker_->PushStreamUrl(), false);
 }
 bool AvPushStream::Reconnect() {
   if (connect_count <= 100) {
