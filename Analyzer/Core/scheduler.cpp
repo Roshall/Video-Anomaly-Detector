@@ -86,7 +86,9 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
     return;
   }
   if (monitor->video_code.empty()) {
-    monitor->video_code = monitor->code;
+    result_msg = "videoCode is empty";
+    result_code = 0;
+    return;
   }
   auto file = monitor->source_type == "file";
   if (file) {
