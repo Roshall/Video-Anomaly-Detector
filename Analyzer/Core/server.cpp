@@ -397,14 +397,12 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
                               result_code, result_msg, event_cfg);
       } else {
         LOGE("invalid message.");
-        return;
       }
 
     } catch (const Json::Exception& e){
       LOGE("Json parsing error when adding monitor: {}", e.what());
     }catch (const std::exception& e) {
       LOGE("runtime error when adding monitor: {}", e.what());
-      return;
     }
 
   } else {
