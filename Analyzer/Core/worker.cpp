@@ -106,12 +106,23 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     std::unique_lock lock(monitors_mutex_);
     if (stream_url_.empty()) {
       stream_url_ = monitor->stream_url;
-    }
-    if (monitor->stream_url != stream_url_) {
+    } else if (monitor->stream_url != stream_url_) {
       LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
            video_code_, monitor->code, monitor->stream_url,
            stream_url_);
       monitor->stream_url = stream_url_;
+    }
+    if (push_stream_url_.empty() && monitor->push_stream) {
+      push_stream_url_ = monitor->push_stream_url;
+    } else if (monitor->push_stream &&
+               monitor->push_stream_url != push_stream_url_) {
+      LOGW("Worker {} ignores monitor {} custom push_stream_url {}; using {}",
+           video_code_, monitor->code, monitor->push_stream_url,
+           push_stream_url_);
+      monitor->push_stream_url = push_stream_url_;
+    }
+    if (video_code_.empty()) {
+      video_code_ = monitor->video_code;
     }
     if (video_context_.valid()) {
       PrepareMonitorForStream(*ctx);
