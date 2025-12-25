@@ -313,11 +313,11 @@ void ApiMonitor(evhttp_request* req, void* arg) {
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
     Monitor monitor;
-    if (!root["code"].isString() || !root["CamaraId"].isString()) {
+    if (!root["code"].isString() || !root["cameraId"].isString()) {
       result_msg = "invalid request parameter";
     } else {
       std::string code = root["code"].asCString();
-      std::string video_code = root["CameraId"].asCString();
+      std::string video_code = root["cameraId"].asCString();
       if (scheduler->ContainsMonitor(video_code, code)) {
         result_monitor["code"] = code;
         result_code = 1000;
