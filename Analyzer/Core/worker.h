@@ -90,7 +90,7 @@ class Worker {
     int current_highest_level;
   };
 
-  void PrepareMonitorForStream(MonitorContext& ctx) const;
+  void PrepareMonitorForStream(MonitorContext& ctx, int width, int height) const;
   void EnsureAllPipelinesReady(int out_width, int out_height);
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();

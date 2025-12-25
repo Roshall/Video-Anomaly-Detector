@@ -59,7 +59,7 @@ Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
 Worker::~Worker() {
   LOGI("worker[videoCode={}, streamUrl={}] shutting down.", video_code_,
        stream_url_);
-  state_.store(false);
+  state_.store(false, std::memory_order_release);
   if (in_stream) {
     in_stream->SignalShutdown();
   }
@@ -118,12 +118,18 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   }
   ctx->current_highest_level = 0;
   
-  // Check video context validity before acquiring monitors_mutex_ 
+  // Check video context validity before acquiring monitors_mutex_
   // to maintain consistent lock ordering (video_context_mutex_ -> monitors_mutex_)
   bool should_prepare = false;
+  int video_width = 0;
+  int video_height = 0;
   {
     std::shared_lock video_lock(video_context_mutex_);
     should_prepare = video_context_.valid();
+    if (should_prepare) {
+      video_width = video_context_.width;
+      video_height = video_context_.height;
+    }
   }
   
   {
@@ -149,7 +155,7 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
       video_code_ = ctx->monitor->video_code;
     }
     if (should_prepare) {
-      PrepareMonitorForStream(*ctx);
+      PrepareMonitorForStream(*ctx, video_width, video_height);
     }
     monitors_.push_back(std::move(ctx));
   }
@@ -202,7 +208,7 @@ bool Worker::start(std::string& msg) {
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 
-  state_.store(true);
+  state_.store(true, std::memory_order_release);
   {
     std::lock_guard lock(threads_mutex_);
     threads_.push_back(
@@ -220,10 +226,10 @@ bool Worker::start(std::string& msg) {
   return true;
 }
 
-bool Worker::State() const { return state_.load(); }
+bool Worker::State() const { return state_.load(std::memory_order_acquire); }
 
 void Worker::Remove() {
-  state_.store(false);
+  state_.store(false, std::memory_order_release);
   if (in_stream) {
     in_stream->SignalShutdown();
   }
@@ -233,7 +239,7 @@ void Worker::Remove() {
   scheduler->RemoveWorker(video_code_);
 }
 
-void Worker::Stop() { state_.store(false); }
+void Worker::Stop() { state_.store(false, std::memory_order_release); }
 
 void Worker::OfflineAnalyze() {
   // Copy necessary data from MonitorContext while holding the lock to avoid
@@ -503,7 +509,7 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
-  std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
+  std::scoped_lock lock(annotator_mutex_, event_manager_mutex_);
   if (!event_manager_) {
     event_manager_ = std::make_unique<CombinedEventManager>();
     event_manager_->SetAnnotatorMutex(&annotator_mutex_);
@@ -832,16 +838,9 @@ void Worker::RemoveMonitor(const std::string& code) {
   }
 }
 
-void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
-  int width = 0;
-  int height = 0;
-  {
-    std::shared_lock video_lock(video_context_mutex_);
-    if (!video_context_.valid()) {
-      return;
-    }
-    width = video_context_.width;
-    height = video_context_.height;
+void Worker::PrepareMonitorForStream(MonitorContext& ctx, int width, int height) const {
+  if (width <= 0 || height <= 0) {
+    return;
   }
   auto& monitor = *ctx.monitor;
   monitor.roi_points.clear();
@@ -871,7 +870,7 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
   std::unique_lock lock(monitors_mutex_);
   for (auto& ctx_ptr : monitors_) {
     auto& ctx = *ctx_ptr;
-    PrepareMonitorForStream(ctx);
+    PrepareMonitorForStream(ctx, video_ctx_copy.width, video_ctx_copy.height);
     if (!ctx.analyzer) {
       try {
         ctx.analyzer = std::make_unique<Analyzer>(ctx.monitor.get(),
@@ -910,13 +909,13 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
 
 void Worker::StartPushThreadIfNeeded() {
   std::lock_guard lock(push_stream_mutex_);
-  
+
   // Check preconditions - call NeedPushStream() before acquiring video_context_mutex_
   // to avoid complex nested lock ordering
   if (!NeedPushStream() || std::atomic_load(&out_stream) || !State()) {
     return;
   }
-  
+
   {
     std::shared_lock video_lock(video_context_mutex_);
     if (!video_context_.valid()) {
@@ -931,6 +930,8 @@ void Worker::StartPushThreadIfNeeded() {
   }
 
   std::atomic_store(&out_stream, out);
+  // Ensure detectors are created with correct output resolution
+  EnsureAllPipelinesReady(out->width(), out->height());
   std::lock_guard tlock(threads_mutex_);
   threads_.push_back(std::make_unique<std::thread>([out]() { out->EncodeVideo(); }));
 }
@@ -967,10 +968,15 @@ void Worker::OnStreamOpened(VideoContext context) {
     std::unique_lock video_lock(video_context_mutex_);
     video_context_ = context;
   }
+  // Update atomic variables for fast-path getters
+  video_index_.store(context.video_index, std::memory_order_release);
+  video_width_.store(context.width, std::memory_order_release);
+  video_height_.store(context.height, std::memory_order_release);
+
   {
     std::unique_lock lock(monitors_mutex_);
     for (auto& ctx : monitors_) {
-      PrepareMonitorForStream(*ctx);
+      PrepareMonitorForStream(*ctx, context.width, context.height);
     }
   }
   // Reinitialize or update annotator with current monitor tasks
