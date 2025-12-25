@@ -2,6 +2,7 @@
 
 #include "Utils/log.h"
 #include "frame_recorder.h"
+#include "scheduler.h"
 #include "worker.h"
 #include "frame.h"
 
@@ -75,7 +76,12 @@ void AvPushStream::EncodeVideo() {
           } else {
             LOGI("reConnect error : mConnectCount={}", connect_count);
             CloseConnect();
-            worker_->CleanUpPushThread();
+            // Cleanup must not join from this encoder thread.
+            g_th_pool.detach_task([w = worker_]() {
+              if (w) {
+                w->CleanUpPushThread();
+              }
+            });
             return;
           }
         } else {

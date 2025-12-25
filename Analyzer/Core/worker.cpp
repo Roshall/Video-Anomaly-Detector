@@ -8,7 +8,6 @@
 #include <format>
 #include <mutex>
 #include <optional>
-#include <ranges>
 #include <string>
 #include <thread>
 #include <utility>
@@ -63,10 +62,16 @@ Worker::~Worker() {
   if (in_stream) {
     in_stream->SignalShutdown();
   }
-  if (out_stream) {
-    out_stream->SignalShutdown();
+  if (auto out = std::atomic_load(&out_stream)) {
+    out->SignalShutdown();
   }
-  for (auto& thread : threads_) {
+
+  std::vector<std::unique_ptr<std::thread>> threads_to_join;
+  {
+    std::lock_guard lock(threads_mutex_);
+    threads_to_join.swap(threads_);
+  }
+  for (auto& thread : threads_to_join) {
     if (thread && thread->joinable()) {
       thread->join();
     }
@@ -85,49 +90,51 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
 
   auto ctx = std::make_unique<MonitorContext>();
   
+  ctx->monitor = std::move(monitor);
+
   ctx->event_cfg = event_cfg;
   ctx->analyzer = std::make_unique<Analyzer>(
-      monitor.get(), scheduler->GetConfig(),
-      monitor->conf_threshold);
-  if (out_stream) {
+      ctx->monitor.get(), scheduler->GetConfig(),
+      ctx->monitor->conf_threshold);
+
+  if (auto out = std::atomic_load(&out_stream)) {
     try {
       ctx->detector = std::make_unique<EventDetector>(
           event_cfg, *ctx->analyzer,
           FormatConvertor{video_context_.width, video_context_.height,
-                          video_context_.format, out_stream->width(),
-                          out_stream->height()});
+                          video_context_.format, out->width(),
+                          out->height()});
     } catch (const std::exception& ex) {
       LOGE("Failed to create event detector for monitor {}: {}",
-           monitor->code, ex.what());
+           ctx->monitor->code, ex.what());
     }
   }
   ctx->current_highest_level = 0;
   {
     std::unique_lock lock(monitors_mutex_);
     if (stream_url_.empty()) {
-      stream_url_ = monitor->stream_url;
-    } else if (monitor->stream_url != stream_url_) {
+      stream_url_ = ctx->monitor->stream_url;
+    } else if (ctx->monitor->stream_url != stream_url_) {
       LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
-           video_code_, monitor->code, monitor->stream_url,
+           video_code_, ctx->monitor->code, ctx->monitor->stream_url,
            stream_url_);
-      monitor->stream_url = stream_url_;
+      ctx->monitor->stream_url = stream_url_;
     }
     if (push_stream_url_.empty() && monitor->push_stream) {
-      push_stream_url_ = monitor->push_stream_url;
+      push_stream_url_ = ctx->monitor->push_stream_url;
     } else if (monitor->push_stream &&
                monitor->push_stream_url != push_stream_url_) {
       LOGW("Worker {} ignores monitor {} custom push_stream_url {}; using {}",
-           video_code_, monitor->code, monitor->push_stream_url,
+           video_code_, ctx->monitor->code, ctx->monitor->push_stream_url,
            push_stream_url_);
-      monitor->push_stream_url = push_stream_url_;
+      ctx->monitor->push_stream_url = push_stream_url_;
     }
     if (video_code_.empty()) {
-      video_code_ = monitor->video_code;
+      video_code_ = ctx->monitor->video_code;
     }
     if (video_context_.valid()) {
       PrepareMonitorForStream(*ctx);
     }
-    ctx->monitor = std::move(monitor);
     monitors_.push_back(std::move(ctx));
   }
   
@@ -164,25 +171,30 @@ bool Worker::start(std::string& msg) {
   }
 
   if (NeedPushStream()) {
-    out_stream = std::make_unique<AvPushStream>(this);
-    if (!out_stream->Connect()) {
+    auto out = std::make_shared<AvPushStream>(this);
+    if (!out->Connect()) {
       msg = "push stream connect error";
-      out_stream.reset();
       return false;
     }
+    std::atomic_store(&out_stream, std::move(out));
   }
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 
   state_.store(true);
-  threads_.push_back(
-      std::make_unique<std::thread>([this]() { this->in_stream->Read(); }));
-  threads_.push_back(
-      std::make_unique<std::thread>([this]() { this->DecodeVideo(); }));
-  if (out_stream) {
-    EnsureAllPipelinesReady(out_stream->width(), out_stream->height());
+  {
+    std::lock_guard lock(threads_mutex_);
+    threads_.push_back(
+        std::make_unique<std::thread>([this]() { this->in_stream->Read(); }));
+    threads_.push_back(
+        std::make_unique<std::thread>([this]() { this->DecodeVideo(); }));
+  }
+
+  if (auto out = std::atomic_load(&out_stream)) {
+    EnsureAllPipelinesReady(out->width(), out->height());
+    std::lock_guard lock(threads_mutex_);
     threads_.push_back(std::make_unique<std::thread>(
-        [this]() { this->out_stream->EncodeVideo(); }));
+        [out]() { out->EncodeVideo(); }));
   }
   return true;
 }
@@ -194,8 +206,8 @@ void Worker::Remove() {
   if (in_stream) {
     in_stream->SignalShutdown();
   }
-  if (out_stream) {
-    out_stream->SignalShutdown();
+  if (auto out = std::atomic_load(&out_stream)) {
+    out->SignalShutdown();
   }
   scheduler->RemoveWorker(video_code_);
 }
@@ -539,8 +551,15 @@ void Worker::DecodeVideo() {
     return;
   }
 
-  int out_width = out_stream ? out_stream->width() : width;
-  int out_height = out_stream ? out_stream->height() : height;
+  int out_width = 0;
+  int out_height = 0;
+  if (auto out = std::atomic_load(&out_stream)) {
+    out_width = out->width();
+    out_height = out->height();
+  } else {
+    out_width = width;
+    out_height = height;
+  }
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
@@ -558,8 +577,13 @@ void Worker::DecodeVideo() {
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
 
-    out_width = out_stream ? out_stream->width() : width;
-    out_height = out_stream ? out_stream->height() : height;
+    if (auto out = std::atomic_load(&out_stream)) {
+      out_width = out->width();
+      out_height = out->height();
+    } else {
+      out_width = width;
+      out_height = height;
+    }
 
     std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
     std::vector<MonitorEventSnapshot> event_snapshots;
@@ -627,7 +651,7 @@ void Worker::DecodeVideo() {
           if (annotated_frame) {
             // Update the highest level in context (need lock)
             {
-              std::shared_lock lock(monitors_mutex_);
+              std::unique_lock lock(monitors_mutex_);
               for (auto& ctx : monitors_) {
                 if (ctx->monitor->code == snapshot.monitor_code) {
                   ctx->current_highest_level = level_idx;
@@ -646,7 +670,7 @@ void Worker::DecodeVideo() {
           if (level_idx > snapshot.current_highest_level && annotated_frame) {
             // Update the highest level in context (need lock)
             {
-              std::shared_lock lock(monitors_mutex_);
+              std::unique_lock lock(monitors_mutex_);
               for (auto& ctx : monitors_) {
                 if (ctx->monitor->code == snapshot.monitor_code) {
                   ctx->current_highest_level = level_idx;
@@ -660,7 +684,7 @@ void Worker::DecodeVideo() {
         case EventDetector::kEventEnd: {
           // Reset the highest level in context (need lock)
           {
-            std::shared_lock lock(monitors_mutex_);
+            std::unique_lock lock(monitors_mutex_);
             for (auto& ctx : monitors_) {
               if (ctx->monitor->code == snapshot.monitor_code) {
                 ctx->current_highest_level = 0;
@@ -684,8 +708,10 @@ void Worker::DecodeVideo() {
       }
     }
 
-    if (out_stream && combined_result.annotated_frame) {
-      out_stream->AddVideoFrame(std::move(combined_result.annotated_frame));
+    if (auto out = std::atomic_load(&out_stream)) {
+      if (combined_result.annotated_frame) {
+        out->AddVideoFrame(std::move(combined_result.annotated_frame));
+      }
     }
 
     av_frame_unref(frame_yuv420p.get());
@@ -832,35 +858,43 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
 }
 
 void Worker::StartPushThreadIfNeeded() {
-  if (!NeedPushStream() || out_stream || !State() || !video_context_.valid()) {
+  std::lock_guard lock(push_stream_mutex_);
+  if (!NeedPushStream() || std::atomic_load(&out_stream) || !State() || !video_context_.valid()) {
     return;
   }
 
-  out_stream = std::make_unique<AvPushStream>(this);
-  if (!out_stream->Connect()) {
+  auto out = std::make_shared<AvPushStream>(this);
+  if (!out->Connect()) {
     LOGE("push stream connect error for {}", push_stream_url_);
-    out_stream.reset();
     return;
   }
-  threads_.push_back(std::make_unique<std::thread>(
-      [this]() { this->out_stream->EncodeVideo(); }));
+
+  std::atomic_store(&out_stream, out);
+  std::lock_guard tlock(threads_mutex_);
+  threads_.push_back(std::make_unique<std::thread>([out]() { out->EncodeVideo(); }));
 }
 
 void Worker::CleanUpPushThread() {
-  std::lock_guard lock(push_stream_mutex_);
-  if (threads_.size() == 3) {
-    const auto push_thread = std::move(threads_.back());
-    threads_.pop_back();
-    if (push_thread->joinable()) {
-      push_thread->join();
+  std::unique_ptr<std::thread> push_thread;
+  {
+    std::lock_guard lock(threads_mutex_);
+    if (threads_.size() == 3) {
+      push_thread = std::move(threads_.back());
+      threads_.pop_back();
     }
-    out_stream.reset();
   }
+  if (push_thread && push_thread->joinable()) {
+    push_thread->join();
+  }
+  std::atomic_store(&out_stream, std::shared_ptr<AvPushStream>{});
 }
 
 void Worker::ClosePushThreadIfNeeded() {
-  if (!NeedPushStream() && out_stream) {
-    out_stream->SignalShutdown();
+  std::lock_guard lock(push_stream_mutex_);
+  if (!NeedPushStream()) {
+    if (auto out = std::atomic_load(&out_stream)) {
+      out->SignalShutdown();
+    }
     g_th_pool.detach_task([this] {
       CleanUpPushThread();
     });

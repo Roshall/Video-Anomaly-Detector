@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <thread>
 #include <string_view>
@@ -51,9 +52,9 @@ class Worker {
   [[nodiscard]] const std::string& Code() const;
   [[nodiscard]] std::string_view StreamUrl() const { return stream_url_; }
   void OnStreamOpened(VideoContext context);
-  [[nodiscard]] int VideoStreamIndex() const { return video_context_.video_index; }
-  [[nodiscard]] int VideoWidth() const { return video_context_.width; }
-  [[nodiscard]] int VideoHeight() const { return video_context_.height; }
+  [[nodiscard]] int VideoStreamIndex() const { return video_index_.load(std::memory_order_acquire); }
+  [[nodiscard]] int VideoWidth() const { return video_width_.load(std::memory_order_acquire); }
+  [[nodiscard]] int VideoHeight() const { return video_height_.load(std::memory_order_acquire); }
   [[nodiscard]] std::string_view PushStreamUrl() const {
     return push_stream_url_;
   }
@@ -61,7 +62,9 @@ class Worker {
 
   Scheduler* scheduler;
   std::unique_ptr<AvPullStream> in_stream{};
-  std::unique_ptr<AvPushStream> out_stream{};
+  // Push stream is accessed concurrently by decode thread, encoder thread,
+  // and admin/API threads. Use atomic shared_ptr load/store for safe lifetime.
+  std::shared_ptr<AvPushStream> out_stream{};
  private:
     struct MonitorContext {
       std::unique_ptr<Monitor> monitor;
@@ -102,11 +105,19 @@ class Worker {
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
+  // Fast-path atomics for hot getters used by pull/push stream loops.
+  std::atomic<int> video_index_{-1};
+  std::atomic<int> video_width_{0};
+  std::atomic<int> video_height_{0};
+
+  // Protects composite updates/reads of video_context_.
+  mutable std::mutex video_context_mutex_;
   std::string stream_url_{};
   std::string push_stream_url_{};
   FrameWallClock timer_;
   std::atomic<bool> state_{false};
   std::vector<std::unique_ptr<std::thread>> threads_;
+  mutable std::mutex threads_mutex_;
   bool file_{false};
   std::vector<MonitorContextPtr> monitors_;
   mutable std::shared_mutex monitors_mutex_;
