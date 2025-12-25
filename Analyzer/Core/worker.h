@@ -103,6 +103,9 @@ class Worker {
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,
       std::string_view monitor_code);
 
+  // Set a monitor's current highest level (thread-safe)
+  void SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level);
+
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
   // Fast-path atomics for hot getters used by pull/push stream loops.

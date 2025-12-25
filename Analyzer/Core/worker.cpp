@@ -650,15 +650,7 @@ void Worker::DecodeVideo() {
         case EventDetector::kEventStart: {
           if (annotated_frame) {
             // Update the highest level in context (need lock)
-            {
-              std::unique_lock lock(monitors_mutex_);
-              for (auto& ctx : monitors_) {
-                if (ctx->monitor->code == snapshot.monitor_code) {
-                  ctx->current_highest_level = level_idx;
-                  break;
-                }
-              }
-            }
+            SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
             AlarmImage(snapshot.monitor_code,
                        snapshot.start_pts, snapshot.timestamp,
                        *annotated_frame, pict_writer,
@@ -669,29 +661,13 @@ void Worker::DecodeVideo() {
         case EventDetector::kEventActive: {
           if (level_idx > snapshot.current_highest_level && annotated_frame) {
             // Update the highest level in context (need lock)
-            {
-              std::unique_lock lock(monitors_mutex_);
-              for (auto& ctx : monitors_) {
-                if (ctx->monitor->code == snapshot.monitor_code) {
-                  ctx->current_highest_level = level_idx;
-                  break;
-                }
-              }
-            }
+            SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
           }
           break;
         }
         case EventDetector::kEventEnd: {
           // Reset the highest level in context (need lock)
-          {
-            std::unique_lock lock(monitors_mutex_);
-            for (auto& ctx : monitors_) {
-              if (ctx->monitor->code == snapshot.monitor_code) {
-                ctx->current_highest_level = 0;
-                break;
-              }
-            }
-          }
+          SetMonitorCurrentHighestLevel(snapshot.monitor_code, 0);
           // TODO: report event ended
           break;
         }
@@ -853,6 +829,16 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
         LOGE("Failed to create event detector for monitor {}: {}",
              ctx.monitor->code, ex.what());
       }
+    }
+  }
+}
+
+void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level) {
+  std::unique_lock lock(monitors_mutex_);
+  for (auto& ctx : monitors_) {
+    if (ctx && ctx->monitor && ctx->monitor->code == monitor_code) {
+      ctx->current_highest_level = level;
+      break;
     }
   }
 }
