@@ -139,7 +139,7 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     if (video_code_.empty()) {
       video_code_ = ctx->monitor->video_code;
     }
-      std::shared_lock video_lock(video_context_mutex_);
+    std::shared_lock video_lock(video_context_mutex_);
     if (video_context_.valid()) {
       PrepareMonitorForStream(*ctx);
     }
@@ -488,7 +488,8 @@ void Worker::EnsureAnnotatorReady() {
   if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
     return;
   }
-  std::scoped_lock lock(annotator_mutex_);
+  // lock both annotator and event manager mutexes to prevent deadlock
+  std::scoped_lock lock(annotator_mutex_, event_manager_mutex_);
   // Quick-path: avoid reinitializing if it already exists
   if (annotator_) return;
 
@@ -508,9 +509,6 @@ void Worker::EnsureAnnotatorReady() {
     candidate.reset();
     return;
   }
-
-// Set annotator and the event_manager's pointer under both locks to avoid races
-  std::scoped_lock event_lock(event_manager_mutex_);
   annotator_ = std::move(candidate);
   if (event_manager_ && !event_manager_->HasAnnotator()) {
     event_manager_->SetAnnotator(annotator_.get());
@@ -793,8 +791,8 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
   int height = 0;
   {
     std::shared_lock video_lock(video_context_mutex_);
-  if (!video_context_.valid()) {
-    return;
+    if (!video_context_.valid()) {
+      return;
     }
     width = video_context_.width;
     height = video_context_.height;
@@ -863,8 +861,8 @@ void Worker::StartPushThreadIfNeeded() {
   std::lock_guard lock(push_stream_mutex_);
   {
     std::shared_lock video_lock(video_context_mutex_);
-  if (!NeedPushStream() || std::atomic_load(&out_stream) || !State() || !video_context_.valid()) {
-    return;
+    if (!NeedPushStream() || std::atomic_load(&out_stream) || !State() || !video_context_.valid()) {
+      return;
     }
   }
 
@@ -909,7 +907,7 @@ void Worker::ClosePushThreadIfNeeded() {
 void Worker::OnStreamOpened(VideoContext context) {
   {
     std::unique_lock video_lock(video_context_mutex_);
-  video_context_ = context;
+    video_context_ = context;
   }
   {
     std::unique_lock lock(monitors_mutex_);
