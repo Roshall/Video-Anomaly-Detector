@@ -136,8 +136,8 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
 
   // Update annotator legend whenever monitors are added
   EnsureAnnotatorReady();
+  std::scoped_lock lock(annotator_mutex_);
   if (annotator_) {
-    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
     annotator_->update_legend(GetMonitorTasks());
   }
 }
@@ -467,20 +467,17 @@ void Worker::EnsureAnnotatorReady() {
   if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
     return;
   }
-
+  std::scoped_lock lock(annotator_mutex_);
   // Quick-path: avoid reinitializing if it already exists
-  {
-    std::scoped_lock lock(annotator_mutex_);
-    if (annotator_) return;
-  }
+  if (annotator_) return;
 
   std::unique_ptr<DynamicAnnotator> candidate;
   try {
     candidate = std::make_unique<DynamicAnnotator>();
     if (const int ret = candidate->init(video_context_); ret < 0) {
       LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
-           video_context_.width, video_context_.height,
-           static_cast<int>(video_context_.format), ret);
+          video_context_.width, video_context_.height,
+          static_cast<int>(video_context_.format), ret);
       return;
     }
     // Build legend from monitors snapshot
@@ -491,13 +488,11 @@ void Worker::EnsureAnnotatorReady() {
     return;
   }
 
-  // Set annotator and the event_manager's pointer under both locks to avoid races
-  {
-    std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
-    annotator_ = std::move(candidate);
-    if (event_manager_ && !event_manager_->HasAnnotator()) {
-      event_manager_->SetAnnotator(annotator_.get());
-    }
+// Set annotator and the event_manager's pointer under both locks to avoid races
+  std::scoped_lock event_lock(event_manager_mutex_);
+  annotator_ = std::move(candidate);
+  if (event_manager_ && !event_manager_->HasAnnotator()) {
+    event_manager_->SetAnnotator(annotator_.get());
   }
 }
 
@@ -774,8 +769,9 @@ void Worker::RemoveMonitor(const std::string& code) {
 
     // Refresh annotator legend after a monitor removal
     EnsureAnnotatorReady();
+
+    std::scoped_lock lock(annotator_mutex_);
     if (annotator_) {
-      std::scoped_lock lock(event_manager_mutex_, annotator_mutex_);
       annotator_->update_legend(GetMonitorTasks());
     }
   }
