@@ -8,6 +8,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -99,6 +100,12 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
 
   if (auto out = std::atomic_load(&out_stream)) {
     try {
+      std::shared_lock video_lock(video_context_mutex_);
+      if (!video_context_.valid()) {
+        LOGE("Failed to create event detector for monitor {}: invalid video context",
+             ctx->monitor->code);
+        return;
+      }
       ctx->detector = std::make_unique<EventDetector>(
           event_cfg, *ctx->analyzer,
           FormatConvertor{video_context_.width, video_context_.height,
@@ -132,6 +139,7 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     if (video_code_.empty()) {
       video_code_ = ctx->monitor->video_code;
     }
+      std::shared_lock video_lock(video_context_mutex_);
     if (video_context_.valid()) {
       PrepareMonitorForStream(*ctx);
     }
@@ -476,6 +484,7 @@ void Worker::RebuildEventManager() {
 }
 
 void Worker::EnsureAnnotatorReady() {
+  std::shared_lock video_lock(video_context_mutex_);
   if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
     return;
   }
@@ -780,13 +789,19 @@ void Worker::RemoveMonitor(const std::string& code) {
 }
 
 void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
+  int width = 0;
+  int height = 0;
+  {
+    std::shared_lock video_lock(video_context_mutex_);
   if (!video_context_.valid()) {
     return;
+    }
+    width = video_context_.width;
+    height = video_context_.height;
   }
   auto& monitor = *ctx.monitor;
   monitor.roi_points.clear();
-  if (!monitor.ParseRecognitionRegion(video_context_.width,
-                                      video_context_.height)) {
+  if (!monitor.ParseRecognitionRegion(width, height)) {
     LOGE("ParseRecognitionRegion() error for monitor {}", monitor.code);
   }
   ctx.analyzer->SetROI();
@@ -797,6 +812,7 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
 }
 
 void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
+  std::shared_lock video_lock(video_context_mutex_);
   if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
     return;
   }
@@ -845,8 +861,11 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
 
 void Worker::StartPushThreadIfNeeded() {
   std::lock_guard lock(push_stream_mutex_);
+  {
+    std::shared_lock video_lock(video_context_mutex_);
   if (!NeedPushStream() || std::atomic_load(&out_stream) || !State() || !video_context_.valid()) {
     return;
+    }
   }
 
   auto out = std::make_shared<AvPushStream>(this);
@@ -888,7 +907,10 @@ void Worker::ClosePushThreadIfNeeded() {
 }
 
 void Worker::OnStreamOpened(VideoContext context) {
+  {
+    std::unique_lock video_lock(video_context_mutex_);
   video_context_ = context;
+  }
   {
     std::unique_lock lock(monitors_mutex_);
     for (auto& ctx : monitors_) {
