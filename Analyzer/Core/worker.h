@@ -114,7 +114,7 @@ class Worker {
   std::atomic<int> video_height_{0};
 
   // Protects composite updates/reads of video_context_.
-  mutable std::mutex video_context_mutex_;
+  mutable std::shared_mutex video_context_mutex_;
   std::string stream_url_{};
   std::string push_stream_url_{};
   FrameWallClock timer_;

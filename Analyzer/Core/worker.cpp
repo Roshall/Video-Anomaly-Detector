@@ -117,6 +117,15 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     }
   }
   ctx->current_highest_level = 0;
+  
+  // Check video context validity before acquiring monitors_mutex_ 
+  // to maintain consistent lock ordering (video_context_mutex_ -> monitors_mutex_)
+  bool should_prepare = false;
+  {
+    std::shared_lock video_lock(video_context_mutex_);
+    should_prepare = video_context_.valid();
+  }
+  
   {
     std::unique_lock lock(monitors_mutex_);
     if (stream_url_.empty()) {
@@ -139,8 +148,7 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     if (video_code_.empty()) {
       video_code_ = ctx->monitor->video_code;
     }
-    std::shared_lock video_lock(video_context_mutex_);
-    if (video_context_.valid()) {
+    if (should_prepare) {
       PrepareMonitorForStream(*ctx);
     }
     monitors_.push_back(std::move(ctx));
@@ -151,9 +159,14 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
 
   // Update annotator legend whenever monitors are added
   EnsureAnnotatorReady();
-  std::scoped_lock lock(annotator_mutex_);
-  if (annotator_) {
-    annotator_->update_legend(GetMonitorTasks());
+  
+  // Gather tasks before acquiring annotator_mutex_ to maintain lock ordering
+  auto tasks = GetMonitorTasks();
+  {
+    std::scoped_lock lock(annotator_mutex_);
+    if (annotator_) {
+      annotator_->update_legend(tasks);
+    }
   }
 }
 
@@ -223,19 +236,36 @@ void Worker::Remove() {
 void Worker::Stop() { state_.store(false); }
 
 void Worker::OfflineAnalyze() {
-  MonitorContext* ctx = nullptr;
+  // Copy necessary data from MonitorContext while holding the lock to avoid
+  // race conditions if RemoveMonitor() is called during offline analysis
+  std::unique_ptr<Monitor> monitor_copy;
+  EventDetectorConfig event_cfg_copy;
+  int video_ctx_width = 0;
+  int video_ctx_height = 0;
+  
   {
     std::shared_lock lock(monitors_mutex_);
-    if (!monitors_.empty()) {
-      ctx = monitors_.front().get();
+    if (monitors_.empty()) {
+      LOGE("offline analyze without monitor context");
+      return;
     }
+    auto* ctx = monitors_.front().get();
+    if (!ctx || !ctx->monitor) {
+      LOGE("offline analyze with invalid monitor context");
+      return;
+    }
+    // Deep copy the monitor to avoid race with RemoveMonitor
+    monitor_copy = std::make_unique<Monitor>(*ctx->monitor);
+    event_cfg_copy = ctx->event_cfg;
   }
-  if (!ctx) {
-    LOGE("offline analyze without monitor context");
-    return;
+  
+  {
+    std::shared_lock video_lock(video_context_mutex_);
+    video_ctx_width = video_context_.width;
+    video_ctx_height = video_context_.height;
   }
-
-  auto& monitor = *ctx->monitor;
+  
+  auto& monitor = *monitor_copy;
   auto in{Streamer(monitor.stream_url)};
   if (!in.Valid()) {
     LOGE("invalid stream");
@@ -250,8 +280,7 @@ void Worker::OfflineAnalyze() {
     return;
   }
   monitor.roi_points.clear();
-  if (!monitor.ParseRecognitionRegion(video_context_.width,
-                                      video_context_.height)) {
+  if (!monitor.ParseRecognitionRegion(video_ctx_width, video_ctx_height)) {
     LOGE("cannot parse recognition region for {}", monitor.code);
     return;
   }
@@ -261,21 +290,21 @@ void Worker::OfflineAnalyze() {
   }
 
   auto analyzer_ptr = std::make_unique<Analyzer>(
-      ctx->monitor.get(), scheduler->GetConfig(), monitor.conf_threshold);
+      monitor_copy.get(), scheduler->GetConfig(), monitor.conf_threshold);
   auto in_stream_ = in.stream();
   timer_.init(in.format_context(), in_stream_);
-  EventDetector checker{ctx->event_cfg,
+  EventDetector checker{event_cfg_copy,
                         *analyzer_ptr,
                         {width, height, in.PixelFormat(), width, height}};
   CombinedEventManager event_manager;
   CombinedEventConfig cfg{};
-  cfg.pre_event_buffer_ms = ctx->event_cfg.pre_event_buffer_ms;
-  cfg.post_event_buffer_ms = ctx->event_cfg.post_event_buffer_ms;
-  cfg.max_event_duration_ms = ctx->event_cfg.max_event_duration_ms;
+  cfg.pre_event_buffer_ms = event_cfg_copy.pre_event_buffer_ms;
+  cfg.post_event_buffer_ms = event_cfg_copy.post_event_buffer_ms;
+  cfg.max_event_duration_ms = event_cfg_copy.max_event_duration_ms;
   cfg.guard_window_ms = std::max(
-      static_cast<int64_t>(ctx->event_cfg.minor_stride_ms) *
-      ctx->event_cfg.window_size,
-      ctx->event_cfg.latest_duration_ms);
+      static_cast<int64_t>(event_cfg_copy.minor_stride_ms) *
+      event_cfg_copy.window_size,
+      event_cfg_copy.latest_duration_ms);
   event_manager.UpdateConfig(cfg);
 
   VideoContext overlay_ctx{.time_base = in_time_base,
@@ -484,11 +513,21 @@ void Worker::RebuildEventManager() {
 }
 
 void Worker::EnsureAnnotatorReady() {
-  std::shared_lock video_lock(video_context_mutex_);
-  if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
-    return;
+  // Copy video context under its lock first
+  VideoContext video_ctx_copy;
+  {
+    std::shared_lock video_lock(video_context_mutex_);
+    if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
+      return;
+    }
+    video_ctx_copy = video_context_;
   }
-  // lock both annotator and event manager mutexes to prevent deadlock
+  
+  // Gather monitor tasks before acquiring annotator/event_manager locks
+  // to maintain consistent lock ordering (monitors_mutex_ before others)
+  auto tasks = GetMonitorTasks();
+  
+  // Now acquire annotator and event manager mutexes
   std::scoped_lock lock(annotator_mutex_, event_manager_mutex_);
   // Quick-path: avoid reinitializing if it already exists
   if (annotator_) return;
@@ -496,14 +535,14 @@ void Worker::EnsureAnnotatorReady() {
   std::unique_ptr<DynamicAnnotator> candidate;
   try {
     candidate = std::make_unique<DynamicAnnotator>();
-    if (const int ret = candidate->init(video_context_); ret < 0) {
+    if (const int ret = candidate->init(video_ctx_copy); ret < 0) {
       LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
-          video_context_.width, video_context_.height,
-          static_cast<int>(video_context_.format), ret);
+          video_ctx_copy.width, video_ctx_copy.height,
+          static_cast<int>(video_ctx_copy.format), ret);
       return;
     }
-    // Build legend from monitors snapshot
-    candidate->update_legend(GetMonitorTasks());
+    // Build legend from monitors snapshot (already gathered above)
+    candidate->update_legend(tasks);
   } catch (const std::exception& ex) {
     LOGE("Failed to initialize worker annotator: {}", ex.what());
     candidate.reset();
@@ -594,8 +633,11 @@ void Worker::DecodeVideo() {
 
     std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
     std::vector<MonitorEventSnapshot> event_snapshots;
+    CombinedEventManager::Result combined_result;
 
     {
+      // Hold monitors_mutex_ during ProcessFrame to protect detector_infos pointers
+      // (detections and rois point to data inside MonitorContext)
       std::shared_lock lock(monitors_mutex_);
       detector_infos.reserve(monitors_.size());
       event_snapshots.reserve(monitors_.size());
@@ -632,17 +674,17 @@ void Worker::DecodeVideo() {
         ctx_ptr->monitor->level_mode,
         ctx_ptr->current_highest_level);
       }
-    }
-    // Lock released here - safe to process snapshots
 
-    CombinedEventManager::Result combined_result;
-    {
-      std::lock_guard lock(event_manager_mutex_);
-      if (event_manager_) {
-        combined_result = event_manager_->ProcessFrame(
-            frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
+      // Process frame while still holding monitors_mutex_ to keep detector_infos valid
+      {
+        std::lock_guard em_lock(event_manager_mutex_);
+        if (event_manager_) {
+          combined_result = event_manager_->ProcessFrame(
+              frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
+        }
       }
     }
+    // monitors_mutex_ released here - detector_infos pointers no longer used
 
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
@@ -779,9 +821,13 @@ void Worker::RemoveMonitor(const std::string& code) {
     // Refresh annotator legend after a monitor removal
     EnsureAnnotatorReady();
 
-    std::scoped_lock lock(annotator_mutex_);
-    if (annotator_) {
-      annotator_->update_legend(GetMonitorTasks());
+    // Gather tasks before acquiring annotator_mutex_ to maintain lock ordering
+    auto tasks = GetMonitorTasks();
+    {
+      std::scoped_lock lock(annotator_mutex_);
+      if (annotator_) {
+        annotator_->update_legend(tasks);
+      }
     }
   }
 }
@@ -810,9 +856,14 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
 }
 
 void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
-  std::shared_lock video_lock(video_context_mutex_);
-  if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
-    return;
+  // Copy video context values under lock, then release before acquiring other locks
+  VideoContext video_ctx_copy;
+  {
+    std::shared_lock video_lock(video_context_mutex_);
+    if (!video_context_.valid() || video_context_.format == AV_PIX_FMT_NONE) {
+      return;
+    }
+    video_ctx_copy = video_context_;
   }
 
   EnsureAnnotatorReady();
@@ -834,8 +885,8 @@ void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
     }
     if (ctx.analyzer && !ctx.detector) {
       try {
-        FormatConvertor convertor(video_context_.width, video_context_.height,
-                                  video_context_.format, out_width, out_height);
+        FormatConvertor convertor(video_ctx_copy.width, video_ctx_copy.height,
+                                  video_ctx_copy.format, out_width, out_height);
         ctx.detector = std::make_unique<EventDetector>(
             ctx.event_cfg, *ctx.analyzer, std::move(convertor));
         ctx.current_highest_level = 0;
@@ -859,9 +910,16 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
 
 void Worker::StartPushThreadIfNeeded() {
   std::lock_guard lock(push_stream_mutex_);
+  
+  // Check preconditions - call NeedPushStream() before acquiring video_context_mutex_
+  // to avoid complex nested lock ordering
+  if (!NeedPushStream() || std::atomic_load(&out_stream) || !State()) {
+    return;
+  }
+  
   {
     std::shared_lock video_lock(video_context_mutex_);
-    if (!NeedPushStream() || std::atomic_load(&out_stream) || !State() || !video_context_.valid()) {
+    if (!video_context_.valid()) {
       return;
     }
   }
