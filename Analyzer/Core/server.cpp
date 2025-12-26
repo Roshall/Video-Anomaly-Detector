@@ -313,11 +313,11 @@ void ApiMonitor(evhttp_request* req, void* arg) {
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
     Monitor monitor;
-    if (!root["code"].isString() || !root["CamaraId"].isString()) {
+    if (!root["code"].isString() || !root["cameraId"].isString()) {
       result_msg = "invalid request parameter";
     } else {
       std::string code = root["code"].asCString();
-      std::string video_code = root["CameraId"].asCString();
+      std::string video_code = root["cameraId"].asCString();
       if (scheduler->ContainsMonitor(video_code, code)) {
         result_monitor["code"] = code;
         result_code = 1000;
@@ -370,7 +370,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       LevelMode mode;
       Monitor monitor{
           .code = root["code"].asCString(),
-          .video_code = root["CameraId"].asCString(),
+          .video_code = root["cameraId"].asCString(),
           .source_type = root["sourceType"].asCString(),
           .stream_url = root["streamUrl"].asString(),
           .push_stream = root["pushStream"].asBool(),
@@ -397,14 +397,12 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
                               result_code, result_msg, event_cfg);
       } else {
         LOGE("invalid message.");
-        return;
       }
 
     } catch (const Json::Exception& e){
       LOGE("Json parsing error when adding monitor: {}", e.what());
     }catch (const std::exception& e) {
       LOGE("runtime error when adding monitor: {}", e.what());
-      return;
     }
 
   } else {
@@ -443,9 +441,17 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
     std::string code;
     std::string video_code;
 
-    if (root["code"].isString() && root["cameraId"].isString()) {
+    try {
+      if (root["code"].isString() && root["cameraId"].isString()) {
       code = root["code"].asCString();
-      video_code = root["videoCode"].asCString();
+      video_code = root["cameraId"].asCString();
+      } else {
+        LOGE("invalid parameter type of 'cameraId' and 'code' when removing monitor.");
+        result_msg = "validate parameter error";
+      }
+    } catch (const std::exception& e) {
+      LOGE("Exception when parsing remove request json: {}.", e.what());
+      result_msg = "validate parameter error";
     }
     if (!code.empty()) {
       scheduler->MonitorRemove(video_code, code, result_code, result_msg);

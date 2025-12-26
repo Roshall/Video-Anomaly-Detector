@@ -2,6 +2,7 @@
 
 #include "Utils/log.h"
 #include "frame_recorder.h"
+#include "scheduler.h"
 #include "worker.h"
 #include "frame.h"
 
@@ -18,7 +19,7 @@ AvPushStream::AvPushStream(Worker* worker)
 AvPushStream::~AvPushStream() { CloseConnect(); }
 
 bool AvPushStream::Connect() {
-  return recorder_.Initialize(std::string(worker_->PushStreamUrl()), false);
+  return recorder_.Initialize(worker_->PushStreamUrl(), false);
 }
 bool AvPushStream::Reconnect() {
   if (connect_count <= 100) {
@@ -36,7 +37,7 @@ void AvPushStream::CloseConnect() {
 
 void AvPushStream::AddVideoFrame(std::unique_ptr<Frame> frame) {
   if (video_frame_q_.size_approx() > 30 * 10) {
-    LOGW("To many frame remains, throw away one");
+    LOGW("Too many frames remain, throw away one");
     return;
   }
   video_frame_q_.enqueue(std::move(frame));
@@ -75,7 +76,12 @@ void AvPushStream::EncodeVideo() {
           } else {
             LOGI("reConnect error : mConnectCount={}", connect_count);
             CloseConnect();
-            worker_->CleanUpPushThread();
+            // Cleanup must not join from this encoder thread.
+            g_th_pool.detach_task([w = worker_]() {
+              if (w) {
+                w->CleanUpPushThread();
+              }
+            });
             return;
           }
         } else {

@@ -1,12 +1,15 @@
 #include "combined_event_manager.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <mutex>
+#include <numeric>
 #include <ranges>
 #include <utility>
 
 #include "Utils/log.h"
+#include "dynamic_annotator.h"
 
 namespace avs_analyzer {
 
@@ -173,7 +176,9 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
     LOGE("Failed to clone frame for aggregated annotation");
     return nullptr;
   }
-
+  if (!annotator_ || detectors.empty()) {
+    return working;
+  }
   static const std::vector<DynamicAnnotator::ROIEntry> kEmptyRois{};
   static const std::vector<cv::Rect> kEmptyRects{};
 
@@ -181,36 +186,34 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
     const auto* rects = info.detections ? info.detections : &kEmptyRects;
     object_count += static_cast<uint32_t>(rects->size());
   }
-
-  if (!annotator_) {
-    return working;
-  }
+  auto roi_count = std::accumulate(
+    detectors.begin(), detectors.end(), size_t{0},
+    [](size_t sum, const DetectorFrameInfo& info) {
+      return sum + (info.rois ? info.rois->size() : 0);
+  });
+  std::vector<DynamicAnnotator::BBoxEntry> bbox_entries;
+  bbox_entries.reserve(object_count);
+  std::vector<DynamicAnnotator::ROIEntry> roi_entries;
+  roi_entries.reserve(roi_count);
 
   for (const auto& info : detectors) {
     const auto* rects = info.detections ? info.detections : &kEmptyRects;
-    std::vector<DynamicAnnotator::BBoxEntry> bbox_entries;
-    bbox_entries.reserve(rects->size());
+    
     for (const auto& rect : *rects) {
       bbox_entries.emplace_back(info.task, rect);
     }
-
-    const auto& roi_entries = info.rois ? *info.rois : kEmptyRois;
-    if (bbox_entries.empty() && roi_entries.empty()) {
-      continue;
-    }
-
-    std::unique_lock<std::mutex> guard;
-    if (annotator_mutex_) {
-      guard = std::unique_lock<std::mutex>(*annotator_mutex_);
-    }
-    if (AVFramePtr annotated = annotator_->draw_elements(
-            working.get(), roi_entries, bbox_entries)) {
-      working = std::move(annotated);
-    } else {
-      LOGW("Failed to draw dynamic annotation for monitor {}", info.monitor_code);
-    }
+    roi_entries.insert(roi_entries.end(), info.rois->begin(), info.rois->end());
   }
-
+  std::unique_lock<std::mutex> guard;
+  if (annotator_mutex_) {
+    guard = std::unique_lock<std::mutex>(*annotator_mutex_);
+  }
+  if (AVFramePtr annotated = annotator_->draw_elements(
+          working.get(), roi_entries, bbox_entries)) {
+    working = std::move(annotated);
+  } else {
+    LOGW("Failed to draw dynamic annotation for monitor {}", detectors.front().monitor_code);
+  }
   return working;
 }
 

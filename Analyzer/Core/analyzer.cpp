@@ -1,6 +1,7 @@
 ﻿#include "analyzer.h"
 
 #include <json/json.h>
+#include <vector>
 
 
 #include "algorithm.h"
@@ -29,10 +30,7 @@ cv::Rect computeBoundingBox(const std::vector<cv::Point>& points) {
 
 Analyzer::Analyzer(Monitor* monitor, const Config& config)
     : task_(monitor->task),
-      conf_th_(monitor->conf_threshold),
-      roi_area_(cv::contourArea(monitor->roi_points)),
-      roi_bbox_(computeBoundingBox(monitor->roi_points)),
-      roi_points_(monitor->roi_points) {
+      conf_th_(monitor->conf_threshold) {
   if (task_ == Task::kWandering) {
     algorithm_ = std::make_unique<TrackAlgorithm>(monitor->levels.first[0]);
   } else {
@@ -97,5 +95,12 @@ void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, const cv::Mat
 uint64_t Analyzer::NextId() {
   static uint64_t global_id = 0;
   return global_id++;
+}
+
+void Analyzer::SetROI(std::vector<cv::Point>& points) {
+  roi_area_ = cv::contourArea(points);
+  roi_bbox_ = computeBoundingBox(points);
+  roi_points_ = points;
+
 }
 }  // namespace avs_analyzer

@@ -36,7 +36,7 @@ public:
     using BBoxEntry = std::pair<Task, cv::Rect>;              // (task, bbox)
     
     struct LegendConfig {
-        std::string font_path{"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
+        std::string font_path{"/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"};
         int font_size = 24;
         std::pair<int, int> handle_size = {20, 16};
         int row_spacing = 4;

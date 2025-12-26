@@ -30,6 +30,7 @@ class Analyzer {
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
+  void SetROI(std::vector<cv::Point>& points);
 
  private:
   static uint64_t NextId();
