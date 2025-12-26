@@ -126,6 +126,7 @@ void AvPullStream::Read() {
   if (pkt->stream_index == worker_->VideoStreamIndex()) {
         if (video_pkt_queue_.size_approx() > 300) {
           LOGW("too many package to encode, throw one away.");
+          av_packet_unref(pkt.get());
           continue;
         }
         video_pkt_queue_.enqueue(std::move(pkt));
