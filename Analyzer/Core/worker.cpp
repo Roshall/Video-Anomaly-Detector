@@ -650,30 +650,27 @@ void Worker::DecodeVideo() {
         }
         const auto state =
             ctx_ptr->detector->ProcessFrame({timestamp_ms, frame_yuv420p.get()});
-
-        CombinedEventManager::DetectorFrameInfo info{
-          .monitor_code = ctx_ptr->monitor->code,
-          .task = ctx_ptr->monitor->task,
-          .state = state,
-          .detections = &ctx_ptr->detector->detections(),
-          .rois = ctx_ptr->roi_entries.empty() ? nullptr :
-              &ctx_ptr->roi_entries,
-          .event_start_timestamp_ms = ctx_ptr->detector->event_start_timestamp(),
-          .event_start_pts = ctx_ptr->detector->start_ts(),
-        };
-        detector_infos.push_back(info);
-
-        // Capture snapshot for alarm processing (no pointers, thread-safe)
-        event_snapshots.emplace_back(
-        ctx_ptr->monitor->code,
-        state,
-        ctx_ptr->detector->start_ts(),
-        ctx_ptr->detector->timestamp(),
-        ctx_ptr->detector->num_detection(),
-        ctx_ptr->detector->event_duration(),
-        ctx_ptr->monitor->levels,
-        ctx_ptr->monitor->level_mode,
-        ctx_ptr->current_highest_level);
+        if (!ctx_ptr->detector->detections().empty()) {
+            detector_infos.emplace_back(
+              ctx_ptr->monitor->code,
+              ctx_ptr->monitor->task,
+              state,
+              &ctx_ptr->detector->detections(),
+              ctx_ptr->roi_entries.empty() ? nullptr : &ctx_ptr->roi_entries,
+              ctx_ptr->detector->event_start_timestamp(),
+              ctx_ptr->detector->start_ts());
+              // Capture snapshot for alarm processing (no pointers, thread-safe)
+            event_snapshots.emplace_back(
+              ctx_ptr->monitor->code,
+              state,
+              ctx_ptr->detector->start_ts(),
+              ctx_ptr->detector->timestamp(),
+              ctx_ptr->detector->num_detection(),
+              ctx_ptr->detector->event_duration(),
+              ctx_ptr->monitor->levels,
+              ctx_ptr->monitor->level_mode,
+              ctx_ptr->current_highest_level);
+      } 
       }
 
       // Process frame while still holding monitors_mutex_ to keep detector_infos valid
