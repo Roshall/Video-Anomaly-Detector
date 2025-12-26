@@ -134,8 +134,8 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
     monitor->push_stream_url = push_stream_url_;
   }
   
-  PrepareMonitorForStream(*ctx);
   ctx->monitor = std::move(monitor);
+  PrepareMonitorForStream(*ctx);
   {
     std::unique_lock lock(monitors_mutex_);
     
