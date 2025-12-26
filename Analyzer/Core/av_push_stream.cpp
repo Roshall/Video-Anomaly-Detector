@@ -37,7 +37,7 @@ void AvPushStream::CloseConnect() {
 
 void AvPushStream::AddVideoFrame(std::unique_ptr<Frame> frame) {
   if (video_frame_q_.size_approx() > 30 * 10) {
-    LOGW("To many frame remains, throw away one");
+    LOGW("Too many frames remain, throw away one");
     return;
   }
   video_frame_q_.enqueue(std::move(frame));
