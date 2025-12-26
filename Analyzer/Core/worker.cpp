@@ -540,7 +540,7 @@ void Worker::EnsureAnnotatorReady() {
     candidate.reset();
     return;
   }
-  std::scoped_lock combined_lock(annotator_mutex_, event_manager_mutex_);
+  // Locks already held from line 396, just update state
   annotator_ = std::move(candidate);
   if (event_manager_ && !event_manager_->HasAnnotator()) {
     event_manager_->SetAnnotator(annotator_.get());
