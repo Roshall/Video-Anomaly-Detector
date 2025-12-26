@@ -578,11 +578,6 @@ int Worker::ComputeLevelIndex(
     ++idx;
   }
   --idx;
-  if (idx < 0) {
-    LOGW("monitor {} metric {} below first threshold {}", monitor_code,
-         metric, levels.first.front());
-    idx = 0;
-  }
   idx = std::min(idx, static_cast<int>(levels.second.size()) - 1);
   return idx;
 }
@@ -703,6 +698,11 @@ void Worker::DecodeVideo() {
 
       switch (snapshot.state) {
         case EventDetector::kEventStart: {
+          if (level_idx < 0) {
+            LOGW("monitor {} metric below first threshold {}", snapshot.monitor_code,
+                snapshot.levels.first.front());
+            level_idx = 0;
+          }
           if (annotated_frame) {
             // Update the highest level in context (need lock)
             SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
