@@ -92,18 +92,18 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   auto ctx = std::make_unique<MonitorContext>();
   
   ctx->monitor = std::move(monitor);
-
+  
+  auto monitor_ = ctx->monitor.get();
   ctx->event_cfg = event_cfg;
   ctx->analyzer = std::make_unique<Analyzer>(
-      ctx->monitor.get(), scheduler->GetConfig(),
-      ctx->monitor->conf_threshold);
-
+      monitor_, scheduler->GetConfig(),
+      monitor_->conf_threshold);
   if (auto out = std::atomic_load(&out_stream)) {
     try {
       std::shared_lock video_lock(video_context_mutex_);
       if (!video_context_.valid()) {
         LOGE("Failed to create event detector for monitor {}: invalid video context",
-             ctx->monitor->code);
+             monitor_->code);
         return;
       }
       ctx->detector = std::make_unique<EventDetector>(
@@ -113,7 +113,7 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
                           out->height()});
     } catch (const std::exception& ex) {
       LOGE("Failed to create event detector for monitor {}: {}",
-           ctx->monitor->code, ex.what());
+           monitor_->code, ex.what());
     }
   }
   ctx->current_highest_level = 0;
@@ -135,24 +135,24 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   {
     std::unique_lock lock(monitors_mutex_);
     if (stream_url_.empty()) {
-      stream_url_ = ctx->monitor->stream_url;
-    } else if (ctx->monitor->stream_url != stream_url_) {
+      stream_url_ = monitor_->stream_url;
+    } else if (monitor_->stream_url != stream_url_) {
       LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
-           video_code_, ctx->monitor->code, ctx->monitor->stream_url,
+           video_code_, monitor_->code, monitor_->stream_url,
            stream_url_);
-      ctx->monitor->stream_url = stream_url_;
+      monitor_->stream_url = stream_url_;
     }
-    if (push_stream_url_.empty() && monitor->push_stream) {
-      push_stream_url_ = ctx->monitor->push_stream_url;
-    } else if (monitor->push_stream &&
-               monitor->push_stream_url != push_stream_url_) {
+    if (push_stream_url_.empty() && monitor_->push_stream) {
+      push_stream_url_ = monitor_->push_stream_url;
+    } else if (monitor_->push_stream &&
+               monitor_->push_stream_url != push_stream_url_) {
       LOGW("Worker {} ignores monitor {} custom push_stream_url {}; using {}",
-           video_code_, ctx->monitor->code, ctx->monitor->push_stream_url,
+           video_code_, monitor_->code, monitor_->push_stream_url,
            push_stream_url_);
-      ctx->monitor->push_stream_url = push_stream_url_;
+      monitor_->push_stream_url = push_stream_url_;
     }
     if (video_code_.empty()) {
-      video_code_ = ctx->monitor->video_code;
+      video_code_ = monitor_->video_code;
     }
     if (should_prepare) {
       PrepareMonitorForStream(*ctx, video_width, video_height);
