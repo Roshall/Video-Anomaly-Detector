@@ -64,7 +64,8 @@ Worker::~Worker() {
   if (in_stream) {
     in_stream->SignalShutdown();
   }
-  if (auto out = std::atomic_load(&out_stream)) {
+  auto out = std::atomic_load(&out_stream);
+  if (out) {
     out->SignalShutdown();
   }
 
@@ -95,23 +96,15 @@ void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
   ctx->analyzer = std::make_unique<Analyzer>(
       monitor.get(), scheduler->GetConfig());
   ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
-  if (auto out = std::atomic_load(&out_stream)) {
-    try {
-      std::shared_lock video_lock(video_context_mutex_);
-      if (!video_context_.valid()) {
-        LOGE("Failed to create event detector for monitor {}: invalid video context",
-             monitor->code);
-        return;
-      }
-      ctx->detector = std::make_unique<EventDetector>(
-          event_cfg, *ctx->analyzer);
-    } catch (const std::exception& ex) {
-      LOGE("Failed to create event detector for monitor {}: {}",
-           monitor->code, ex.what());
-      return;
-    }
+  try {
+    ctx->detector = std::make_unique<EventDetector>(
+        event_cfg, *ctx->analyzer);
+    ctx->current_highest_level = 0;
+  } catch (const std::exception& ex) {
+    LOGE("Failed to create event detector for monitor {}: {}",
+         monitor->code, ex.what());
+    // Continue without detector - analyzer can still work
   }
-  ctx->current_highest_level = 0;
   
   if (video_code_.empty()) {
     video_code_ = monitor->video_code;
@@ -199,7 +192,8 @@ bool Worker::start(std::string& msg) {
         std::make_unique<std::thread>([this]() { this->DetectEvent(); }));
   }
 
-  if (auto out = std::atomic_load(&out_stream)) {
+  auto out = std::atomic_load(&out_stream);
+  if (out) {
     EnsureAllPipelinesReady(out->width(), out->height());
     std::lock_guard lock(threads_mutex_);
     threads_.push_back(std::make_unique<std::thread>(
@@ -207,8 +201,8 @@ bool Worker::start(std::string& msg) {
   }
   convertor_ = std::make_unique<FormatConvertor>(video_context_.width, video_context_.height,
                                                 video_context_.format,
-                                                out_stream ? out_stream->width() : video_context_.width,
-                                                out_stream ? out_stream->height() : video_context_.height);
+                                                out ? out->width() : video_context_.width,
+                                                out ? out->height() : video_context_.height);
   return true;
 }
 
@@ -219,7 +213,8 @@ void Worker::Remove() {
   if (in_stream) {
     in_stream->SignalShutdown();
   }
-  if (auto out = std::atomic_load(&out_stream)) {
+  auto out = std::atomic_load(&out_stream);
+  if (out) {
     out->SignalShutdown();
   }
   scheduler->RemoveWorker(video_code_);
@@ -495,7 +490,9 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
-  std::scoped_lock lock(annotator_mutex_, event_manager_mutex_);
+  // Consistent lock ordering: monitors_mutex_ -> event_manager_mutex_ -> annotator_mutex_
+  std::lock_guard<std::mutex> lock_em(event_manager_mutex_);
+  std::lock_guard<std::mutex> lock_an(annotator_mutex_);
   if (!event_manager_) {
     event_manager_ = std::make_unique<CombinedEventManager>();
     event_manager_->SetAnnotatorMutex(&annotator_mutex_);
@@ -520,7 +517,8 @@ void Worker::EnsureAnnotatorReady() {
   auto tasks = GetMonitorTasks();
   
   // Now acquire annotator and event manager mutexes
-  std::scoped_lock lock(annotator_mutex_, event_manager_mutex_);
+  std::lock_guard<std::mutex> lock_em(event_manager_mutex_);
+  std::lock_guard<std::mutex> lock_an(annotator_mutex_);
   // Quick-path: avoid reinitializing if it already exists
   if (annotator_) return;
 
@@ -581,8 +579,8 @@ int Worker::ComputeLevelIndex(
 }
 
 uint64_t Worker::NextId() {
-  static uint64_t global_id = 0;
-  return global_id++;
+  static std::atomic<uint64_t> global_id = 0;
+  return global_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Worker::DetectEvent() {
@@ -601,15 +599,10 @@ void Worker::DetectEvent() {
     return;
   }
 
-  int out_width = 0;
-  int out_height = 0;
-  if (auto out = std::atomic_load(&out_stream)) {
-    out_width = out->width();
-    out_height = out->height();
-  } else {
-    out_width = width;
-    out_height = height;
-  }
+  // Cache out_stream at start of loop for consistent frame processing
+  auto out_cached = std::atomic_load(&out_stream);
+  int out_width = out_cached ? out_cached->width() : width;
+  int out_height = out_cached ? out_cached->height() : height;
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
@@ -627,12 +620,12 @@ void Worker::DetectEvent() {
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
 
-    if (auto out = std::atomic_load(&out_stream)) {
-      out_width = out->width();
-      out_height = out->height();
-    } else {
-      out_width = width;
-      out_height = height;
+    // Update cached out_stream for this frame
+    auto out_this_frame = std::atomic_load(&out_stream);
+    if (out_this_frame != out_cached) {
+      out_cached = out_this_frame;
+      out_width = out_cached ? out_cached->width() : width;
+      out_height = out_cached ? out_cached->height() : height;
     }
 
     std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
@@ -739,10 +732,9 @@ void Worker::DetectEvent() {
       }
     }
 
-    if (auto out = std::atomic_load(&out_stream)) {
-      if (combined_result.annotated_frame) {
-        out->AddVideoFrame(std::move(combined_result.annotated_frame));
-      }
+    // Use cached out_stream for this frame
+    if (out_cached && combined_result.annotated_frame) {
+      out_cached->AddVideoFrame(std::move(combined_result.annotated_frame));
     }
 
     av_frame_unref(frame_yuv420p.get());
@@ -904,11 +896,14 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
 }
 
 void Worker::StartPushThreadIfNeeded() {
-  std::lock_guard lock(push_stream_mutex_);
+  // This require monitors_mutex_ to be acquired
+  if (!NeedPushStream()) {
+    return;
+  }
 
-  // Check preconditions - call NeedPushStream() before acquiring video_context_mutex_
-  // to avoid complex nested lock ordering
-  if (!NeedPushStream() || std::atomic_load(&out_stream) || !State()) {
+  std::lock_guard lock(push_stream_mutex_);
+  // Recheck with lock to ensure consistency
+  if (std::atomic_load(&out_stream) || !State()) {
     return;
   }
 
