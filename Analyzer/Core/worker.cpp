@@ -30,6 +30,9 @@
 #include "scheduler.h"
 #include "streamer.h"
 
+// Hardware acceleration support
+#include "hw_ascend/stream_processor.h"
+
 extern "C" {
 #include <libswresample/swresample.h>
 }
@@ -165,6 +168,23 @@ void Worker::GetAllMonitor(std::vector<Monitor>& monitors) const {
 }
 
 bool Worker::start(std::string& msg) {
+  // Check if hardware acceleration should be used
+  use_hardware_acceleration_ = scheduler->GetConfig().use_accelerator;
+  
+#ifdef ENABLE_ASCEND
+  // For Ascend hardware: prefer hardware acceleration for RTSP streams
+  if (use_hardware_acceleration_ && !file_) {
+    LOGI("Worker {}: Using Ascend hardware acceleration", video_code_);
+  }
+#else
+  // Ascend not available - disable hardware acceleration
+  if (use_hardware_acceleration_) {
+    LOGW("Worker {}: Hardware acceleration requested but ENABLE_ASCEND not defined, using CPU", 
+         video_code_);
+    use_hardware_acceleration_ = false;
+  }
+#endif
+
   in_stream = std::make_unique<AvPullStream>(this);
   if (!in_stream->Connect(file_)) {
     msg = "pull stream connect error";
@@ -188,8 +208,15 @@ bool Worker::start(std::string& msg) {
     std::lock_guard lock(threads_mutex_);
     threads_.push_back(
         std::make_unique<std::thread>([this]() { this->in_stream->Read(); }));
-    threads_.push_back(
-        std::make_unique<std::thread>([this]() { this->DetectEvent(); }));
+    
+    // Choose between hardware-accelerated and CPU processing paths
+    if (use_hardware_acceleration_) {
+      threads_.push_back(
+          std::make_unique<std::thread>([this]() { this->DetectEventHardware(); }));
+    } else {
+      threads_.push_back(
+          std::make_unique<std::thread>([this]() { this->DetectEvent(); }));
+    }
   }
 
   auto out = std::atomic_load(&out_stream);
@@ -755,6 +782,255 @@ void Worker::DetectEvent() {
         timer_.compute(event_ptr->start_timestamp), video_code_,
         std::move(event_ptr), out_width, out_height));
   }
+}
+
+//
+// Hardware-accelerated video processing path using Ascend NPU
+//
+void Worker::DetectEventHardware() {
+#ifdef ENABLE_ASCEND
+  if (!in_stream || !in_stream->stream) {
+    LOGW("DetectEventHardware: no active pull stream");
+    return;
+  }
+
+  const int width = video_context_.width;
+  const int height = video_context_.height;
+  const auto in_time_base = in_stream->stream->time_base;
+
+  // Create StreamProcessor with hardware acceleration
+  StreamProcessorConfig proc_config;
+  proc_config.use_hardware = true;
+  proc_config.device_id = 0;  // TODO: make configurable
+  proc_config.enable_hardware_decode = true;
+  
+  // Get model path from first monitor's task
+  {
+    std::shared_lock lock(monitors_mutex_);
+    if (!monitors_.empty() && monitors_.front()->monitor) {
+      // Model path would be determined by task type
+      // For now, use a placeholder - real implementation would get from config
+      proc_config.model_path = scheduler->GetConfig().model_dir + "/yolov8n.om";
+    }
+  }
+  
+  proc_config.conf_threshold = 0.25f;
+  proc_config.iou_threshold = 0.45f;
+  proc_config.input_width = 640;
+  proc_config.input_height = 640;
+
+  stream_processor_ = StreamProcessor::Create(proc_config);
+  if (!stream_processor_) {
+    LOGE("DetectEventHardware: failed to create stream processor, falling back to CPU");
+    DetectEvent();
+    return;
+  }
+
+  // Initialize processor with stream parameters
+  if (!stream_processor_->Initialize(in_stream->stream->codecpar, in_time_base)) {
+    LOGE("DetectEventHardware: failed to initialize stream processor, falling back to CPU");
+    stream_processor_.reset();
+    DetectEvent();
+    return;
+  }
+
+  LOGI("Worker {}: Hardware-accelerated processing initialized ({}x{})", 
+       video_code_, stream_processor_->Width(), stream_processor_->Height());
+
+  auto out_cached = std::atomic_load(&out_stream);
+  int out_width = out_cached ? out_cached->width() : width;
+  int out_height = out_cached ? out_cached->height() : height;
+
+  auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
+
+  EnsureAnnotatorReady();
+  RebuildEventManager();
+
+  while (State()) {
+    // Get packet from pull stream
+    auto pkg = in_stream->GetVideoPkt();
+    if (!pkg) {
+      continue;
+    }
+
+    // Send packet to hardware decoder
+    if (!stream_processor_->SendPacket(pkg.get())) {
+      LOGW("DetectEventHardware: failed to send packet");
+      continue;
+    }
+
+    // Receive processed frame with detections
+    auto processed = stream_processor_->ReceiveFrame();
+    if (!processed) {
+      continue;
+    }
+
+    const auto timestamp = processed->pts;
+    const auto timestamp_ms = processed->timestamp_ms;
+
+    // Update cached out_stream for this frame
+    auto out_this_frame = std::atomic_load(&out_stream);
+    if (out_this_frame != out_cached) {
+      out_cached = out_this_frame;
+      out_width = out_cached ? out_cached->width() : width;
+      out_height = out_cached ? out_cached->height() : height;
+    }
+
+    std::vector<CombinedEventManager::DetectorFrameInfo> detector_infos;
+    std::vector<MonitorEventSnapshot> event_snapshots;
+    CombinedEventManager::Result combined_result;
+
+    // Convert hardware detections to algorithm format and process
+    {
+      std::shared_lock lock(monitors_mutex_);
+      detector_infos.reserve(monitors_.size());
+      event_snapshots.reserve(monitors_.size());
+
+      for (auto& ctx : monitors_) {
+        auto* ctx_ptr = ctx.get();
+        if (!ctx_ptr || !ctx_ptr->detector || !ctx_ptr->analyzer) {
+          continue;
+        }
+
+        // Push hardware detection results to analyzer
+        Algorithm::ResultType algo_results;
+        for (const auto& det : processed->detections) {
+          DL_RESULT dl_result;
+          dl_result.classId = det.class_id;
+          dl_result.confidence = det.confidence;
+          dl_result.box = det.box;
+          algo_results.first.push_back(dl_result);
+        }
+        algo_results.second = timestamp_ms;
+        ctx_ptr->analyzer->algorithm()->PushResult(algo_results);
+
+        // Process frame through event detector
+        const auto state = ctx_ptr->detector->ProcessFrame(timestamp_ms, timestamp);
+        
+        if (!ctx_ptr->detector->detections().empty()) {
+          detector_infos.emplace_back(
+              ctx_ptr->monitor->code,
+              ctx_ptr->monitor->task,
+              state,
+              &ctx_ptr->detector->detections(),
+              ctx_ptr->roi_entries.empty() ? nullptr : &ctx_ptr->roi_entries,
+              ctx_ptr->detector->event_start_timestamp(),
+              ctx_ptr->detector->start_ts());
+              
+          event_snapshots.emplace_back(
+              ctx_ptr->monitor->code,
+              state,
+              ctx_ptr->detector->start_ts(),
+              ctx_ptr->detector->timestamp(),
+              ctx_ptr->detector->num_detection(),
+              ctx_ptr->detector->event_duration(),
+              ctx_ptr->monitor->levels,
+              ctx_ptr->monitor->level_mode,
+              ctx_ptr->current_highest_level);
+        }
+      }
+
+      // Create AVFrame wrapper for event manager (if BGR available)
+      AVFrame* frame_for_manager = nullptr;
+      AVFramePtr temp_frame;
+      if (!processed->bgr_image.empty()) {
+        temp_frame.reset(av_frame_alloc());
+        temp_frame->width = processed->bgr_image.cols;
+        temp_frame->height = processed->bgr_image.rows;
+        temp_frame->format = AV_PIX_FMT_BGR24;
+        temp_frame->pts = timestamp;
+        temp_frame->best_effort_timestamp = timestamp;
+        temp_frame->time_base = in_time_base;
+        // Note: Data is in processed->bgr_image, we'd need to copy or wrap
+        frame_for_manager = temp_frame.get();
+      } else if (processed->raw_frame) {
+        frame_for_manager = processed->raw_frame;
+      }
+
+      // Process through combined event manager
+      if (frame_for_manager) {
+        std::lock_guard em_lock(event_manager_mutex_);
+        if (event_manager_) {
+          combined_result = event_manager_->ProcessFrame(
+              frame_for_manager, timestamp_ms, timestamp, detector_infos);
+        }
+      }
+    }
+
+    Frame* annotated_frame = combined_result.annotated_frame.get();
+
+    // Process alarms using snapshots (same as CPU path)
+    for (auto& snapshot : event_snapshots) {
+      auto level_idx = ComputeLevelIndex(
+          snapshot.levels, snapshot.level_mode,
+          snapshot.num_detection, snapshot.event_duration,
+          snapshot.monitor_code);
+
+      switch (snapshot.state) {
+        case EventDetector::kEventStart: {
+          if (level_idx < 0) {
+            level_idx = 0;
+          }
+          if (annotated_frame) {
+            SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
+            AlarmImage(snapshot.monitor_code,
+                       snapshot.start_pts, snapshot.timestamp,
+                       *annotated_frame, pict_writer,
+                       snapshot.levels.second[level_idx], true);
+          }
+          break;
+        }
+        case EventDetector::kEventActive: {
+          if (level_idx > snapshot.current_highest_level && annotated_frame) {
+            SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
+          }
+          break;
+        }
+        case EventDetector::kEventEnd: {
+          SetMonitorCurrentHighestLevel(snapshot.monitor_code, 0);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (combined_result.flushed_event) {
+      if (auto& event_ptr = combined_result.flushed_event.value()) {
+        scheduler->AddAlarm(std::make_unique<Alarm>(
+            timer_.compute(event_ptr->start_timestamp), video_code_,
+            std::move(event_ptr), out_width, out_height));
+      }
+    }
+
+    if (out_cached && combined_result.annotated_frame) {
+      out_cached->AddVideoFrame(std::move(combined_result.annotated_frame));
+    }
+  }
+
+  // Flush pending events
+  std::vector<std::unique_ptr<Event>> tail_events;
+  {
+    std::lock_guard lock(event_manager_mutex_);
+    if (event_manager_) {
+      tail_events = event_manager_->FlushPending();
+    }
+  }
+  for (auto& event_ptr : tail_events) {
+    if (!event_ptr) {
+      continue;
+    }
+    scheduler->AddAlarm(std::make_unique<Alarm>(
+        timer_.compute(event_ptr->start_timestamp), video_code_,
+        std::move(event_ptr), out_width, out_height));
+  }
+
+  stream_processor_.reset();
+#else
+  // Ascend not available, fall back to CPU
+  LOGW("DetectEventHardware: ENABLE_ASCEND not defined, using CPU path");
+  DetectEvent();
+#endif
 }
 
 

@@ -18,6 +18,11 @@
 #include "jpeg_encoder.h"
 #include "monitor.h"
 
+// Forward declaration for hardware acceleration
+namespace avs_analyzer {
+class StreamProcessor;
+}
+
 extern "C" {
 #include <libavutil/frame.h>
 #include <libavutil/pixfmt.h>
@@ -43,6 +48,7 @@ class Worker {
   Worker operator= (const Worker& other) = delete;
 
   void DetectEvent();
+  void DetectEventHardware();  // Hardware-accelerated processing path
 
   bool start(std::string& msg);
 
@@ -135,6 +141,10 @@ class Worker {
   mutable std::mutex annotator_mutex_;
   uint64_t id_{NextId()};
   std::unique_ptr<FormatConvertor> convertor_;
+
+  // Hardware acceleration support
+  std::unique_ptr<StreamProcessor> stream_processor_;
+  bool use_hardware_acceleration_{false};
 
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,

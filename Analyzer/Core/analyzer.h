@@ -24,6 +24,7 @@ class Analyzer {
   [[nodiscard]] unsigned long id() const { return id_; }
   
   [[nodiscard]] Task task() const { return task_; }
+  [[nodiscard]] Algorithm* algorithm() const { return algorithm_.get(); }
   [[nodiscard]] DetectorPool::Callback detector_callback() const { return 
     [algorithm = algorithm_.get()](const YOLODetector::ResultType& input) { algorithm->PushResult(input); }; 
   }

@@ -23,6 +23,37 @@ if(USE_CUDA)
     add_compile_definitions(USE_CUDA)
 endif()
 
+option(USE_ASCEND "Enable Huawei Ascend (Atlas 300V Pro) support" OFF)
+if(USE_ASCEND)
+    add_compile_definitions(ENABLE_ASCEND)
+    
+    # Find Ascend CANN toolkit (MindX SDK)
+    # Default installation path: /usr/local/Ascend/ascend-toolkit/latest
+    if(NOT DEFINED ASCEND_TOOLKIT_HOME)
+        set(ASCEND_TOOLKIT_HOME "/usr/local/Ascend/ascend-toolkit/latest")
+    endif()
+    
+    if(EXISTS "${ASCEND_TOOLKIT_HOME}")
+        message(STATUS "Ascend toolkit found at: ${ASCEND_TOOLKIT_HOME}")
+        
+        set(ASCEND_INCLUDE_DIR "${ASCEND_TOOLKIT_HOME}/include")
+        set(ASCEND_LIB_DIR "${ASCEND_TOOLKIT_HOME}/lib64")
+        
+        # Find ACL library
+        find_library(ACL_LIBRARY NAMES ascendcl PATHS ${ASCEND_LIB_DIR} NO_DEFAULT_PATH)
+        find_library(ACL_RUNTIME_LIBRARY NAMES runtime PATHS ${ASCEND_LIB_DIR} NO_DEFAULT_PATH)
+        
+        if(ACL_LIBRARY)
+            message(STATUS "Ascend ACL library found: ${ACL_LIBRARY}")
+        else()
+            message(WARNING "Ascend ACL library not found in ${ASCEND_LIB_DIR}")
+        endif()
+    else()
+        message(WARNING "Ascend toolkit not found at ${ASCEND_TOOLKIT_HOME}")
+        message(WARNING "Set ASCEND_TOOLKIT_HOME to your installation path")
+    endif()
+endif()
+
 list(APPEND CMAKE_PREFIX_PATH
         "${CMAKE_SOURCE_DIR}/3rdparty"
         "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
@@ -288,7 +319,24 @@ set(source
         Analyzer/Core/video_processing/dynamic_annotator.cpp
 )
 
-add_executable(Analyzer ${source})
+# Add Huawei Ascend hardware acceleration sources
+set(ascend_sources
+        Analyzer/Core/hw_ascend/ascend_common.h
+        Analyzer/Core/hw_ascend/decoder_interface.h
+        Analyzer/Core/hw_ascend/decoder_interface.cpp
+        Analyzer/Core/hw_ascend/inference_interface.h
+        Analyzer/Core/hw_ascend/inference_interface.cpp
+        Analyzer/Core/hw_ascend/ascend_pipeline.h
+        Analyzer/Core/hw_ascend/ascend_pipeline.cpp
+        Analyzer/Core/hw_ascend/ascend_decoder.h
+        Analyzer/Core/hw_ascend/ascend_decoder.cpp
+        Analyzer/Core/hw_ascend/ascend_inference.h
+        Analyzer/Core/hw_ascend/ascend_inference.cpp
+        Analyzer/Core/hw_ascend/stream_processor.h
+        Analyzer/Core/hw_ascend/stream_processor.cpp
+)
+
+add_executable(Analyzer ${source} ${ascend_sources})
 target_link_libraries(Analyzer PRIVATE
         Threads::Threads
         opencv_core
@@ -308,6 +356,17 @@ target_link_libraries(Analyzer PRIVATE
         spdlog::spdlog
         PkgConfig::FREETYPE
 )
+
+# Add Ascend libraries when enabled
+if(USE_ASCEND AND ACL_LIBRARY)
+    target_link_libraries(Analyzer PRIVATE ${ACL_LIBRARY})
+    if(ACL_RUNTIME_LIBRARY)
+        target_link_libraries(Analyzer PRIVATE ${ACL_RUNTIME_LIBRARY})
+    endif()
+    target_include_directories(Analyzer PRIVATE ${ASCEND_INCLUDE_DIR})
+    message(STATUS "Analyzer: Ascend support enabled")
+endif()
+
 target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
 
 # Include directories (if needed beyond what find_package provides)
@@ -319,7 +378,7 @@ target_include_directories(Analyzer PRIVATE
         ${FREETYPE_INCLUDE_DIRS}
 )
 
-target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
+target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker Analyzer/Core/hw_ascend)
 
 install(TARGETS Analyzer
         RUNTIME DESTINATION bin
