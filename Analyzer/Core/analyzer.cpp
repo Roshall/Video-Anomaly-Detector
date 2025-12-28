@@ -93,8 +93,8 @@ void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, const cv::Mat
 }
 
 uint64_t Analyzer::NextId() {
-  static uint64_t global_id = 0;
-  return global_id++;
+  static std::atomic<uint64_t> global_id = 0;
+  return global_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Analyzer::SetROI(std::vector<cv::Point>& points) {
