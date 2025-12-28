@@ -894,21 +894,20 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
 
 void Worker::StartPushThreadIfNeeded() {
   // This require monitors_mutex_ to be acquired
-  if (!NeedPushStream()) {
+  if (!NeedPushStream() || !State()) {
     return;
+  }
+  {
+      std::shared_lock video_lock(video_context_mutex_);
+      if (!video_context_.valid()) {
+        return;
+      }
   }
 
   std::lock_guard lock(push_stream_mutex_);
   // Recheck with lock to ensure consistency
-  if (std::atomic_load(&out_stream) || !State()) {
+  if (std::atomic_load(&out_stream)) {
     return;
-  }
-
-  {
-    std::shared_lock video_lock(video_context_mutex_);
-    if (!video_context_.valid()) {
-      return;
-    }
   }
 
   auto out = std::make_shared<AvPushStream>(this);
@@ -937,7 +936,7 @@ void Worker::CleanUpPushThread(bool detach) {
         thread->join();
       });
     } else {
-    push_thread->join();
+      push_thread->join();
     }
   }
   std::atomic_store(&out_stream, std::shared_ptr<AvPushStream>{});
