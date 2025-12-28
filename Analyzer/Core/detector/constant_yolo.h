@@ -21,7 +21,9 @@ class DetectorPool {
  public:
   using Callback = YOLODetector::Callback;
   DetectorPool(std::string_view model_path, bool use_accelerator);
-  using AddTaskFunc = std::function<void(unsigned long id1, unsigned long id2, unsigned long id3, const cv::Mat& image)>;
+  using ImagePtr = std::shared_ptr<const cv::Mat>;
+  using AddTaskFunc = std::function<void(unsigned long id1, unsigned long id2,
+                                        unsigned long id3, ImagePtr image)>;
   ~DetectorPool();
 
   // Get or create detector for the task, register callback, and return handle

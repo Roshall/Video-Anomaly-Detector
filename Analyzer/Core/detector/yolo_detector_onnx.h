@@ -28,9 +28,10 @@ class YOLODetector {
   using ResourceID = std::array<unsigned long, 3>;
   using ResultType = std::pair<std::vector<DL_RESULT>, unsigned long>;
   using Callback = std::function<void(const ResultType&)>;
+  using ImagePtr = std::shared_ptr<const cv::Mat>;
   struct Task {
     ResourceID id;
-    cv::Mat image;
+    ImagePtr image;
   };
 
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);

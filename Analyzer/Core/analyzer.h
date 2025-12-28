@@ -3,6 +3,7 @@
 #include <opencv2/core/hal/interface.h>
 #include <opencv2/opencv.hpp>
 #include <readerwriterqueue.h>
+#include <memory>
 #include <vector>
 #include "detector/constant_yolo.h"
 #include "task.h"
@@ -19,7 +20,8 @@ class Analyzer {
   Analyzer(Monitor* monitor, const Config& config);
   ~Analyzer();
 
-  void AddVideoFrame(uint64_t video_id, uint64_t frame_id, const cv::Mat& image);
+  using ImagePtr = DetectorPool::ImagePtr;
+  void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image);
   [[nodiscard]] std::vector<cv::Rect> RetrieveDetection() const;
   [[nodiscard]] unsigned long id() const { return id_; }
   

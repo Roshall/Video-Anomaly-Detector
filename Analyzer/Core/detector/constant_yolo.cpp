@@ -36,7 +36,7 @@ DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(Task task, unsigned l
       model_name = "phone_playing_m.onnx";
       break;
     default:
-      return [](unsigned long, unsigned long, unsigned long, const cv::Mat&) {};
+      return [](unsigned long, unsigned long, unsigned long, ImagePtr) {};
   }
   std::unique_lock<std::mutex> lock(detector_mutex_);
   auto detector = detector_pool_.get_or_emplace(
@@ -45,15 +45,20 @@ DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(Task task, unsigned l
   if (!detector) {
     // Return a no-op adder
     LOGE("Failed to create or get detector for task {}", toString(task));
-    return [](unsigned long, unsigned long, unsigned long, const cv::Mat&) {};
+    return [](unsigned long, unsigned long, unsigned long, ImagePtr) {};
   } else{
     // Register the callback for this resource
     const_cast<YOLODetector*>(detector.get())->RegisterCallback(id, std::move(cb));
   }
 
   // Return callable for enqueuing tasks
-  return [detector](unsigned long id1, unsigned long id2, unsigned long id3, const cv::Mat& image) {
-    const_cast<YOLODetector*>(detector.get())->AddTask({{id1, id2, id3}, image});
+  return [detector](unsigned long id1, unsigned long id2, unsigned long id3,
+                    ImagePtr image) {
+    if (!image || image->empty()) {
+      const_cast<YOLODetector*>(detector.get())->AddTask({{id1, id2, id3}, {}});
+      return;
+    }
+    const_cast<YOLODetector*>(detector.get())->AddTask({{id1, id2, id3}, std::move(image)});
   };
 }
 

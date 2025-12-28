@@ -48,7 +48,12 @@ void YOLODetector::Run() {
       continue;
     }
 
-    auto filtered = FilterResults(model_->RunSession(task.image));
+    if (!task.image || task.image->empty()) {
+      InvokeCallback(task.id, {});
+      continue;
+    }
+
+    auto filtered = FilterResults(model_->RunSession(*task.image));
     InvokeCallback(task.id, filtered);
   }
 }

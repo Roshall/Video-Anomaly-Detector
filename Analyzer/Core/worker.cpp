@@ -172,14 +172,34 @@ bool Worker::start(std::string& msg) {
     return false;
   }
 
-  if (NeedPushStream()) {
-    auto out = std::make_shared<AvPushStream>(this);
-    if (!out->Connect()) {
-      msg = "push stream connect error";
-      return false;
-    }
-    std::atomic_store(&out_stream, std::move(out));
+  // Create convertor before any worker threads start using it.
+  // Video context is set during AvPullStream::Connect() via OnStreamOpened().
+  VideoContext video_ctx_copy;
+  {
+    std::shared_lock lock(video_context_mutex_);
+    video_ctx_copy = video_context_;
   }
+
+  if (NeedPushStream()) {
+    std::lock_guard lock(push_stream_mutex_);
+    if (!std::atomic_load(&out_stream)) {
+      auto out = std::make_shared<AvPushStream>(this);
+      if (!out->Connect()) {
+        msg = "push stream connect error";
+        return false;
+      }
+      std::atomic_store(&out_stream, std::move(out));
+    }
+  }
+
+  auto out = std::atomic_load(&out_stream);
+  convertor_ = std::make_unique<FormatConvertor>(video_ctx_copy.width,
+                                                video_ctx_copy.height,
+                                                video_ctx_copy.format,
+                                                out ? out->width()
+                                                    : video_ctx_copy.width,
+                                                out ? out->height()
+                                                    : video_ctx_copy.height);
 
   timer_.init(in_stream->fmt_ctx.get(), in_stream->stream);
 
@@ -191,18 +211,12 @@ bool Worker::start(std::string& msg) {
     threads_.push_back(
         std::make_unique<std::thread>([this]() { this->DetectEvent(); }));
   }
-
-  auto out = std::atomic_load(&out_stream);
   if (out) {
     EnsureAllPipelinesReady();
     std::lock_guard lock(threads_mutex_);
     threads_.push_back(std::make_unique<std::thread>(
         [out]() { out->EncodeVideo(); }));
   }
-  convertor_ = std::make_unique<FormatConvertor>(video_context_.width, video_context_.height,
-                                                video_context_.format,
-                                                out ? out->width() : video_context_.width,
-                                                out ? out->height() : video_context_.height);
   return true;
 }
 
@@ -545,7 +559,19 @@ void Worker::EnsureAnnotatorReady() {
 }
 
 void Worker::AddTasks(AVFrame* frame) const {
-  auto img = (*convertor_)(frame);
+  if (!frame) {
+    return;
+  }
+  if (!convertor_) {
+    LOGW("worker AddTasks skipped: convertor not initialized");
+    return;
+  }
+
+  // FormatConvertor returns a view over a reusable internal buffer.
+  // Clone once per decoded frame so async detector threads always see a
+  // stable image backing store.
+  const cv::Mat img_view = (*convertor_)(frame);
+  auto img = std::make_shared<const cv::Mat>(img_view.clone());
   const auto timestamp = frame->best_effort_timestamp;
   const auto timestamp_ms =
   av_rescale_q(timestamp, in_stream->stream->time_base, AVRational{1, 1000});
