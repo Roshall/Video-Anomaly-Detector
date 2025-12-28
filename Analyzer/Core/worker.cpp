@@ -266,7 +266,6 @@ void Worker::OfflineAnalyze() {
     LOGE("empty frame.");
     return;
   }
-  monitor.roi_points.clear();
   if (!monitor.ParseRecognitionRegion(video_ctx_width, video_ctx_height)) {
     LOGE("cannot parse recognition region for {}", monitor.code);
     return;
@@ -844,8 +843,6 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
       LOGE("ParseRecognitionRegion() error for monitor {}", monitor.code);
     }
   }
-  
-  monitor.roi_points.clear();
   ctx.analyzer->SetROI(monitor.roi_points);
   ctx.roi_entries.clear();
   if (!monitor.roi_points.empty()) {

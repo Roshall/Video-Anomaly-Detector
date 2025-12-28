@@ -43,6 +43,7 @@ struct Monitor {
 
   bool ParseRecognitionRegion(int video_width, int video_height) {
     bool res = false;
+    roi_points.clear();
     if (video_width > 0 && video_height > 0) {
       std::vector<std::string> xys = split(roi_str, ",");
       size_t lineCount = xys.size() / 2;  // 多边形边数
