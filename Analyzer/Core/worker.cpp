@@ -924,7 +924,7 @@ void Worker::StartPushThreadIfNeeded() {
   threads_.push_back(std::make_unique<std::thread>([out]() { out->EncodeVideo(); }));
 }
 
-void Worker::CleanUpPushThread() {
+void Worker::CleanUpPushThread(bool detach) {
   std::unique_ptr<std::thread> push_thread;
   {
     std::lock_guard lock(threads_mutex_);
@@ -934,20 +934,24 @@ void Worker::CleanUpPushThread() {
     }
   }
   if (push_thread && push_thread->joinable()) {
+    if (detach) {
+      g_th_pool.detach_task([thread = std::move(push_thread)] {
+        thread->join();
+      });
+    } else {
     push_thread->join();
+    }
   }
   std::atomic_store(&out_stream, std::shared_ptr<AvPushStream>{});
 }
 
 void Worker::ClosePushThreadIfNeeded() {
-  std::lock_guard lock(push_stream_mutex_);
   if (!NeedPushStream()) {
+    std::lock_guard lock(push_stream_mutex_);
     if (auto out = std::atomic_load(&out_stream)) {
       out->SignalShutdown();
     }
-    g_th_pool.detach_task([this] {
-      CleanUpPushThread();
-    });
+    CleanUpPushThread(true);
   }
 }
 

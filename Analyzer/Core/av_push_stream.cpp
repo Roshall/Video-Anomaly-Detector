@@ -77,11 +77,7 @@ void AvPushStream::EncodeVideo() {
             LOGI("reConnect error : mConnectCount={}", connect_count);
             CloseConnect();
             // Cleanup must not join from this encoder thread.
-            g_th_pool.detach_task([w = worker_]() {
-              if (w) {
-                w->CleanUpPushThread();
-              }
-            });
+            worker_->CleanUpPushThread(true);
             return;
           }
         } else {

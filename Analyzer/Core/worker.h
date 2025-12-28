@@ -60,7 +60,7 @@ class Worker {
   [[nodiscard]] std::string_view PushStreamUrl() const {
     return push_stream_url_;
   }
-  void CleanUpPushThread();
+  void CleanUpPushThread(bool detach=false);
 
   Scheduler* scheduler;
   std::unique_ptr<AvPullStream> in_stream{};
