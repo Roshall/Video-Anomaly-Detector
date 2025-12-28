@@ -2,8 +2,11 @@
 // Created by lg on 10/11/25.
 //
 #include "yolo_detector_onnx.h"
+#include <memory>
 #include <mutex>
 #include <thread>
+
+#include <Utils/log.h>
 namespace avs_analyzer {
 YOLODetector::YOLODetector(const DL_INIT_PARAM& params)
     : params_(params), model_(std::make_unique<YOLOv8Detect>()) {
@@ -56,12 +59,17 @@ void YOLODetector::Stop() {
 
 void YOLODetector::DropOverflowTasks() {
   while (task_queue_.size_approx() >= kMaxQueueSize) {
-    Task dropped;
-    if (!task_queue_.try_dequeue(dropped)) {
+    auto num = task_queue_.size_approx() - kMaxQueueSize + 1;
+    auto dropped = std::make_unique<Task[]>(num);
+    num = task_queue_.try_dequeue_bulk(dropped.get(), num);
+    if (num == 0) {
       break;
     }
-    task_sem_.try_acquire();
-    InvokeCallback(dropped.id, {});
+    LOGW("YOLODetector task queue overflow, dropping {} tasks.", num);
+    for (size_t i = 0; i < num; ++i) {
+      task_sem_.try_acquire();
+      InvokeCallback(dropped[i].id, {});
+    }
   }
 }
 
