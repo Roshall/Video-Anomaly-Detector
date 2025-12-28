@@ -91,5 +91,6 @@ YOLODetector::YOLODetector(std::string_view mode_path, bool use_accelerator,
   params_.target_id = target_id;
   params_.cudaEnable = use_accelerator;
   model_->CreateSession(params_);
+  worker_thread_ = std::jthread([this] { Run(); });
 }
 }  // namespace avs_analyzer
