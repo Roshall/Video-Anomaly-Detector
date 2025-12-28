@@ -93,7 +93,7 @@ class Worker {
   };
 
   void PrepareMonitorForStream(MonitorContext& ctx) const;
-  void EnsureAllPipelinesReady(int out_width, int out_height);
+  void EnsureAllPipelinesReady();
   void StartPushThreadIfNeeded();
   void ClosePushThreadIfNeeded();
   void RebuildEventManager();

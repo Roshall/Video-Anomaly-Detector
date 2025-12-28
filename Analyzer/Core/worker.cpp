@@ -194,7 +194,7 @@ bool Worker::start(std::string& msg) {
 
   auto out = std::atomic_load(&out_stream);
   if (out) {
-    EnsureAllPipelinesReady(out->width(), out->height());
+    EnsureAllPipelinesReady();
     std::lock_guard lock(threads_mutex_);
     threads_.push_back(std::make_unique<std::thread>(
         [out]() { out->EncodeVideo(); }));
@@ -850,7 +850,7 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
   }
 }
 
-void Worker::EnsureAllPipelinesReady(int out_width, int out_height) {
+void Worker::EnsureAllPipelinesReady() {
   EnsureAnnotatorReady();
 
   std::unique_lock lock(monitors_mutex_);
@@ -918,8 +918,6 @@ void Worker::StartPushThreadIfNeeded() {
   }
 
   std::atomic_store(&out_stream, out);
-  // Ensure detectors are created with correct output resolution
-  EnsureAllPipelinesReady(out->width(), out->height());
   std::lock_guard tlock(threads_mutex_);
   threads_.push_back(std::make_unique<std::thread>([out]() { out->EncodeVideo(); }));
 }
