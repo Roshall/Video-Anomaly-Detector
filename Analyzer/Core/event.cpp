@@ -3,6 +3,7 @@
 #include "Utils/log.h"
 
 #include <analyzer.h>
+#include <cstdint>
 
 namespace avs_analyzer {
 
@@ -40,7 +41,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kMajorCheck: {
       if (current_ts - last_major_check_ts_ >= config_.major_stride_ms) {
         last_major_check_ts_ = current_ts;
-        if (auto bboxes = Detect(); not bboxes.empty()) {
+        if (auto bboxes = Detect(current_ts); not bboxes.empty()) {
           LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.",
                current_ts);
           current_state_ = InnerState::kMinorCheck;
@@ -55,7 +56,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kMinorCheck: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect();
+        auto bboxes = Detect(current_ts);
         const auto has_obj = not bboxes.empty();
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
@@ -89,7 +90,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kDoubleCheck: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect();
+        auto bboxes = Detect(current_ts);
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {
@@ -120,7 +121,7 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
     case InnerState::kEventActive: {
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
-        auto bboxes = Detect();
+        auto bboxes = Detect(current_ts);
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {
@@ -151,8 +152,9 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
   return state;
 }
 
-std::vector<cv::Rect> EventDetector::Detect() const {
-  return analyzer_.RetrieveDetection();
+std::vector<cv::Rect> EventDetector::Detect(int64_t current_ts) const {
+  // Use latest best-effort timestamp to request detection aligned to frame time
+  return analyzer_.RetrieveDetection(static_cast<uint64_t>(current_ts));
 }
 int64_t EventDetector::timestamp() const {
   return last_best_effort_ts_;

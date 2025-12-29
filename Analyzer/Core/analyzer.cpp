@@ -40,7 +40,8 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config)
 
 Analyzer::~Analyzer() = default;
 
-[[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection() const {
+[[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection(uint64_t ts_ms) const {
+  frame_ts_ms_ = ts_ms;
   std::vector<cv::Rect> detection_results;
   auto det = algorithm_->ProcessDetections();
   if (task_ == Task::kBunkOff) {

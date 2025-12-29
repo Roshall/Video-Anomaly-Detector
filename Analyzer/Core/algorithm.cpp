@@ -10,7 +10,10 @@ Algorithm::ResultType Algorithm::FetchOneFrameResults() {
     return result;
 }
 
-void Algorithm::PushResult(const ResultType& results) {
-  result_queue_.enqueue(results);
+void Algorithm::PushResult(const ResultType& results, uint64_t frame_ts) {
+  // Ensure the queued ResultType has the up-to-date frame timestamp
+  ResultType r = results;
+  r.second = static_cast<unsigned long>(frame_ts);
+  result_queue_.enqueue(r);
 }
 }  // namespace avs_analyzer

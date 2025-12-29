@@ -1,6 +1,7 @@
 ﻿#ifndef ANALYZER_ANALYZER_H
 #define ANALYZER_ANALYZER_H
 #include <opencv2/core/hal/interface.h>
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 #include <readerwriterqueue.h>
 #include <memory>
@@ -22,22 +23,25 @@ class Analyzer {
 
   using ImagePtr = DetectorPool::ImagePtr;
   void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image);
-  [[nodiscard]] std::vector<cv::Rect> RetrieveDetection() const;
+  [[nodiscard]] std::vector<cv::Rect> RetrieveDetection(uint64_t ts_ms) const;
   [[nodiscard]] unsigned long id() const { return id_; }
-  
   [[nodiscard]] Task task() const { return task_; }
   [[nodiscard]] DetectorPool::Callback detector_callback() const { return 
-    [algorithm = algorithm_.get()](const YOLODetector::ResultType& input) { algorithm->PushResult(input); }; 
+    [algorithm = algorithm_.get()](const YOLODetector::ResultType& input, uint64_t frame_ts) { algorithm->PushResult(input, frame_ts); }; 
   }
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
   void SetROI(std::vector<cv::Point>& points);
+  bool WantsFrameAt(uint64_t ts_ms) const {
+    return ts_ms >= frame_ts_ms_;
+  }
 
  private:
   static uint64_t NextId();
 
   uint64_t id_{NextId()};
+  mutable uint64_t frame_ts_ms_{0};
   Task task_;
   std::unique_ptr<Algorithm> algorithm_;
   float conf_th_;

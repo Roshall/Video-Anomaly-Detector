@@ -20,7 +20,7 @@ class Algorithm {
 
   virtual Detection ProcessDetections() = 0;
   ResultType FetchOneFrameResults();
-  void PushResult(const ResultType& results);
+  void PushResult(const ResultType& results, uint64_t frame_ts);
 
  protected:
   moodycamel::BlockingReaderWriterQueue<ResultType> result_queue_;

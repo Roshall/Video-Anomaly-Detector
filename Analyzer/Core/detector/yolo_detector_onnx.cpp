@@ -82,7 +82,8 @@ void YOLODetector::InvokeCallback(const ResourceID& id,
                                   const std::vector<DL_RESULT>& results) const {
   std::shared_lock<std::shared_mutex> lock(callback_mutex_);
   if (auto it = callbacks_.find(id[0]); it != callbacks_.end()) {
-    it->second({results, id[2]});
+    // Pass both the result and the frame timestamp explicitly
+    it->second({results, id[2]}, static_cast<uint64_t>(id[2]));
   }
 }
 

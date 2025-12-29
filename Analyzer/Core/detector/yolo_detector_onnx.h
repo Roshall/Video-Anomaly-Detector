@@ -27,7 +27,8 @@ class YOLODetector {
   // Resource identifier: (output_id, video_id, frame_ts)
   using ResourceID = std::array<unsigned long, 3>;
   using ResultType = std::pair<std::vector<DL_RESULT>, unsigned long>;
-  using Callback = std::function<void(const ResultType&)>;
+  // Callback now receives the detection result and the original frame timestamp (frame id)
+  using Callback = std::function<void(const ResultType&, uint64_t)>;
   using ImagePtr = std::shared_ptr<const cv::Mat>;
   struct Task {
     ResourceID id;
