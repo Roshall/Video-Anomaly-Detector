@@ -3,6 +3,7 @@
 #include <json/json.h>
 #include <vector>
 
+#include "Utils/log.h"
 
 #include "algorithm.h"
 #include "detection_algorithm.h"
@@ -43,7 +44,14 @@ Analyzer::~Analyzer() = default;
 [[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection(uint64_t ts_ms) const {
   frame_ts_ms_ = ts_ms;
   std::vector<cv::Rect> detection_results;
-  auto det = algorithm_->ProcessDetections();
+  Detection det;
+  while (true) {
+    det = algorithm_->ProcessDetections();
+    if (det.frame_ts >= ts_ms) break;
+    LOGD("Analyzer {}: skipping stale detections from frame {} (requested {})",
+         id_, det.frame_ts, ts_ms);
+  }
+
   if (task_ == Task::kBunkOff) {
     bool work{false};
     if (!det.bbox.empty()) {
