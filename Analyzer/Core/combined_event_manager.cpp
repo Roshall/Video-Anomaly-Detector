@@ -179,17 +179,13 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
   if (!annotator_ || detectors.empty()) {
     return working;
   }
-  static const std::vector<DynamicAnnotator::ROIEntry> kEmptyRois{};
-  static const std::vector<cv::Rect> kEmptyRects{};
-
   for (const auto& info : detectors) {
-    const auto* rects = info.detections ? info.detections : &kEmptyRects;
-    object_count += static_cast<uint32_t>(rects->size());
+    object_count += static_cast<uint32_t>(info.detections.size());
   }
   auto roi_count = std::accumulate(
     detectors.begin(), detectors.end(), size_t{0},
     [](size_t sum, const DetectorFrameInfo& info) {
-      return sum + (info.rois ? info.rois->size() : 0);
+      return sum + info.rois.size();
   });
   std::vector<DynamicAnnotator::BBoxEntry> bbox_entries;
   bbox_entries.reserve(object_count);
@@ -197,12 +193,10 @@ AVFramePtr CombinedEventManager::MakeAnnotatedFrame(
   roi_entries.reserve(roi_count);
 
   for (const auto& info : detectors) {
-    const auto* rects = info.detections ? info.detections : &kEmptyRects;
-    
-    for (const auto& rect : *rects) {
+    for (const auto& rect : info.detections) {
       bbox_entries.emplace_back(info.task, rect);
     }
-    roi_entries.insert(roi_entries.end(), info.rois->begin(), info.rois->end());
+    roi_entries.insert(roi_entries.end(), info.rois.begin(), info.rois.end());
   }
   std::unique_lock<std::mutex> guard;
   if (annotator_mutex_) {

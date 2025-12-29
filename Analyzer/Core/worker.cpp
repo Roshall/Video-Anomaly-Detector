@@ -354,8 +354,8 @@ void Worker::OfflineAnalyze() {
       .monitor_code = monitor.code,
       .task = monitor.task,
       .state = state,
-      .detections = &checker.detections(),
-      .rois = offline_rois.empty() ? nullptr : &offline_rois,
+      .detections = checker.detections(),  // copy
+      .rois = offline_rois,                 // copy
       .event_start_timestamp_ms = checker.event_start_timestamp(),
       .event_start_pts = checker.start_ts(),
     };
@@ -658,8 +658,7 @@ void Worker::DetectEvent() {
     CombinedEventManager::Result combined_result;
 
     {
-      // Hold monitors_mutex_ during ProcessFrame to protect detector_infos pointers
-      // (detections and rois point to data inside MonitorContext)
+      // Build detector_infos with copied data (no pointers to MonitorContext)
       std::shared_lock lock(monitors_mutex_);
       detector_infos.reserve(monitors_.size());
       event_snapshots.reserve(monitors_.size());
@@ -676,8 +675,8 @@ void Worker::DetectEvent() {
               ctx_ptr->monitor->code,
               ctx_ptr->monitor->task,
               state,
-              &ctx_ptr->detector->detections(),
-              ctx_ptr->roi_entries.empty() ? nullptr : &ctx_ptr->roi_entries,
+              ctx_ptr->detector->detections(),  // copy
+              ctx_ptr->roi_entries,              // copy
               ctx_ptr->detector->event_start_timestamp(),
               ctx_ptr->detector->start_ts());
               // Capture snapshot for alarm processing (no pointers, thread-safe)
@@ -693,17 +692,15 @@ void Worker::DetectEvent() {
               ctx_ptr->current_highest_level);
       } 
       }
-
-      // Process frame while still holding monitors_mutex_ to keep detector_infos valid
-      {
-        std::lock_guard em_lock(event_manager_mutex_);
-        if (event_manager_) {
-          combined_result = event_manager_->ProcessFrame(
-              frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
-        }
+    }
+    // monitors_mutex_ released here - detector_infos holds copied data
+    {
+      std::lock_guard em_lock(event_manager_mutex_);
+      if (event_manager_) {
+        combined_result = event_manager_->ProcessFrame(
+            frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
       }
     }
-    // monitors_mutex_ released here - detector_infos pointers no longer used
 
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
@@ -785,7 +782,7 @@ void Worker::DetectEvent() {
 
 bool Worker::GrabFrame(AVFrame* frame) const {
   while (true) {
-    auto ret = avcodec_receive_frame(in_stream->video_codec_ctx.get(), frame);
+    auto ret = avcodec_receive_frame(in_stream->video_codec_ctx.get(), frame); // decoding
     if (ret == AVERROR(EAGAIN)) {
       auto pkg = in_stream->GetVideoPkt();
       if (!pkg) {

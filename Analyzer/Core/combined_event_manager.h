@@ -34,8 +34,8 @@ class CombinedEventManager {
     std::string_view monitor_code{};
     Task task;
     EventDetector::State state{EventDetector::kNoEvent};
-    const std::vector<cv::Rect>* detections{nullptr};
-    const std::vector<DynamicAnnotator::ROIEntry>* rois{nullptr};
+    std::vector<cv::Rect> detections{};
+    std::vector<DynamicAnnotator::ROIEntry> rois{};
     int64_t event_start_timestamp_ms{0};
     int64_t event_start_pts{0};
   };
