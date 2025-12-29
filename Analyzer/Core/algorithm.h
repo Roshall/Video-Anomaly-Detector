@@ -10,20 +10,22 @@ namespace avs_analyzer {
 struct Detection {
   std::vector<cv::Rect> bbox;
   std::vector<float> confidences;
+  uint64_t frame_ts{0};
 };
 
 class Algorithm {
  public:
-  using ResultType = YOLODetector::ResultType;
+  // Queue element: detection results + frame timestamp
+  using QueueValue = std::pair<std::vector<DL_RESULT>, uint64_t>;
   Algorithm() = default;
   virtual ~Algorithm();
 
   virtual Detection ProcessDetections() = 0;
-  ResultType FetchOneFrameResults();
-  void PushResult(const ResultType& results, uint64_t frame_ts);
+  QueueValue FetchOneFrameResults();
+  void PushResult(const YOLODetector::ResultType& results, uint64_t frame_ts);
 
  protected:
-  moodycamel::BlockingReaderWriterQueue<ResultType> result_queue_;
+  moodycamel::BlockingReaderWriterQueue<QueueValue> result_queue_;
 };
 
 }  // namespace avs_analyzer

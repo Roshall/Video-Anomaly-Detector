@@ -36,6 +36,6 @@ Detection TrackAlgorithm::ProcessDetections() {
       confs.push_back(t->getScore());
     }
   }
-  return {bbox, confs};
+  return {bbox, confs, frame_ms};
 }
 }  // namespace avs_analyzer

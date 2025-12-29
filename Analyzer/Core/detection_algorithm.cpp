@@ -15,6 +15,6 @@ Detection DetectionAlgorithm::ProcessDetections() {
     bbox.push_back(obj.box);
     confs.push_back(obj.confidence);
   }
-  return {bbox, confs};
+  return {bbox, confs, frame_ms};
 }
 }  // namespace avs_analyzer
