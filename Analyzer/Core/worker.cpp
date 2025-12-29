@@ -69,6 +69,17 @@ Worker::~Worker() {
     out->SignalShutdown();
   }
 
+  // Properly deregister all monitors to stop detectors and avoid dangling callbacks
+  {
+    std::unique_lock lock(monitors_mutex_);
+    for (auto& ctx : monitors_) {
+      if (ctx && ctx->analyzer) {
+        scheduler->DeregisterAnalyzerCallback(*ctx->analyzer);
+      }
+    }
+    monitors_.clear();
+  }
+
   std::vector<std::unique_ptr<std::thread>> threads_to_join;
   {
     std::lock_guard lock(threads_mutex_);

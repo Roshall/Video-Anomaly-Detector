@@ -53,6 +53,16 @@ void YOLODetector::Run() {
       continue;
     }
 
+    // Check if the callback still wants this frame
+    {
+      std::shared_lock<std::shared_mutex> lock(callback_mutex_);
+      if (auto it = callbacks_.find(task.id[0]); it != callbacks_.end()) {
+        if (!it->second.second(task.id[2])) {
+          continue;
+        }
+      }
+    }
+
     auto filtered = FilterResults(model_->RunSession(*task.image));
     InvokeCallback(task.id, filtered);
   }
@@ -83,7 +93,7 @@ void YOLODetector::InvokeCallback(const ResourceID& id,
   std::shared_lock<std::shared_mutex> lock(callback_mutex_);
   if (auto it = callbacks_.find(id[0]); it != callbacks_.end()) {
     // Pass both the result and the frame timestamp explicitly
-    it->second({results, id[2]}, static_cast<uint64_t>(id[2]));
+    it->second.first({results, id[2]}, static_cast<uint64_t>(id[2]));
   }
 }
 
