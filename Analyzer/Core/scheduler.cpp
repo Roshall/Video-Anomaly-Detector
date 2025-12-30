@@ -51,33 +51,6 @@ std::vector<Monitor> Scheduler::GetAllMonitors() {
   }
   return monitors;
 }
-bool Scheduler::GetMonitorByCode(const std::string& video_code,
-                                 const std::string& code, Monitor* monitor_p) {
-  Worker* worker = nullptr;
-  {
-    std::lock_guard lock(worker_map_mutex_);
-    if (const auto it = worker_map_.find(video_code);
-        it != worker_map_.end()) {
-      worker = it->second.get();
-    }
-  }
-
-  if (!worker) {
-    return false;
-  }
-
-  std::vector<Monitor> monitors;
-  worker->GetAllMonitor(monitors);
-  const auto mit = std::find_if(monitors.begin(), monitors.end(),
-                                [&code](const Monitor& monitor) {
-                                  return monitor.code == code;
-                                });
-  if (mit == monitors.end()) {
-    return false;
-  }
-  *monitor_p = *mit;
-  return true;
-}
 
 void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
                            std::string& result_msg,
@@ -99,25 +72,25 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
     result_msg = "added successfully";
     result_code = 1000;
   } else {
-    Worker* existing_worker = nullptr;
     {
       std::lock_guard lock(worker_map_mutex_);
       if (const auto it = worker_map_.find(monitor->video_code);
           it != worker_map_.end()) {
-        existing_worker = it->second.get();
+        Worker* existing_worker = it->second.get();
+        if (existing_worker->ContainsMonitor(monitor->code)) {
+          result_msg = "control is running";
+          result_code = 1000;
+        } else {
+          existing_worker->AddMonitor(std::move(monitor), event_cfg);
+          result_msg = "added successfully";
+          result_code = 1000;
+        }
+        return;
       }
     }
-
-    if (existing_worker) {
-      if (existing_worker->ContainsMonitor(monitor->code)) {
-        result_msg = "control is running";
-        result_code = 1000;
-      } else {
-        existing_worker->AddMonitor(std::move(monitor), event_cfg);
-        result_msg = "added successfully";
-        result_code = 1000;
-      }
-    } else if (auto worker = std::make_unique<Worker>(
+    
+    // No existing worker, create a new one
+    if (auto worker = std::make_unique<Worker>(
                    this, std::move(monitor), event_cfg, file);
                worker->start(result_msg)) {
       AddWorker(std::move(worker));
@@ -132,19 +105,14 @@ void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
 void Scheduler::MonitorRemove(const std::string& video_code,
                               const std::string& code, int& result_code,
                               std::string& result_msg) {
-  if (Worker* worker = GetWorkerByVideoCode(video_code)) {
-    if (worker->ContainsMonitor(code)) {
-      result_msg = "removing control, ";
-      worker->RemoveMonitor(code);
-    } else {
-      result_msg = "control does not exist, ";
-    }
-
-    result_msg += "cancel success";
-    result_code = 1000;
-    return;
+  std::lock_guard lock(worker_map_mutex_);
+  if (const auto f = worker_map_.find(video_code); worker_map_.end() != f) {
+    result_msg = "removing control, ";
+    f->second->RemoveMonitor(code);
+  } else {
+    result_msg = "control does not exist, ";
   }
-  result_msg = "there is no such control";
+  result_msg += "removed successfully";
   result_code = 0;
 }
 void Scheduler::SetState(const bool state) { state_ = state; }
@@ -178,17 +146,6 @@ void Scheduler::RemoveWorker(const std::string& code) {
     NotifyCleanUp();
   }
 }
-Worker* Scheduler::GetWorkerByVideoCode(const std::string& video_code) {
-  Worker* found_worker = nullptr;
-  {
-    std::lock_guard lock(worker_map_mutex_);
-    if (const auto f = worker_map_.find(video_code); worker_map_.end() != f) {
-      found_worker = f->second.get();
-    }
-  }
-  return found_worker;
-}
-
 void Scheduler::NotifyCleanUp() {
   clean_up_cs_.release();
 }

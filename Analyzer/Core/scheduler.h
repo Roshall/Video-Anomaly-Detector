@@ -43,8 +43,6 @@ class Scheduler {
 
   // ApiServer 对应的函数 start
   std::vector<Monitor> GetAllMonitors();
-  bool GetMonitorByCode(const std::string& video_code, const std::string& code,
-                        Monitor* monitor_p);
   void MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
                   std::string& result_msg,
                   const EventDetectorConfig& event_cfg);
@@ -67,8 +65,6 @@ class Scheduler {
   bool ContainsMonitor(const Monitor* monitor);
   size_t GetWorkerSize();
   void AddWorker(std::unique_ptr<Worker> worker);
-  Worker* GetWorkerByVideoCode(const std::string& video_code);
-
 
   // each worker monitors one type of anomaly for a stream
   std::unordered_map<std::string, std::unique_ptr<Worker>>
