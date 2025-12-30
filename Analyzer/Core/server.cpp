@@ -265,6 +265,7 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
       for (auto& monitor : monitors) {
         startTimestamp = monitor.start_timestamp;
         result_data_item["code"] = monitor.code.data();
+        result_data_item["cameraId"] = monitor.video_code.data();
         result_data_item["streamUrl"] = monitor.stream_url.data();
         result_data_item["pushStream"] = monitor.push_stream;
         result_data_item["pushStreamUrl"] = monitor.push_stream_url.data();
