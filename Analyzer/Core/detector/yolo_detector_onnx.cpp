@@ -52,24 +52,16 @@ void YOLODetector::Run() {
       InvokeCallback(task.id, {});
       continue;
     }
-
-    // Check if the callback still wants this frame
-    bool skip = false;
     {
       std::shared_lock<std::shared_mutex> lock(callback_mutex_);
       if (auto it = callbacks_.find(task.id[0]); it != callbacks_.end()) {
         uint64_t wanted_ts = it->second.second();
         if (task.id[2] < wanted_ts) {
-          skip = true;
+          continue;
+        } else {
+          continue; // this task has not receiver, drop it
         }
       }
-    }
-
-    if (skip) {
-      // Still invoke callback with empty results to avoid blocking the algorithm
-      // if it's waiting for this specific frame (though RetrieveDetection skips stale ones).
-      InvokeCallback(task.id, {});
-      continue;
     }
 
     auto filtered = FilterResults(model_->RunSession(*task.image));
