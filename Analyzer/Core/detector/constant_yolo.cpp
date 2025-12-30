@@ -20,6 +20,7 @@ DetectorPool::~DetectorPool() {
 
 DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(Task task, unsigned long id, Callback cb) {
   std::string model_name;
+  int target_id = 0;
   switch (task) {
     case Task::kBreakIn:
     case Task::kWandering:
@@ -31,16 +32,18 @@ DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(Task task, unsigned l
       break;
     case Task::kWallClimbing:
       model_name = "climbing_m.onnx";
+      target_id = 1;
       break;
     case Task::kPhonePlaying:
       model_name = "phone_playing_m.onnx";
+      target_id = 1;
       break;
     default:
       return [](unsigned long, unsigned long, unsigned long, ImagePtr) {};
   }
   std::unique_lock<std::mutex> lock(detector_mutex_);
   auto detector = detector_pool_.get_or_emplace(
-      task, (model_path_ / model_name).string(), use_accelerator_);
+      task, (model_path_ / model_name).string(), use_accelerator_, target_id);
 
   if (!detector) {
     // Return a no-op adder
