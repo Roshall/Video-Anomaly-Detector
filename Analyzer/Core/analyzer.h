@@ -32,14 +32,14 @@ class Analyzer {
                                            uint64_t frame_ts) {
               algorithm->PushResult(input, frame_ts);
             },
-            [this](uint64_t ts) { return WantsFrameAt(ts); }};
+            [this]() { return WantsFrame(); }};
   }
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
   void SetROI(std::vector<cv::Point>& points);
-  bool WantsFrameAt(uint64_t ts_ms) const {
-    return ts_ms >= frame_ts_ms_;
+  uint64_t WantsFrame() const {
+    return frame_ts_ms_.load(std::memory_order_acquire);
   }
 
  private:

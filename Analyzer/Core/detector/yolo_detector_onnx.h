@@ -29,7 +29,7 @@ class YOLODetector {
   using ResultType = std::pair<std::vector<DL_RESULT>, unsigned long>;
   // Callback now consists of the result processor and a predicate to check if the frame is still wanted
   using CallbackFunc = std::function<void(const ResultType&, uint64_t)>;
-  using WantsFrameFunc = std::function<bool(uint64_t)>;
+  using WantsFrameFunc = std::function<uint64_t()>;
   using Callback = std::pair<CallbackFunc, WantsFrameFunc>;
   using ImagePtr = std::shared_ptr<const cv::Mat>;
   struct Task {

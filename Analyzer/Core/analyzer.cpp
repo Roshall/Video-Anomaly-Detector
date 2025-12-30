@@ -42,7 +42,7 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config)
 Analyzer::~Analyzer() = default;
 
 [[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection(uint64_t ts_ms) const {
-  frame_ts_ms_ = ts_ms;
+  frame_ts_ms_.store(ts_ms, std::memory_order_release);
   std::vector<cv::Rect> detection_results;
   Detection det;
   while (true) {
