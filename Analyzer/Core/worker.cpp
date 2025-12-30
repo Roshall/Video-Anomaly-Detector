@@ -686,8 +686,8 @@ void Worker::DetectEvent() {
               ctx_ptr->monitor->code,
               ctx_ptr->monitor->task,
               state,
-              ctx_ptr->detector->detections(),  // copy
-              ctx_ptr->roi_entries,              // copy
+              ctx_ptr->detector->detections(),
+              ctx_ptr->roi_entries,
               ctx_ptr->detector->event_start_timestamp(),
               ctx_ptr->detector->start_ts());
               // Capture snapshot for alarm processing (no pointers, thread-safe)
