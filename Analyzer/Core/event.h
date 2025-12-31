@@ -52,7 +52,7 @@ class EventDetector {
     kEventEnd,
   };
 
-  EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer);
+  EventDetector(const EventDetectorConfig& config, Analyzer& analyzer);
 
   // Processes a single frame and returns an Event if one has just been
   // completed.

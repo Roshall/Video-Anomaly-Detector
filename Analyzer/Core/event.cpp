@@ -7,7 +7,7 @@
 
 namespace avs_analyzer {
 
-EventDetector::EventDetector(const EventDetectorConfig& config, const Analyzer& analyzer)
+EventDetector::EventDetector(const EventDetectorConfig& config, Analyzer& analyzer)
     : config_(config),
       analyzer_(analyzer),
       object_votes_window_(config.window_size) {
