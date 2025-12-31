@@ -39,8 +39,7 @@ void YOLODetector::DeregisterCallback(unsigned long id) {
 }
 
 void YOLODetector::Run() {
-  while (running_.load(std::memory_order_acquire) ||
-         task_queue_.size_approx() > 0) {
+  while (running_.load(std::memory_order_acquire)) {
     task_sem_.acquire();
 
     Task task;
