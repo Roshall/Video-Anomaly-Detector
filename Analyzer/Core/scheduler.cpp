@@ -113,7 +113,7 @@ void Scheduler::MonitorRemove(const std::string& video_code,
     result_msg = "control does not exist, ";
   }
   result_msg += "removed successfully";
-  result_code = 0;
+  result_code = 1000;
 }
 void Scheduler::SetState(const bool state) { state_ = state; }
 bool Scheduler::GetState() const { return state_; }
