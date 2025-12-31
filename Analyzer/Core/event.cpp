@@ -11,7 +11,7 @@ EventDetector::EventDetector(const EventDetectorConfig& config, const Analyzer& 
     : config_(config),
       analyzer_(analyzer),
       object_votes_window_(config.window_size) {
-  last_major_check_ts_ = -config_.major_stride_ms;
+  last_check_ts_ = -config_.major_stride_ms;
 }
 
 std::optional<std::pair<int64_t, int64_t>>
@@ -42,10 +42,13 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
       if (current_ts - last_major_check_ts_ >= config_.major_stride_ms) {
         last_major_check_ts_ = current_ts;
         if (auto bboxes = Detect(current_ts); not bboxes.empty()) {
+      if (current_ts - last_check_ts_ >= config_.major_stride_ms) {
+        last_check_ts_ = current_ts;
           LOGD("[Major] Object found at t = {}s. Switching to MINOR_CHECK.",
                current_ts);
           current_state_ = InnerState::kMinorCheck;
           last_minor_check_ts_ = current_ts;
+          last_check_ts_ = current_ts;
           object_votes_window_.slide(true, current_ts, best_effort_ts);
           kept_bboxes_ = std::move(bboxes);
         }
@@ -57,6 +60,8 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(current_ts);
+      if (current_ts - last_check_ts_ >= config_.minor_stride_ms) {
+        last_check_ts_ = current_ts;
         const auto has_obj = not bboxes.empty();
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
@@ -91,23 +96,25 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(current_ts);
+      if (current_ts - last_check_ts_ >= config_.minor_stride_ms) {
+        last_check_ts_ = current_ts;
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {
           kept_bboxes_ = std::move(bboxes);
         }
 
-    if (auto votes = object_votes_window_.votes();
-      votes >= config_.min_vote) {
+        if (auto votes = object_votes_window_.votes();votes >= config_.min_vote) {
           if (current_ts - active_event_start_ts_ >= config_.latest_duration_ms &&
               kept_bboxes_.size() >= static_cast<size_t>(config_.minimum_num)) {
             LOGD(">>> EVENT DETECTED at t = {}ms <<<", current_ts);
             current_state_ = InnerState::kEventActive;
             state = kEventStart;
+            
           }
         } else {
           LOGD(
-              "[Duration Check] Verification failed. Votes: {}. Back to "
+              "[Double Check] Verification failed. Votes: {}. Back to "
               "MAJOR_CHECK.",
               votes);
           current_state_ = InnerState::kMajorCheck;
@@ -122,6 +129,8 @@ EventDetector::State EventDetector::ProcessFrame(const int64_t current_ts, const
       if (current_ts - last_minor_check_ts_ >= config_.minor_stride_ms) {
         last_minor_check_ts_ = current_ts;
         auto bboxes = Detect(current_ts);
+      if (current_ts - last_check_ts_ >= config_.minor_stride_ms) {
+        last_check_ts_ = current_ts;
         const auto has_obj = not bboxes.empty();
         object_votes_window_.slide(has_obj, current_ts, best_effort_ts);
         if (has_obj) {

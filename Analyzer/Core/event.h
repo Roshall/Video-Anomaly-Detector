@@ -123,8 +123,7 @@ class EventDetector {
 
   const Analyzer& analyzer_;
 
-  int64_t last_major_check_ts_{-2000};
-  int64_t last_minor_check_ts_{0};
+  int64_t last_check_ts_{-2000};
   // Sliding window to track object presence for voting.
   VotesWindow object_votes_window_;
   std::vector<cv::Rect> kept_bboxes_{};
