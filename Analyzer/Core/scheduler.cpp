@@ -133,14 +133,15 @@ void Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
 void Scheduler::RemoveWorker(const std::string& code) {
   bool result = false;
   std::unique_ptr<Worker> worker_to_delete;
-  {
-    std::lock_guard lock(worker_map_mutex_);
+  // {
+  //   std::lock_guard lock(worker_map_mutex_);
+  // RemoveWorker my be called inside MonitorRemove which already holds the lock
     if (auto f = worker_map_.find(code); worker_map_.end() != f) {
       worker_to_delete = std::move(f->second);
       worker_map_.erase(f);
       result = true;
     }
-  }
+  // }
   if (result) {
     to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
     NotifyCleanUp();
