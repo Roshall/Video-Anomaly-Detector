@@ -24,7 +24,10 @@ class Analyzer {
 
   using ImagePtr = DetectorPool::ImagePtr;
   void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image);
-  [[nodiscard]] std::vector<cv::Rect> RetrieveDetection(uint64_t ts_ms) const;
+  [[nodiscard]] std::vector<cv::Rect> RetrieveDetection() const;
+  void SetNextFrameTimestamp(uint64_t ts) {
+    frame_ts_ms_.store(ts, std::memory_order_release);
+  }
   [[nodiscard]] unsigned long id() const { return id_; }
   [[nodiscard]] Task task() const { return task_; }
   [[nodiscard]] DetectorPool::Callback detector_callback() const {
@@ -46,7 +49,7 @@ class Analyzer {
   static uint64_t NextId();
 
   uint64_t id_{NextId()};
-  mutable std::atomic<uint64_t> frame_ts_ms_{0};
+  std::atomic<uint64_t> frame_ts_ms_{0};
   Task task_;
   std::unique_ptr<Algorithm> algorithm_;
   float conf_th_;

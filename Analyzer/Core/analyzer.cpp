@@ -41,10 +41,10 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config)
 
 Analyzer::~Analyzer() = default;
 
-[[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection(uint64_t ts_ms) const {
-  frame_ts_ms_.store(ts_ms, std::memory_order_release);
+[[nodiscard]] std::vector<cv::Rect> Analyzer::RetrieveDetection() const {
   std::vector<cv::Rect> detection_results;
   Detection det;
+  auto ts_ms = WantsFrame();
   while (true) {
     det = algorithm_->ProcessDetections();
     if (det.frame_ts >= ts_ms) break;
@@ -110,6 +110,5 @@ void Analyzer::SetROI(std::vector<cv::Point>& points) {
   roi_area_ = cv::contourArea(points);
   roi_bbox_ = computeBoundingBox(points);
   roi_points_ = points;
-
 }
 }  // namespace avs_analyzer
