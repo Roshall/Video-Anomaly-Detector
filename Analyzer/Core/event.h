@@ -113,7 +113,8 @@ class EventDetector {
     int votes_{0};
   };
 
-  std::vector<cv::Rect> Detect(int64_t current_ts) const;
+  std::vector<cv::Rect> Detect() const;
+  void SetNextFrameTimestamp(int64_t ts) const;
 
   // Helper to find the timestamp of the first positive vote in the window.
   [[nodiscard]] std::pair<int64_t, int64_t> FindFirstVoteTimestamp() const;
@@ -121,7 +122,7 @@ class EventDetector {
   const EventDetectorConfig config_;
   InnerState current_state_{InnerState::kMajorCheck};
 
-  const Analyzer& analyzer_;
+  Analyzer& analyzer_;
 
   int64_t last_check_ts_{-2000};
   // Sliding window to track object presence for voting.
