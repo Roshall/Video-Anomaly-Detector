@@ -58,10 +58,10 @@ void YOLODetector::Run() {
         uint64_t wanted_ts = it->second.second();
         if (task.id[2] < wanted_ts) {
           continue;
-        } else {
+        }
+      } else {
           continue; // this task has not receiver, drop it
         }
-      }
     }
 
     auto filtered = FilterResults(model_->RunSession(*task.image));
