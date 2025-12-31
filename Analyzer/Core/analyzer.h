@@ -3,6 +3,7 @@
 #include <opencv2/core/hal/interface.h>
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include <opencv2/opencv.hpp>
 #include <readerwriterqueue.h>
 #include <memory>
@@ -43,6 +44,11 @@ class Analyzer {
   void SetROI(std::vector<cv::Point>& points);
   uint64_t WantsFrame() const {
     return frame_ts_ms_.load(std::memory_order_acquire);
+  }
+
+  void Stop() {
+    // Push an empty result to unblock FetchOneFrameResults
+    algorithm_->PushResult({{}, 0}, std::numeric_limits<uint64_t>::max());
   }
 
  private:
