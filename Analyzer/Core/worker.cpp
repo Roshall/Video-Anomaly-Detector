@@ -74,6 +74,7 @@ Worker::~Worker() {
     std::unique_lock lock(monitors_mutex_);
     for (auto& ctx : monitors_) {
       if (ctx && ctx->analyzer) {
+        ctx->analyzer->Stop();
         scheduler->DeregisterAnalyzerCallback(*ctx->analyzer);
       }
     }
@@ -837,7 +838,7 @@ void Worker::RemoveMonitor(const std::string& code) {
       return;
     }
     scheduler->DeregisterAnalyzerCallback(*(*it)->analyzer);
-
+    it->get()->analyzer->Stop();
     if (monitors_.size() == 1) {
       remove_worker = true;
     } else {
