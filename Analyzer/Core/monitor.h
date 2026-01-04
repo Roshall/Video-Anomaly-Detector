@@ -121,6 +121,7 @@ struct Monitor {
         // Default: single polygon string "x1,y1,x2,y2,..."
         std::vector<cv::Point> poly;
         if (parse_one_polygon(roi_str, poly)) {
+          roi_points = poly;
           roi_polygons.emplace_back(std::move(poly));
           res = true;
         } else {
