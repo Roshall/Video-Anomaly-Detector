@@ -263,45 +263,7 @@ void Worker::Remove() {
 void Worker::Stop() { state_.store(false, std::memory_order_release); }
 
 void Worker::OfflineAnalyze() {
-  // Snapshot all monitor contexts to avoid races with RemoveMonitor() while
-  // offline analysis is running.
-  struct OfflineMonitorInput {
-    std::unique_ptr<Monitor> monitor;
-    EventDetectorConfig event_cfg;
-  };
-
-  std::vector<OfflineMonitorInput> inputs;
-
-  {
-    std::shared_lock lock(monitors_mutex_);
-    if (monitors_.empty()) {
-      LOGE("offline analyze without monitor context");
-      return;
-    }
-    inputs.reserve(monitors_.size());
-    for (const auto& ctx : monitors_) {
-      if (!ctx || !ctx->monitor) {
-        continue;
-      }
-      inputs.push_back(OfflineMonitorInput{
-          .monitor = std::make_unique<Monitor>(*ctx->monitor),
-          .event_cfg = ctx->event_cfg,
-      });
-    }
-  }
-
-  if (inputs.empty()) {
-    LOGE("offline analyze with no valid monitor contexts");
-    return;
-  }
-
-  const std::string stream_url = inputs.front().monitor->stream_url;
-  for (const auto& input : inputs) {
-    if (input.monitor && input.monitor->stream_url != stream_url) {
-      LOGW("offline analyze: monitor {} has different stream_url {}; using {}",
-           input.monitor->code, input.monitor->stream_url, stream_url);
-    }
-  }
+  const std::string stream_url = monitors_.front()->monitor->stream_url;
 
   auto in{Streamer(stream_url)};
   if (!in.Valid()) {
@@ -314,60 +276,6 @@ void Worker::OfflineAnalyze() {
   const auto example = in.NextFrame();
   if (!example) {
     LOGE("empty frame.");
-    return;
-  }
-  struct OfflineMonitorRuntime {
-    std::unique_ptr<Monitor> monitor;
-    EventDetectorConfig event_cfg;
-    std::unique_ptr<Analyzer> analyzer;
-    std::unique_ptr<EventDetector> detector;
-    CombinedEventManager event_manager;
-    std::vector<DynamicAnnotator::ROIEntry> rois;
-  };
-
-  std::vector<OfflineMonitorRuntime> runtimes;
-  runtimes.reserve(inputs.size());
-
-  // Prepare per-monitor analyzers/detectors/managers.
-  for (auto& input : inputs) {
-    if (!input.monitor) {
-      continue;
-    }
-    auto& monitor = *input.monitor;
-    if (!monitor.ParseRecognitionRegion(width, height)) {
-      LOGE("cannot parse recognition region for {}", monitor.code);
-      continue;
-    }
-
-    OfflineMonitorRuntime rt;
-    rt.monitor = std::move(input.monitor);
-    rt.event_cfg = input.event_cfg;
-
-    if (!rt.monitor->roi_points.empty()) {
-      rt.rois.emplace_back(rt.monitor->task, rt.monitor->roi_points);
-    }
-
-    rt.analyzer = std::make_unique<Analyzer>(rt.monitor.get(),
-                                            scheduler->GetConfig());
-    rt.analyzer->SetAddTaskCallback(
-        scheduler->RegisterAnalyzerCallback(*rt.analyzer));
-    rt.detector = std::make_unique<EventDetector>(rt.event_cfg, *rt.analyzer);
-
-    CombinedEventConfig cfg{};
-    cfg.pre_event_buffer_ms = rt.event_cfg.pre_event_buffer_ms;
-    cfg.post_event_buffer_ms = rt.event_cfg.post_event_buffer_ms;
-    cfg.max_event_duration_ms = rt.event_cfg.max_event_duration_ms;
-    cfg.guard_window_ms = std::max(
-        static_cast<int64_t>(rt.event_cfg.minor_stride_ms) *
-            rt.event_cfg.window_size,
-        rt.event_cfg.latest_duration_ms);
-    rt.event_manager.UpdateConfig(cfg);
-
-    runtimes.emplace_back(std::move(rt));
-  }
-
-  if (runtimes.empty()) {
-    LOGE("offline analyze: no monitors could be prepared");
     return;
   }
   convertor_ = std::make_unique<FormatConvertor>(width,
@@ -394,10 +302,10 @@ void Worker::OfflineAnalyze() {
       LOGE("offline analyze: failed to init annotator: {}", ret);
     } else {
       std::vector<Task> tasks;
-      tasks.reserve(runtimes.size());
-      for (const auto& rt : runtimes) {
-        if (!rt.monitor) continue;
-        const auto t = rt.monitor->task;
+      tasks.reserve(monitors_.size());
+      for (const auto& rt : monitors_) {
+        if (!rt->monitor) continue;
+        const auto t = rt->monitor->task;
         if (std::find(tasks.begin(), tasks.end(), t) == tasks.end()) {
           tasks.push_back(t);
         }
@@ -409,9 +317,9 @@ void Worker::OfflineAnalyze() {
     LOGE("offline analyze: failed to init annotator: {}", ex.what());
   }
   if (annotator) {
-    for (auto& rt : runtimes) {
-      rt.event_manager.SetAnnotator(annotator.get());
-    }
+    event_manager_ = std::make_unique<CombinedEventManager>();
+    event_manager_->SetAnnotator(annotator.get());
+    event_manager_->UpdateConfig(ComputeCombinedEventConfig());
   }
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
@@ -427,99 +335,88 @@ void Worker::OfflineAnalyze() {
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
     AddTasks(frame.get(), in_time_base);
-
-    for (auto& rt : runtimes) {
-      if (!rt.monitor || !rt.detector) {
+    
+    std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
+    info_vec.reserve(monitors_.size());
+    std::vector<EventDetector::State> states;
+    for (auto& rt : monitors_) {
+      if (!rt->monitor || !rt->detector) {
         continue;
       }
 
-      const auto state = rt.detector->ProcessFrame(timestamp_ms, timestamp);
-
-      CombinedEventManager::DetectorFrameInfo info{
-          .monitor_code = rt.monitor->code,
-          .task = rt.monitor->task,
-          .state = state,
-          .detections = rt.detector->detections(),
-          .rois = rt.rois,
-          .event_start_timestamp_ms = rt.detector->event_start_timestamp(),
-          .event_start_pts = rt.detector->start_ts(),
-      };
-
-      std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
-      info_vec.emplace_back(std::move(info));
-
-      auto combined = rt.event_manager.ProcessFrame(frame.get(), timestamp_ms,
-                                                    timestamp, info_vec);
-      Frame* annotated_frame = combined.annotated_frame.get();
-
-      switch (state) {
-        case EventDetector::kEventStart:
-          if (annotated_frame) {
-            int level_idx = ComputeLevelIndex(
-                rt.monitor->levels, rt.monitor->level_mode,
-                rt.detector->num_detection(), rt.detector->event_duration(),
-                rt.monitor->code);
-            const auto& level_names = rt.monitor->levels.second;
-            const std::string level =
-                level_names.empty()
-                    ? std::string{}
-                    : level_names[std::clamp(
-                          level_idx, 0,
-                          static_cast<int>(level_names.size()) - 1)];
-            AlarmImage(rt.monitor->code, rt.detector->start_ts(),
-                       rt.detector->timestamp(), *annotated_frame, pict_writer,
-                       level, false);
-          }
-          break;
-        default:
-          break;
+      const auto state = rt->detector->ProcessFrame(timestamp_ms, timestamp);
+      if (!rt->detector->detections().empty()) {
+        info_vec.emplace_back(
+          rt->monitor->code,
+          rt->monitor->task,
+          state,
+          rt->detector->detections(),
+          rt->roi_entries,
+          rt->detector->event_start_timestamp(),
+          rt->detector->start_ts());
+      states.push_back(state);
       }
+    }
+    if (event_manager_) {
+      auto result = event_manager_->ProcessFrame(
+          frame.get(), timestamp_ms, timestamp, info_vec);
+      Frame* annotated_frame = result.annotated_frame.get();
+      size_t idx = 0;
+      for (auto& rt : monitors_) {
+        if (!rt->monitor || !rt->detector || rt->detector->detections().empty()) {
+          continue;
+        }
+        auto level_idx = ComputeLevelIndex(
+            rt->monitor->levels, rt->monitor->level_mode,
+            rt->detector->num_detection(), rt->detector->event_duration(),
+            rt->monitor->code);
 
-      if (combined.flushed_event) {
-        if (auto& event = combined.flushed_event.value()) {
-          const auto start_ts = timer_.compute(event->start_timestamp);
-          const int w = width;
-          const int h = height;
-          g_th_pool.detach_task(
-              [start_ts, code = rt.monitor->code, event = std::move(event), w,
-               h, upload_dir = scheduler->GetConfig().upload_dir]() mutable {
-                Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
-                alarm.Finalize(upload_dir, "");
-              });
+        const auto state = states[idx++];
+        switch (state) {
+          case EventDetector::kEventStart:
+            if (annotated_frame) {
+              rt->current_highest_level = level_idx;;
+              AlarmImage(rt->monitor->code, rt->detector->start_ts(),
+                        rt->detector->timestamp(), *annotated_frame, pict_writer,
+                        rt->monitor->levels.second[level_idx], false);
+            }
+            break;
+          case EventDetector::kEventActive:
+            if (level_idx > rt->current_highest_level && annotated_frame) {
+              rt->current_highest_level = level_idx;
+            }
+            break;
+          case EventDetector::kEventEnd:
+            rt->current_highest_level = 0;
+            break;
+          default:
+            break;
+        }
+
+        if (result.flushed_event) {
+          if (auto& event = result.flushed_event.value()) {
+            const auto start_ts = timer_.compute(event->start_timestamp);
+            scheduler->AddAlarm(std::make_unique<Alarm>(start_ts, video_code_,
+                                std::move(event), width, height));
+          }
         }
       }
     }
   }
 
-  for (auto& rt : runtimes) {
-    for (auto& event : rt.event_manager.FlushPending()) {
-      if (!event) continue;
-      const auto start_ts = timer_.compute(event->start_timestamp);
-      const int w = width;
-      const int h = height;
-      g_th_pool.detach_task(
-          [start_ts, code = rt.monitor ? rt.monitor->code : std::string{},
-           event = std::move(event), w, h,
-           upload_dir = scheduler->GetConfig().upload_dir]() mutable {
-            Alarm alarm(start_ts, std::move(code), std::move(event), w, h);
-            alarm.Finalize(upload_dir, "");
-          });
-    }
-  }
-
   // Notify admin service for all processed monitors.
-  for (auto& rt : runtimes) {
-    if (!rt.monitor) continue;
+  for (auto& rt : monitors_) {
+    if (!rt->monitor) continue;
     const std::string url =
         std::format("{}/api/offline/finished?code={}",
-                    scheduler->GetConfig().admin_host, rt.monitor->code);
+                    scheduler->GetConfig().admin_host, rt->monitor->code);
     std::string res;
     Request::get(url.c_str(), res);
-    LOGI("offline analyzer response ({}): {}", rt.monitor->code, res);
+    LOGI("offline analyzer response ({}): {}", rt->monitor->code, res);
 
-    if (rt.analyzer) {
-      rt.analyzer->Stop();
-      scheduler->DeregisterAnalyzerCallback(*rt.analyzer);
+    if (rt->analyzer) {
+      rt->analyzer->Stop();
+      scheduler->DeregisterAnalyzerCallback(*rt->analyzer);
     }
   }
 }
