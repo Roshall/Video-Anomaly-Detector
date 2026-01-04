@@ -156,6 +156,7 @@ void send_json(evhttp_request* req, int code, const std::string& json) {
     evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
     return;
   }
+  LOGI("sending http code: {}, json: {}", code, json);
   evbuffer_add(out, json.data(), json.size());
   evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type", "application/json; charset=utf-8");
   // (Optional) CORS
