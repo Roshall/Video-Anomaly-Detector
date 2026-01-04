@@ -60,7 +60,6 @@ struct Monitor {
           LOGE("ParseRecognitionRegion exception: {}\nroi_str: {}", e.what(), roi_str);
           res = false;
         }
-        res = true;
       }
     }
 
