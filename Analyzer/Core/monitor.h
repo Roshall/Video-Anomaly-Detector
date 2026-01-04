@@ -48,11 +48,17 @@ struct Monitor {
       std::vector<std::string> xys = split(roi_str, ",");
       size_t lineCount = xys.size() / 2;  // 多边形边数
       if (lineCount > 3) {
-        for (size_t i = 0; i < lineCount; i++) {
-          size_t x_index = i * 2;
-          double x = stod(xys[x_index]) * video_width;
-          double y = stod(xys[x_index + 1]) * video_height;
-          roi_points.emplace_back(x, y);
+        try{
+          for (size_t i = 0; i < lineCount; i++) {
+            size_t x_index = i * 2;
+            double x = stod(xys[x_index]) * video_width;
+            double y = stod(xys[x_index + 1]) * video_height;
+            roi_points.emplace_back(x, y);
+          }
+          res = true;
+        } catch (const std::exception& e) {
+          LOGE("ParseRecognitionRegion exception: {}\nroi_str: {}", e.what(), roi_str);
+          res = false;
         }
         res = true;
       }
