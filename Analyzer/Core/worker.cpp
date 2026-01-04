@@ -426,7 +426,7 @@ void Worker::OfflineAnalyze() {
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
-    AddTasks(frame.get());
+    AddTasks(frame.get(), in_time_base);
 
     for (auto& rt : runtimes) {
       if (!rt.monitor || !rt.detector) {
@@ -669,6 +669,10 @@ void Worker::EnsureAnnotatorReady() {
 }
 
 void Worker::AddTasks(AVFrame* frame) const {
+  AddTasks(frame, in_stream->stream->time_base);
+}
+
+void Worker::AddTasks(AVFrame* frame, AVRational time_base) const {
   if (!frame) {
     return;
   }
@@ -684,7 +688,7 @@ void Worker::AddTasks(AVFrame* frame) const {
   auto img = std::make_shared<const cv::Mat>(img_view.clone());
   const auto timestamp = frame->best_effort_timestamp;
   const auto timestamp_ms =
-  av_rescale_q(timestamp, in_stream->stream->time_base, AVRational{1, 1000});
+  av_rescale_q(timestamp, time_base, AVRational{1, 1000});
   std::shared_lock lock(monitors_mutex_);
   for (auto& ctx : monitors_) {
     ctx->analyzer->AddVideoFrame(id_, timestamp_ms, img);

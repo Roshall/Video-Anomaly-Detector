@@ -101,6 +101,7 @@ class Worker {
   void RebuildEventManager();
   void EnsureAnnotatorReady();
   void AddTasks(AVFrame* frame) const;
+  void AddTasks(AVFrame* frame, AVRational time_base) const;
   std::vector<Task> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
   static int ComputeLevelIndex(
