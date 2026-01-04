@@ -95,65 +95,78 @@ Worker::~Worker() {
 
 void Worker::AddMonitor(std::unique_ptr<Monitor> monitor,
                         const EventDetectorConfig& event_cfg) {
-  if (!monitor) {
+  std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> monitors;
+  monitors.emplace_back(std::move(monitor), event_cfg);
+  AddMonitorsBatch(std::move(monitors));
+}
+
+void Worker::AddMonitorsBatch(std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>>&& monitors) {
+  if (monitors.empty()) {
     return;
   }
-  monitor->start_timestamp = getCurTimestamp();
-  if (monitor->video_code.empty()) {
-    monitor->video_code = video_code_.empty() ? monitor->code : video_code_;
-  }
 
-  auto ctx = std::make_unique<MonitorContext>();
-  ctx->event_cfg = event_cfg;
-  ctx->analyzer = std::make_unique<Analyzer>(
-      monitor.get(), scheduler->GetConfig());
-  ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
-  try {
-    ctx->detector = std::make_unique<EventDetector>(
-        event_cfg, *ctx->analyzer);
-    ctx->current_highest_level = 0;
-  } catch (const std::exception& ex) {
-    LOGE("Failed to create event detector for monitor {}: {}",
-         monitor->code, ex.what());
-    // Continue without detector - analyzer can still work
-  }
-  
-  if (video_code_.empty()) {
-    video_code_ = monitor->video_code;
-  }
-  if (stream_url_.empty()) {
-    stream_url_ = monitor->stream_url;
-  } else if (monitor->stream_url != stream_url_) {
-    LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
-        video_code_, monitor->code, monitor->stream_url,
-        stream_url_);
-    monitor->stream_url = stream_url_;
-  }
-  if (push_stream_url_.empty() && monitor->push_stream) {
-    push_stream_url_ = monitor->push_stream_url;
-  } else if (monitor->push_stream &&
-            monitor->push_stream_url != push_stream_url_) {
-    LOGW("Worker {} ignores monitor {} custom push_stream_url {}; using {}",
-        video_code_, monitor->code, monitor->push_stream_url,
-        push_stream_url_);
-    monitor->push_stream_url = push_stream_url_;
-  }
-  
-  ctx->monitor = std::move(monitor);
-  PrepareMonitorForStream(*ctx);
+  // Add all monitors to the context
   {
     std::unique_lock lock(monitors_mutex_);
-    
-    monitors_.push_back(std::move(ctx));
+    for (auto& [monitor, event_cfg] : monitors) {
+      if (!monitor) {
+        continue;
+      }
+      
+      monitor->start_timestamp = getCurTimestamp();
+      if (monitor->video_code.empty()) {
+        monitor->video_code = video_code_.empty() ? monitor->code : video_code_;
+      }
+
+      auto ctx = std::make_unique<MonitorContext>();
+      ctx->event_cfg = event_cfg;
+      ctx->analyzer = std::make_unique<Analyzer>(
+          monitor.get(), scheduler->GetConfig());
+      ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
+      try {
+        ctx->detector = std::make_unique<EventDetector>(
+            event_cfg, *ctx->analyzer);
+        ctx->current_highest_level = 0;
+      } catch (const std::exception& ex) {
+        LOGE("Failed to create event detector for monitor {}: {}",
+             monitor->code, ex.what());
+        // Continue without detector - analyzer can still work
+      }
+      
+      if (video_code_.empty()) {
+        video_code_ = monitor->video_code;
+      }
+      if (stream_url_.empty()) {
+        stream_url_ = monitor->stream_url;
+      } else if (monitor->stream_url != stream_url_) {
+        LOGW("Worker {} ignores monitor {} custom stream_url {}; using {}",
+            video_code_, monitor->code, monitor->stream_url,
+            stream_url_);
+        monitor->stream_url = stream_url_;
+      }
+      if (push_stream_url_.empty() && monitor->push_stream) {
+        push_stream_url_ = monitor->push_stream_url;
+      } else if (monitor->push_stream &&
+                monitor->push_stream_url != push_stream_url_) {
+        LOGW("Worker {} ignores monitor {} custom push_stream_url {}; using {}",
+            video_code_, monitor->code, monitor->push_stream_url,
+            push_stream_url_);
+        monitor->push_stream_url = push_stream_url_;
+      }
+      
+      ctx->monitor = std::move(monitor);
+      PrepareMonitorForStream(*ctx);
+      monitors_.push_back(std::move(ctx));
+    }
   }
   
+  // Rebuild only once after all monitors are added
   RebuildEventManager();
   StartPushThreadIfNeeded();
 
-  // Update annotator legend whenever monitors are added
+  // Update annotator legend once for all monitors
   EnsureAnnotatorReady();
   
-  // Gather tasks before acquiring annotator_mutex_ to maintain lock ordering
   auto tasks = GetMonitorTasks();
   {
     std::scoped_lock lock(annotator_mutex_);
@@ -826,36 +839,53 @@ bool Worker::ContainsMonitor(const std::string& code) const {
 const std::string& Worker::Code() const { return video_code_; }
 
 void Worker::RemoveMonitor(const std::string& code) {
+  std::vector<std::string> codes;
+  codes.push_back(code);
+  RemoveMonitorsBatch(codes);
+}
+
+void Worker::RemoveMonitorsBatch(const std::vector<std::string>& codes) {
+  if (codes.empty()) {
+    return;
+  }
+
   bool remove_worker = false;
+  size_t removed_count = 0;
+  
   {
     std::unique_lock lock(monitors_mutex_);
-    const auto it = std::ranges::find_if(monitors_,
-                                         [&code](const auto& ctx) {
-                                           return ctx->monitor->code == code;
-                                         });
-    if (it == monitors_.end()) {
-      LOGW("trying to remove unknown monitor code: {}", code);
-      return;
-    }
-    scheduler->DeregisterAnalyzerCallback(*(*it)->analyzer);
-    it->get()->analyzer->Stop();
-    if (monitors_.size() == 1) {
-      remove_worker = true;
-    } else {
+    
+    for (const auto& code : codes) {
+      const auto it = std::ranges::find_if(monitors_,
+                                           [&code](const auto& ctx) {
+                                             return ctx->monitor->code == code;
+                                           });
+      if (it == monitors_.end()) {
+        LOGW("trying to remove unknown monitor code: {}", code);
+        continue;
+      }
+      
+      scheduler->DeregisterAnalyzerCallback(*(*it)->analyzer);
+      it->get()->analyzer->Stop();
       monitors_.erase(it);
+      removed_count++;
+    }
+    
+    if (monitors_.empty()) {
+      remove_worker = true;
     }
   }
 
   if (remove_worker) {
     Remove();
-  } else {
+  } else if (removed_count > 0) {
+    // Rebuild only once after all monitors are removed
     ClosePushThreadIfNeeded();
     RebuildEventManager();
 
-    // Refresh annotator legend after a monitor removal
+    // Refresh annotator legend once for all removals
     EnsureAnnotatorReady();
 
-    // Gather tasks before acquiring annotator_mutex_ to maintain lock ordering
     auto tasks = GetMonitorTasks();
     {
       std::scoped_lock lock(annotator_mutex_);

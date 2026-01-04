@@ -48,6 +48,12 @@ class Scheduler {
                   const EventDetectorConfig& event_cfg);
   void MonitorRemove(const std::string& video_code, const std::string& code,
                      int& result_code, std::string& result_msg);
+  
+  // Batch operations
+  void MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>>&& monitors,
+                       std::vector<std::pair<int, std::string>>& results);
+  void MonitorBatchRemove(const std::vector<std::pair<std::string, std::string>>& monitor_ids,
+                          std::vector<std::pair<int, std::string>>& results);
   // void StartAlarmThread();
   // ApiServer 对应的函数 end
   void RemoveWorker(const std::string& code);  // 加入到待实际删除队列

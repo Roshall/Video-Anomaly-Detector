@@ -36,9 +36,11 @@ class Worker {
          const EventDetectorConfig& event_cfg, bool file);
   ~Worker();
   void AddMonitor(std::unique_ptr<Monitor> monitor, const EventDetectorConfig& event_cfg);
+  void AddMonitorsBatch(std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>>&& monitors);
   [[nodiscard]] size_t num_task() const;
   void GetAllMonitor(std::vector<Monitor>& monitors) const;
   void RemoveMonitor(const std::string& code);
+  void RemoveMonitorsBatch(const std::vector<std::string>& codes);
   Worker(const Worker& other) = delete;
   Worker operator= (const Worker& other) = delete;
 

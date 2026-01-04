@@ -55,65 +55,240 @@ std::vector<Monitor> Scheduler::GetAllMonitors() {
 void Scheduler::MonitorAdd(std::unique_ptr<Monitor> monitor, int& result_code,
                            std::string& result_msg,
                            const EventDetectorConfig& event_cfg) {
-  if (ContainsMonitor(monitor.get())) {
-    result_msg = "the control is running";
-    result_code = 1000;
-    return;
-  }
-  if (monitor->video_code.empty()) {
-    result_msg = "videoCode is empty";
-    result_code = 0;
-    return;
-  }
-  auto file = monitor->source_type == "file";
-  if (file) {
-    g_th_pool.detach_task(
-        [worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, file)]() mutable  { worker->OfflineAnalyze(); });
-    result_msg = "added successfully";
-    result_code = 1000;
+  std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> monitors;
+  monitors.emplace_back(std::move(monitor), event_cfg);
+  
+  std::vector<std::pair<int, std::string>> results;
+  MonitorBatchAdd(std::move(monitors), results);
+  
+  if (!results.empty()) {
+    result_code = results[0].first;
+    result_msg = results[0].second;
   } else {
-    {
-      std::lock_guard lock(worker_map_mutex_);
-      if (const auto it = worker_map_.find(monitor->video_code);
-          it != worker_map_.end()) {
-        Worker* existing_worker = it->second.get();
-        if (existing_worker->ContainsMonitor(monitor->code)) {
-          result_msg = "control is running";
-          result_code = 1000;
-        } else {
-          existing_worker->AddMonitor(std::move(monitor), event_cfg);
-          result_msg = "added successfully";
-          result_code = 1000;
-        }
-        return;
-      }
-    }
-    
-    // No existing worker, create a new one
-    if (auto worker = std::make_unique<Worker>(
-                   this, std::move(monitor), event_cfg, file);
-               worker->start(result_msg)) {
-      AddWorker(std::move(worker));
-      result_msg = "added successfully";
-      result_code = 1000;
-    } else {
-      result_msg = "Internal error: cannot start a worker";
-      result_code = 0;
-    }
+    result_code = 0;
+    result_msg = "internal error";
   }
 }
 void Scheduler::MonitorRemove(const std::string& video_code,
                               const std::string& code, int& result_code,
                               std::string& result_msg) {
-  std::lock_guard lock(worker_map_mutex_);
-  if (const auto f = worker_map_.find(video_code); worker_map_.end() != f) {
-    result_msg = "removing control, ";
-    f->second->RemoveMonitor(code);
+  std::vector<std::pair<std::string, std::string>> monitor_ids;
+  monitor_ids.emplace_back(video_code, code);
+  
+  std::vector<std::pair<int, std::string>> results;
+  MonitorBatchRemove(monitor_ids, results);
+  
+  if (!results.empty()) {
+    result_code = results[0].first;
+    result_msg = results[0].second;
   } else {
-    result_msg = "control does not exist, ";
+    result_code = 0;
+    result_msg = "internal error";
   }
-  result_msg += "removed successfully";
-  result_code = 1000;
+}
+
+void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>>&& monitors,
+                                std::vector<std::pair<int, std::string>>& results) {
+  results.clear();
+  results.resize(monitors.size(), {0, ""});
+
+  if (monitors.empty()) {
+    return;
+  }
+
+  const bool all_file = std::ranges::all_of(monitors, [](const auto& m) {
+    return m.first && m.first->source_type == "file";
+  });
+
+  // Atomic semantics for file batches: all success or all fail.
+  if (all_file) {
+    std::string fail_msg;
+    bool ok = true;
+
+    for (size_t i = 0; i < monitors.size(); ++i) {
+      const auto& monitor = monitors[i].first;
+      if (!monitor) {
+        ok = false;
+        fail_msg = "invalid monitor";
+        break;
+      }
+      if (monitor->video_code.empty()) {
+        ok = false;
+        fail_msg = "videoCode is empty";
+        break;
+      }
+      if (ContainsMonitor(monitor.get())) {
+        ok = false;
+        fail_msg = "the control is running";
+        break;
+      }
+    }
+
+    if (!ok) {
+      for (auto& r : results) {
+        r = {0, fail_msg};
+      }
+      return;
+    }
+
+    for (size_t i = 0; i < monitors.size(); ++i) {
+      auto& [monitor, event_cfg] = monitors[i];
+      g_th_pool.detach_task(
+          [worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
+            worker->OfflineAnalyze();
+          });
+      results[i] = {1000, "added successfully"};
+    }
+    return;
+  }
+
+  // Stream (or mixed) semantics: per-item results.
+  // Group monitors by video_code and source_type for efficient batch processing
+  std::unordered_map<std::string, std::vector<size_t>> stream_groups;
+  std::vector<size_t> file_indices;
+
+  for (size_t i = 0; i < monitors.size(); ++i) {
+    const auto& monitor = monitors[i].first;
+    if (!monitor) {
+      results[i] = {0, "invalid monitor"};
+      continue;
+    }
+
+    if (monitor->video_code.empty()) {
+      results[i] = {0, "videoCode is empty"};
+      monitors[i].first.reset();
+      continue;
+    }
+
+    if (ContainsMonitor(monitor.get())) {
+      // keep legacy code semantics: already running treated as ok
+      results[i] = {1000, "the control is running"};
+      monitors[i].first.reset();
+      continue;
+    }
+
+    if (monitor->source_type == "file") {
+      file_indices.push_back(i);
+    } else {
+      stream_groups[monitor->video_code].push_back(i);
+    }
+  }
+
+  // Process file monitors (non-atomic in mixed mode)
+  for (size_t idx : file_indices) {
+    auto& [monitor, event_cfg] = monitors[idx];
+    if (!monitor) continue;
+    g_th_pool.detach_task(
+        [worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
+          worker->OfflineAnalyze();
+        });
+    results[idx] = {1000, "added successfully"};
+  }
+
+  // Process stream monitors in batches per video_code
+  for (auto& [video_code, indices] : stream_groups) {
+    std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> batch;
+    std::vector<size_t> valid_indices;
+    
+    for (size_t idx : indices) {
+      auto& [monitor, event_cfg] = monitors[idx];
+      if (!monitor) continue; // Already processed
+      
+      batch.emplace_back(std::move(monitor), event_cfg);
+      valid_indices.push_back(idx);
+    }
+    
+    if (batch.empty()) continue;
+    
+    // Check if worker exists for this video_code
+    Worker* existing_worker = nullptr;
+    bool need_new_worker = false;
+    
+    {
+      std::lock_guard lock(worker_map_mutex_);
+      if (const auto it = worker_map_.find(video_code); it != worker_map_.end()) {
+        existing_worker = it->second.get();
+      } else {
+        need_new_worker = true;
+      }
+    }
+    
+    if (existing_worker) {
+      // Add all monitors to existing worker in one batch
+      existing_worker->AddMonitorsBatch(std::move(batch));
+      for (size_t idx : valid_indices) {
+        results[idx] = {1000, "added successfully"};
+      }
+    } else if (need_new_worker) {
+      // Create new worker with first monitor
+      auto& first_monitor = batch[0].first;
+      auto& first_cfg = batch[0].second;
+      
+      std::string start_msg;
+      auto worker = std::make_unique<Worker>(this, std::move(first_monitor), first_cfg, false);
+      
+      if (worker->start(start_msg)) {
+        // Add remaining monitors to the new worker in batch
+        if (batch.size() > 1) {
+          std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> remaining;
+          for (size_t i = 1; i < batch.size(); ++i) {
+            remaining.push_back(std::move(batch[i]));
+          }
+          worker->AddMonitorsBatch(std::move(remaining));
+        }
+        
+        AddWorker(std::move(worker));
+        for (size_t idx : valid_indices) {
+          results[idx] = {1000, "added successfully"};
+        }
+      } else {
+        for (size_t idx : valid_indices) {
+          results[idx] = {0, "Internal error: cannot start a worker"};
+        }
+      }
+    }
+  }
+}
+
+void Scheduler::MonitorBatchRemove(const std::vector<std::pair<std::string, std::string>>& monitor_ids,
+                                   std::vector<std::pair<int, std::string>>& results) {
+  results.clear();
+  results.reserve(monitor_ids.size());
+  
+  // Group monitors by video_code for efficient batch removal
+  std::unordered_map<std::string, std::vector<std::pair<size_t, std::string>>> grouped;
+  for (size_t i = 0; i < monitor_ids.size(); ++i) {
+    const auto& [video_code, code] = monitor_ids[i];
+    grouped[video_code].emplace_back(i, code);
+  }
+  
+  // Reserve result slots
+  results.resize(monitor_ids.size(), {1000, ""});
+  
+  std::lock_guard lock(worker_map_mutex_);
+  for (const auto& [video_code, index_code_pairs] : grouped) {
+    if (const auto f = worker_map_.find(video_code); worker_map_.end() != f) {
+      // Collect codes for batch removal
+      std::vector<std::string> codes;
+      codes.reserve(index_code_pairs.size());
+      for (const auto& [idx, code] : index_code_pairs) {
+        codes.push_back(code);
+      }
+      
+      // Batch remove from worker
+      f->second->RemoveMonitorsBatch(codes);
+      
+      // Set all results for this group
+      for (const auto& [idx, code] : index_code_pairs) {
+        results[idx] = {1000, "removing control, removed successfully"};
+      }
+    } else {
+      // Worker not found for this video_code
+      for (const auto& [idx, code] : index_code_pairs) {
+        results[idx] = {1000, "control does not exist, removed successfully"};
+      }
+    }
+  }
 }
 void Scheduler::SetState(const bool state) { state_ = state; }
 bool Scheduler::GetState() const { return state_; }
