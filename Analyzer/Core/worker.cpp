@@ -287,6 +287,22 @@ void Worker::OfflineAnalyze() {
   auto in_stream_ = in.stream();
   timer_.init(in.format_context(), in_stream_);
 
+  for (auto& rt : monitors_) {
+        if (!rt->monitor->ParseRecognitionRegion(width, height)) {
+      LOGE("ParseRecognitionRegion() error for monitor {}", rt->monitor->code);
+      
+    }
+    if (rt->monitor->task == Task::kBunkOff) {
+      rt->analyzer->SetROIs(rt->monitor->roi_polygons);
+    } else {
+      rt->analyzer->SetROIs({rt->monitor->roi_points});
+    }
+    rt->roi_entries.clear();
+    if (!rt->monitor->roi_points.empty()) {
+      rt->roi_entries.emplace_back(rt->monitor->task, rt->monitor->roi_points);
+    }
+  }
+
   VideoContext overlay_ctx{.time_base = in_time_base,
                            .sample_aspect_ratio = AVRational{1, 1},
                            .format = static_cast<AVPixelFormat>(example->
@@ -897,6 +913,8 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
   }
   if (monitor.task == Task::kBunkOff) {
     ctx.analyzer->SetROIs(monitor.roi_polygons);
+  } else {
+    ctx.analyzer->SetROIs({monitor.roi_points});
   }
   ctx.roi_entries.clear();
   if (!monitor.roi_points.empty()) {
