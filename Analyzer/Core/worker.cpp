@@ -909,7 +909,9 @@ void Worker::PrepareMonitorForStream(MonitorContext& ctx) const {
       return;
     }
   }
-  ctx.analyzer->SetROI(monitor.roi_points);
+  if (monitor.task == Task::kBunkOff) {
+    ctx.analyzer->SetROIs(monitor.roi_polygons);
+  }
   ctx.roi_entries.clear();
   if (!monitor.roi_points.empty()) {
     ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);
