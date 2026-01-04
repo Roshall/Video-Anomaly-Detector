@@ -481,8 +481,8 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       const size_t n = std::min(control_codes.size(), add_results.size());
       for (size_t i = 0; i < n; ++i) {
         Json::Value item;
-        item["code"] = control_codes[i];
-        item["controlCode"] = add_results[i].first;
+        item["controlCode"] = control_codes[i];
+        item["code"] = add_results[i].first;
         item["msg"] = add_results[i].second;
         arr.append(item);
       }
