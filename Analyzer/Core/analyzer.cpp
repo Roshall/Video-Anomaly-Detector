@@ -53,29 +53,40 @@ Analyzer::~Analyzer() = default;
   }
 
   if (task_ == Task::kBunkOff) {
-    bool work{false};
+    std::vector<bool> roi_has_overlap(roi_polygons_.size(), false);
     if (!det.bbox.empty()) {
       for (size_t i = 0; i < det.confidences.size(); ++i) {
         if (det.confidences[i] < conf_th_) {
           continue;
         }
-        auto [x, y, w, h] = det.bbox[i];
-        std::vector<cv::Point2f> intersectionPoly;
-        auto x2 = x + w;
-        auto y2 = y + h;
-        auto interaction_area = cv::intersectConvexConvex(
-            roi_points_,
-            std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}},
-            intersectionPoly);
-        auto min_area = std::min(roi_area_, static_cast<double>(w * h));
-        if (interaction_area / min_area > 0.3) {
-          work = true;
-          break;
+        const auto [x, y, w, h] = det.bbox[i];
+        const auto x2 = x + w;
+        const auto y2 = y + h;
+        const double bbox_area = static_cast<double>(w) * static_cast<double>(h);
+
+        // Check this bbox against each ROI polygon.
+        for (size_t r = 0; r < roi_polygons_.size(); ++r) {
+          if (roi_has_overlap[r]) {
+            continue;
+          }
+          std::vector<cv::Point2f> intersectionPoly;
+          const auto interaction_area = cv::intersectConvexConvex(
+              roi_polygons_[r],
+              std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}},
+              intersectionPoly);
+          const auto min_area = std::min(roi_areas_[r], bbox_area);
+          if (min_area > 0.0 && (interaction_area / min_area) > 0.3) {
+            roi_has_overlap[r] = true;
+          }
         }
       }
     }
-    if (not work) {
-      detection_results.push_back(roi_bbox_);
+
+    // For each ROI with no overlapping bbox, emit its bbox.
+    for (size_t r = 0; r < roi_has_overlap.size(); ++r) {
+      if (!roi_has_overlap[r]) {
+        detection_results.push_back(roi_bboxes_[r]);
+      }
     }
   } else if (!det.bbox.empty()) {
     for (size_t i = 0; i < det.confidences.size(); ++i) {
@@ -106,9 +117,32 @@ uint64_t Analyzer::NextId() {
   return global_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-void Analyzer::SetROI(std::vector<cv::Point>& points) {
-  roi_area_ = cv::contourArea(points);
-  roi_bbox_ = computeBoundingBox(points);
-  roi_points_ = points;
+void Analyzer::SetROIs(const std::vector<std::vector<cv::Point>>& polygons) {
+  roi_polygons_ = polygons;
+  roi_areas_.clear();
+  roi_bboxes_.clear();
+  roi_areas_.reserve(roi_polygons_.size());
+  roi_bboxes_.reserve(roi_polygons_.size());
+
+  for (const auto& poly : roi_polygons_) {
+    if (poly.empty()) {
+      roi_areas_.push_back(0.0);
+      roi_bboxes_.push_back(cv::Rect{});
+      continue;
+    }
+    roi_areas_.push_back(cv::contourArea(poly));
+    roi_bboxes_.push_back(computeBoundingBox(poly));
+  }
+
+  // Keep single-ROI fields consistent (use first polygon when present)
+  if (!roi_polygons_.empty()) {
+    roi_points_ = roi_polygons_.front();
+    roi_area_ = roi_areas_.front();
+    roi_bbox_ = roi_bboxes_.front();
+  } else {
+    roi_points_.clear();
+    roi_area_ = 0.0;
+    roi_bbox_ = cv::Rect{};
+  }
 }
 }  // namespace avs_analyzer

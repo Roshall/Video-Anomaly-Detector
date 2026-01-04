@@ -41,7 +41,7 @@ class Analyzer {
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
-  void SetROI(std::vector<cv::Point>& points);
+  void SetROIs(const std::vector<std::vector<cv::Point>>& polygons);
   uint64_t WantsFrame() const {
     return frame_ts_ms_.load(std::memory_order_acquire);
   }
@@ -59,9 +59,15 @@ class Analyzer {
   Task task_;
   std::unique_ptr<Algorithm> algorithm_;
   float conf_th_;
-  double roi_area_;
-  cv::Rect roi_bbox_;
-  std::vector<cv::Point> roi_points_;
+  // Single ROI (used by most tasks)
+  double roi_area_{};
+  cv::Rect roi_bbox_{};
+  std::vector<cv::Point> roi_points_{};
+
+  // Multi-ROI (used by some tasks like kBunkOff)
+  std::vector<std::vector<cv::Point>> roi_polygons_{};
+  std::vector<double> roi_areas_{};
+  std::vector<cv::Rect> roi_bboxes_{};
   DetectorPool::AddTaskFunc add_task_callback_;
 };
 }  // namespace avs_analyzer
