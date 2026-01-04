@@ -270,8 +270,6 @@ void Worker::OfflineAnalyze() {
   };
 
   std::vector<OfflineMonitorInput> inputs;
-  int video_ctx_width = 0;
-  int video_ctx_height = 0;
 
   {
     std::shared_lock lock(monitors_mutex_);
@@ -294,12 +292,6 @@ void Worker::OfflineAnalyze() {
   if (inputs.empty()) {
     LOGE("offline analyze with no valid monitor contexts");
     return;
-  }
-
-  {
-    std::shared_lock video_lock(video_context_mutex_);
-    video_ctx_width = video_context_.width;
-    video_ctx_height = video_context_.height;
   }
 
   const std::string stream_url = inputs.front().monitor->stream_url;
@@ -341,7 +333,7 @@ void Worker::OfflineAnalyze() {
       continue;
     }
     auto& monitor = *input.monitor;
-    if (!monitor.ParseRecognitionRegion(video_ctx_width, video_ctx_height)) {
+    if (!monitor.ParseRecognitionRegion(width, height)) {
       LOGE("cannot parse recognition region for {}", monitor.code);
       continue;
     }
