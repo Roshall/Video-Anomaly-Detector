@@ -325,7 +325,7 @@ void Worker::OfflineAnalyze() {
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
   while (!in.EoF()) {
-    const auto frame = AVFramePtr(in.NextFrame());
+    const auto frame = in.NextFrame();
     if (!frame) {
       break;
     }
@@ -334,7 +334,7 @@ void Worker::OfflineAnalyze() {
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
-    AddTasks(frame.get(), in_time_base);
+    AddTasks(frame, in_time_base);
     
     std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
     info_vec.reserve(monitors_.size());
@@ -359,7 +359,7 @@ void Worker::OfflineAnalyze() {
     }
     if (event_manager_) {
       auto result = event_manager_->ProcessFrame(
-          frame.get(), timestamp_ms, timestamp, info_vec);
+          frame, timestamp_ms, timestamp, info_vec);
       Frame* annotated_frame = result.annotated_frame.get();
       size_t idx = 0;
       for (auto& rt : monitors_) {
