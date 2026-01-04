@@ -25,6 +25,7 @@
 #include "event.h"
 #include "format_convertor.h"
 #include "frame.h"
+#include "helper.h"
 #include "jpeg_encoder.h"
 #include "monitor.h"
 #include "scheduler.h"
@@ -369,6 +370,11 @@ void Worker::OfflineAnalyze() {
     LOGE("offline analyze: no monitors could be prepared");
     return;
   }
+  convertor_ = std::make_unique<FormatConvertor>(width,
+                                                height,
+                                                in.PixelFormat(),
+                                                width,
+                                                height);
 
   auto in_stream_ = in.stream();
   timer_.init(in.format_context(), in_stream_);
@@ -411,7 +417,7 @@ void Worker::OfflineAnalyze() {
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
   while (!in.EoF()) {
-    const auto frame = in.NextFrame();
+    const auto frame = AVFramePtr(in.NextFrame());
     if (!frame) {
       break;
     }
@@ -420,6 +426,7 @@ void Worker::OfflineAnalyze() {
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
+    AddTasks(frame.get());
 
     for (auto& rt : runtimes) {
       if (!rt.monitor || !rt.detector) {
@@ -441,7 +448,7 @@ void Worker::OfflineAnalyze() {
       std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
       info_vec.emplace_back(std::move(info));
 
-      auto combined = rt.event_manager.ProcessFrame(frame, timestamp_ms,
+      auto combined = rt.event_manager.ProcessFrame(frame.get(), timestamp_ms,
                                                     timestamp, info_vec);
       Frame* annotated_frame = combined.annotated_frame.get();
 
