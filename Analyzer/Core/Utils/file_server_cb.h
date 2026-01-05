@@ -105,6 +105,11 @@ inline std::string url_decode(const char* s) {
   char* decoded = evhttp_uridecode(s, 0, &err);
   if (!decoded || err) {
     if (decoded) free(decoded);
+    // Fallback: if there is no percent-encoding, treat the path as already decoded.
+    // This avoids spuriously rejecting plain paths on some libevent builds.
+    if (s && std::strchr(s, '%') == nullptr) {
+      return std::string(s);
+    }
     return {};
   }
   std::string out(decoded);
