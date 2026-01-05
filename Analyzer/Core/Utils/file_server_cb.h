@@ -15,6 +15,7 @@
 #include <array>
 #include <cerrno>
 #include <climits>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <optional>
@@ -22,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include "Utils/log.h"
 
 struct FileRouteOptions {
   std::string root_dir;          // e.g., "/var/www/files" (must be absolute)
@@ -101,13 +103,22 @@ inline std::string mime_for_path(std::string_view path) {
 
 // URL-decode (percent-decoding) using libevent helper
 inline std::string url_decode(const char* s) {
-  size_t err = 0;
-  char* decoded = evhttp_uridecode(s, 0, &err);
-  if (!decoded || err) {
-    if (decoded) free(decoded);
+  if (!s) return {};
+
+  // NOTE: libevent's evhttp_uridecode() sets the 3rd parameter to the decoded
+  // output length (not an error code).
+  size_t out_len = 0;
+  char* decoded = evhttp_uridecode(s, 0, &out_len);
+  if (!decoded) {
+    // Fallback: if there is no percent-encoding, treat the path as already decoded.
+    // This avoids spuriously rejecting plain paths on some libevent builds.
+    if (std::strchr(s, '%') == nullptr) {
+      return std::string(s);
+    }
     return {};
   }
-  std::string out(decoded);
+
+  std::string out(decoded, out_len);
   free(decoded);
   return out;
 }
@@ -312,49 +323,103 @@ inline void file_route_cb(evhttp_request* req, void* arg) {
     return;
   }
 
-  // Parse URI
+  // Parse URI and query. Support three forms of request:
+  // 1) /video?path=<encoded_relative_path>
+  // 2) /video/<relative_path> (when server is mounted with a generic cb)
+  // 3) X-FilePath header (used by internal forwarders)
   const evhttp_uri* uri = evhttp_request_get_evhttp_uri(req);
   if (!uri) {
     evhttp_send_error(req, HTTP_BADREQUEST, "Invalid URI");
     return;
   }
 
-  const char* raw_path = evhttp_uri_get_path(uri);
-  if (!raw_path) raw_path = "/";
+  const char* uri_path = evhttp_uri_get_path(uri);
+  if (!uri_path) uri_path = "/";
+  const char* uri_query = evhttp_uri_get_query(uri);  // may be nullptr
 
-  // URL decode
-  std::string decoded_path = url_decode(raw_path);
-  if (decoded_path.empty()) {
-    evhttp_send_error(req, HTTP_BADREQUEST, "Invalid path encoding");
-    return;
+  // 1) Check X-FilePath header (highest priority)
+  const char* xfp = evhttp_find_header(evhttp_request_get_input_headers(req), "X-FilePath");
+  std::string decoded_path;
+
+  if (xfp && xfp[0] != '\0') {
+    LOGD("file_route: using X-FilePath header: {}", xfp);
+    decoded_path = url_decode(xfp);
   }
 
-  // Strip route prefix if configured
-  if (!opt->route_prefix.empty()) {
-    if (decoded_path.rfind(opt->route_prefix, 0) == 0) {
-      decoded_path.erase(0, opt->route_prefix.size());
-    } else {
-      evhttp_send_error(req, HTTP_NOTFOUND, "Not Found");
-      return;
+  // 2) If not present, check query param 'path'
+  if (decoded_path.empty()) {
+    // Prefer parsing the raw request URI to ensure we see the query string.
+    // (Some libevent builds may not populate evhttp_uri_get_query reliably.)
+    const char* raw_uri = evhttp_request_get_uri(req);
+    std::string q;
+    if (raw_uri) {
+      if (const char* qm = std::strchr(raw_uri, '?'); qm) {
+        q = qm + 1;
+      }
+    }
+    if (q.empty() && uri_query && uri_query[0] != '\0') {
+      q = uri_query;
+    }
+
+    if (!q.empty()) {
+      // Minimal query parsing for "path=" parameter.
+      // Example: path=a/b/c.ts or path=a%2Fb%2Fc.ts&other=1
+      size_t pos = q.find("path=");
+      if (pos != std::string::npos) {
+        size_t start = pos + 5;
+        size_t end = q.find('&', start);
+        std::string path_param = q.substr(start, (end == std::string::npos) ? std::string::npos : (end - start));
+        decoded_path = url_decode(path_param.c_str());
+        LOGD("file_route: using query path param: {} -> {}", path_param, decoded_path);
+      }
     }
   }
 
-  // Ensure path starts with / for consistency
-  if (decoded_path.empty() || decoded_path.front() != '/') {
-    decoded_path = "/" + decoded_path;
+  // 3) Fallback: use the URI path (for /video/<path>)
+  if (decoded_path.empty()) {
+    // Attempt to strip route_prefix
+    std::string p(uri_path);
+    LOGD("file_route: uri_path='{}'", p);
+    if (!opt->route_prefix.empty()) {
+      if (p.rfind(opt->route_prefix, 0) == 0) {
+        p.erase(0, opt->route_prefix.size());
+      } else {
+        evhttp_send_error(req, HTTP_NOTFOUND, "Not Found");
+        return;
+      }
+    }
+    if (p.empty() || p.front() != '/') p = std::string("/") + p;
+    // handle default file
+    if (!opt->default_file.empty() && p.back() == '/') p += opt->default_file;
+    decoded_path = url_decode(p.c_str());
+    LOGD("file_route: using uri-derived path: {}", decoded_path);
   }
 
-  // Handle default file for directory requests
-  if (!opt->default_file.empty() && decoded_path.back() == '/') {
-    decoded_path += opt->default_file;
-  }
-
-  // Securely join path with root
-  std::string local_path;
-  if (!safe_join_path(opt->root_dir, decoded_path, &local_path)) {
+  if (decoded_path.empty()) {
+    LOGW("file_route: empty decoded path");
     evhttp_send_error(req, HTTP_BADREQUEST, "Invalid path");
     return;
   }
+
+  // Normalize: ensure leading '/'
+  if (decoded_path.front() != '/') decoded_path.insert(decoded_path.begin(), '/');
+
+  // Reject obvious traversal attempts
+  if (decoded_path.find("..") != std::string::npos) {
+    LOGW("file_route: path traversal attempt: {}", decoded_path);
+    evhttp_send_error(req, HTTP_BADREQUEST, "Invalid path");
+    return;
+  }
+
+  // Securely join path with root using existing helper; helper expects a path starting with '/'
+  std::string local_path;
+  if (!safe_join_path(opt->root_dir, decoded_path, &local_path)) {
+    LOGW("file_route: safe_join_path failed for root='{}' path='{}'", opt->root_dir, decoded_path);
+    evhttp_send_error(req, HTTP_NOTFOUND, "Not Found");
+    return;
+  }
+
+  LOGD("file_route: serving file '{}' for request path '{}'", local_path, decoded_path);
 
   // Open file with security flags
   int open_flags = O_RDONLY;
