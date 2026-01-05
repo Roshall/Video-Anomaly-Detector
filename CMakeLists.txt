@@ -321,6 +321,23 @@ target_include_directories(Analyzer PRIVATE
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
 
+# Test executable that starts the HTTP server and exercises endpoints
+add_executable(test_server
+        tests/test_server.cpp
+)
+target_link_libraries(test_server PRIVATE
+        GTest::gtest_main
+        Threads::Threads
+        libevent::core
+        libevent::pthreads
+        libevent::extra
+)
+target_include_directories(test_server PRIVATE
+        Analyzer/Core
+)
+add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
+
+
 install(TARGETS Analyzer
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
