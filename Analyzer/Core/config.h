@@ -22,6 +22,8 @@ struct Config {
   std::string model_dir{};
   bool use_accelerator{false};
   std::string log_level{"info"};
+  std::string alarm_sound_path{};
+  int alarm_sound_cooldown_sec{10};
   // std::string video_file_name_format{};//%Y%m%d%H%M%S
 };
 }  // namespace avs_analyzer
