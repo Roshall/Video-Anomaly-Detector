@@ -93,6 +93,13 @@ else ()
     message(FATAL_ERROR "ONNX Runtime not found")
 endif ()
 get_filename_component(ONNXRUNTIME_LIBDIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
+# Create a library target for ONNX Runtime to simplify linking
+add_library(onnxruntime UNKNOWN IMPORTED)
+set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
+)
+
 
 find_path(EIGEN_INCLUDE_DIR NAMES Eigen/Dense PATH_SUFFIXES include/eigen3)
 if (EIGEN_INCLUDE_DIR)
@@ -101,12 +108,52 @@ else ()
     message(FATAL_ERROR "Eigen not found")
 endif ()
 
-# Create a library target for ONNX Runtime to simplify linking
-add_library(onnxruntime UNKNOWN IMPORTED)
-set_target_properties(onnxruntime PROPERTIES
-        IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
+find_path(MINIAUDIO_INCLUDE_DIR NAMES miniaudio.h
+    PATH_SUFFIXES include/miniaudio
 )
+find_library(MINIAUDIO_LIBRARY NAMES miniaudio PATH_SUFFIXES lib)
+
+if (MINIAUDIO_INCLUDE_DIR AND MINIAUDIO_LIBRARY)
+    message(STATUS "miniaudio found: ${MINIAUDIO_LIBRARY}")
+else ()
+    message(FATAL_ERROR "miniaudio not found")
+endif ()
+
+message(STATUS "Detected System Processor: ${CMAKE_SYSTEM_PROCESSOR}")
+
+# 2. Conditional Dependency Check
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    # --- Kunpeng / openEuler Specifics ---
+    message(STATUS "Architecture is aarch64. Checking for ALSA...")
+    
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(ALSA REQUIRED alsa)
+    
+    set(AUDIO_LIBS ${ALSA_LIBRARIES})
+    
+    # Apply Kunpeng optimizations directly if found
+    add_compile_options(-march=armv8.2-a)
+    add_definitions(-DMA_ENABLE_ALSA)
+
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    # --- Intel / Ubuntu Specifics ---
+    message(STATUS "Architecture is x86_64. Using local audio stack (Pulse/ALSA)...")
+    
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(ALSA REQUIRED alsa)
+    pkg_check_modules(PULSE libpulse-simple) # Pulse is optional/preferred on Ubuntu
+    
+    set(AUDIO_LIBS ${ALSA_LIBRARIES} ${PULSE_LIBRARIES})
+    add_definitions(-DMA_ENABLE_PULSEAUDIO -DMA_ENABLE_ALSA)
+endif()
+
+get_filename_component(MINIAUDIO_LIBDIR "${MINIAUDIO_LIBRARY}" DIRECTORY)
+add_library(miniaudio UNKNOWN IMPORTED)
+set_target_properties(miniaudio PROPERTIES
+        IMPORTED_LOCATION "${MINIAUDIO_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${MINIAUDIO_INCLUDE_DIR}"
+)
+
 
 # google test
 include(FetchContent)
@@ -286,6 +333,7 @@ set(source
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_types.h
         Analyzer/Core/video_processing/dynamic_annotator.cpp
+        Analyzer/Core/alarm_sound.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -306,6 +354,8 @@ target_link_libraries(Analyzer PRIVATE
         readerwriterqueue::readerwriterqueue
         concurrentqueue::concurrentqueue
         spdlog::spdlog
+        ${AUDIO_LIBS}
+        miniaudio
         PkgConfig::FREETYPE
 )
 target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
