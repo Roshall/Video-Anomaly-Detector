@@ -18,6 +18,7 @@
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "alarm.h"
+#include "alarm_sound.h"
 #include "analyzer.h"
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
@@ -441,6 +442,11 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
                         int64_t event_pts, const Frame& frame,
                         std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
                         bool push) noexcept {
+  if (scheduler) {
+    if (auto* alarm = scheduler->GetAlarmController()) {
+      alarm->trigger();
+    }
+  }
   if (!frame.data) {
     LOGW("AlarmImage skipped for monitor {}: missing frame data",
          monitor_code);
