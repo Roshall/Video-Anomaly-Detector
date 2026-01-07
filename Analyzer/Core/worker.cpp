@@ -122,8 +122,7 @@ void Worker::AddMonitorsBatch(std::vector<std::pair<std::unique_ptr<Monitor>, Ev
 
       auto ctx = std::make_unique<MonitorContext>();
       ctx->event_cfg = event_cfg;
-      ctx->analyzer = std::make_unique<Analyzer>(
-          monitor.get(), scheduler->GetConfig());
+        ctx->analyzer = CreateAnalyzer(monitor.get(), scheduler->GetConfig());
       ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
       try {
         ctx->detector = std::make_unique<EventDetector>(
@@ -949,8 +948,7 @@ void Worker::EnsureAllPipelinesReady() {
     PrepareMonitorForStream(ctx);
     if (!ctx.analyzer) {
       try {
-        ctx.analyzer = std::make_unique<Analyzer>(ctx.monitor.get(),
-                                                  scheduler->GetConfig());
+        ctx.analyzer = CreateAnalyzer(ctx.monitor.get(), scheduler->GetConfig());
         ctx.analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx.analyzer));
         
       } catch (const std::exception& ex) {

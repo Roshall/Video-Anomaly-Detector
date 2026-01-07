@@ -50,6 +50,10 @@ Config::Config(const char* file) {
       if (root.isMember("legendPosition") && root["legendPosition"].isString()) {
         legend_position = root["legendPosition"].asString();
       }
+
+      if (root.isMember("bunkOffOverlapRatio")) {
+        bunkoff_overlap_ratio = root["bunkOffOverlapRatio"].asDouble();
+      }
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:{}", e.what());
       return;
@@ -58,6 +62,7 @@ Config::Config(const char* file) {
     // 0: use all core
     thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
     alarm_sound_cooldown_sec = std::max(0, alarm_sound_cooldown_sec);
+    bunkoff_overlap_ratio = std::clamp(bunkoff_overlap_ratio, 0.0, 1.0);
 
     std::filesystem::path path(upload_dir);
     try {
@@ -94,6 +99,7 @@ void Config::Show() {
          "Alarm Cooldown Sec : %d\n"
          "Font Path          : %s\n"
          "Legend Position    : %s\n"
+         "BunkOff Overlap    : %.3f\n"
          "----------------------\n",
          state ? "true" : "false",
          thread_pool_size,
@@ -109,6 +115,7 @@ void Config::Show() {
          alarm_sound_path.c_str(),
          alarm_sound_cooldown_sec,
          font_path.c_str(),
-         legend_position.c_str());
+         legend_position.c_str(),
+         bunkoff_overlap_ratio);
 }
 }  // namespace avs_analyzer

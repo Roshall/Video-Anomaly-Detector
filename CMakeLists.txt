@@ -285,6 +285,8 @@ set(source
         Analyzer/Core/alarm.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/analyzer.cpp
+        Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/bunkoff_analyzer.cpp
         Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/av_pull_stream.cpp
         Analyzer/Core/av_push_stream.cpp
