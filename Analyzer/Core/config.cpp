@@ -43,6 +43,13 @@ Config::Config(const char* file) {
       if (root.isMember("alarmSoundCooldownSec")) {
         alarm_sound_cooldown_sec = root["alarmSoundCooldownSec"].asInt();
       }
+
+      if (root.isMember("fontPath") && root["fontPath"].isString()) {
+        font_path = root["fontPath"].asString();
+      }
+      if (root.isMember("legendPosition") && root["legendPosition"].isString()) {
+        legend_position = root["legendPosition"].asString();
+      }
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:{}", e.what());
       return;
@@ -85,6 +92,8 @@ void Config::Show() {
          "Log Level          : %s\n"
          "Alarm Sound Path   : %s\n"
          "Alarm Cooldown Sec : %d\n"
+         "Font Path          : %s\n"
+         "Legend Position    : %s\n"
          "----------------------\n",
          state ? "true" : "false",
          thread_pool_size,
@@ -98,6 +107,8 @@ void Config::Show() {
          use_accelerator ? "true" : "false",
          log_level.c_str(),
          alarm_sound_path.c_str(),
-         alarm_sound_cooldown_sec);
+         alarm_sound_cooldown_sec,
+         font_path.c_str(),
+         legend_position.c_str());
 }
 }  // namespace avs_analyzer

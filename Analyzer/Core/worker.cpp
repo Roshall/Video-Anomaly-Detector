@@ -567,7 +567,19 @@ void Worker::EnsureAnnotatorReady() {
   std::unique_ptr<DynamicAnnotator> candidate;
   try {
     candidate = std::make_unique<DynamicAnnotator>();
-    if (const int ret = candidate->init(video_ctx_copy); ret < 0) {
+
+    DynamicAnnotator::LegendConfig legend_cfg;
+    if (scheduler) {
+      const auto& conf = scheduler->GetConfig();
+      if (!conf.font_path.empty()) {
+        legend_cfg.font_path = conf.font_path;
+      }
+      if (!conf.legend_position.empty()) {
+        legend_cfg.SetLocation(conf.legend_position);
+      }
+    }
+
+    if (const int ret = candidate->init(video_ctx_copy, legend_cfg); ret < 0) {
       LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
           video_ctx_copy.width, video_ctx_copy.height,
           static_cast<int>(video_ctx_copy.format), ret);

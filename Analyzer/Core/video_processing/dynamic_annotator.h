@@ -7,6 +7,7 @@
 #include <string>
 #include <memory>
 
+#include "Utils/log.h"
 #include "helper.h"
 #include "painter_types.h"
 #include "painter.h"
@@ -44,6 +45,21 @@ public:
         LegendPosition position = LegendPosition::kTopRight;
         int margin_x = 40;
         int margin_y = 40;
+        
+        void SetLocation(const std::string& pos) {
+            if (pos == "top-left") {
+                position = LegendPosition::kTopLeft;
+            } else if (pos == "top-right") {
+                position = LegendPosition::kTopRight;
+            } else if (pos == "bottom-left") {
+                position = LegendPosition::kBottomLeft;
+            } else if (pos == "bottom-right") {
+                position = LegendPosition::kBottomRight;
+            } else {
+                LOGW("position [{}] undefined. fall back to top right", pos);
+                position = LegendPosition::kTopRight; // default
+            }
+        }
     };
 
 public:

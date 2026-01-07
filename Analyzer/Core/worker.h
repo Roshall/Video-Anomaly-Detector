@@ -112,7 +112,13 @@ class Worker {
 
   // Set a monitor's current highest level (thread-safe)
   void SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level);
-
+  bool GrabFrame(AVFrame* frame) const;
+  void AlarmImage(const std::string& monitor_code, int64_t start_pts,
+                  int64_t event_pts, const Frame& frame,
+                  std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
+                  bool push) noexcept;
+  bool NeedPushStream() const;
+  
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
   // Fast-path atomics for hot getters used by pull/push stream loops.
@@ -139,12 +145,7 @@ class Worker {
   uint64_t id_{NextId()};
   std::unique_ptr<FormatConvertor> convertor_;
 
-  bool GrabFrame(AVFrame* frame) const;
-  void AlarmImage(const std::string& monitor_code, int64_t start_pts,
-                  int64_t event_pts, const Frame& frame,
-                  std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
-                  bool push) noexcept;
-  bool NeedPushStream() const;
+  
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_WORKER_H
