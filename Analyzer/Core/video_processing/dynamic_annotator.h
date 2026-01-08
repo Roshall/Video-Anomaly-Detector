@@ -121,6 +121,9 @@ private:
     int cached_overlay_h_ = 0;
     bool filter_graph_initialized_ = false;
     
+    // Font management for legend rendering
+    FontManager font_manager_;
+
     // Helper functions
     void clear_legend_overlay();
     int init_filter_graph();

@@ -72,7 +72,7 @@ struct LegendStyle {
 };
 
 void draw_legend_yuva420p(AVFrame* frame,
-                                    const std::string& font_path,
+                                    const FontManager& font_manager,
                                     std::pair<int, int> origin,
                                     int font_size,
                                     std::pair<int, int> handle_size,

@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "freetype/freetype.h"
+#include "painter_text.h"
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -184,7 +185,7 @@ std::pair<int, int> estimate_legend_size_accurate(
     const std::vector<std::u8string>& labels_utf8,
     int text_padding,
     int frame_padding) {
-  // Try to use FreeType for accurate measurement, fallback to simple estimation
+  // Keep existing font-path based implementation for backward compatibility
   try {
     FT_Library ft_library;
     if (FT_Init_FreeType(&ft_library) != 0) {
@@ -211,14 +212,18 @@ std::pair<int, int> estimate_legend_size_accurate(
     for (const auto& label : labels_utf8) {
       int text_width = 0;
 
-      // Simple character-by-character width measurement
-      for (const auto c : label) {
-        if (FT_Load_Char(face, c, FT_LOAD_DEFAULT)
-            == 0) {
-          text_width += static_cast<int>(face->glyph->advance.x >> 6);
+      // Use UTF-8 aware measurement in painter_text if available
+      {
+        // Convert to string for utf8 helper
+        std::string s(reinterpret_cast<const char*>(label.c_str()));
+        // Use simple char-based fallback (still better than naive length)
+        for (const auto c : s) {
+          if (FT_Load_Char(face, c, FT_LOAD_DEFAULT) == 0) {
+            text_width += static_cast<int>(face->glyph->advance.x >> 6);
+          }
         }
       }
-      max_text_w = std::max(max_text_w, text_width);
+       max_text_w = std::max(max_text_w, text_width);
     }
 
     FT_Done_Face(face);
@@ -246,6 +251,38 @@ std::pair<int, int> estimate_legend_size_accurate(
                                 labels_utf8, text_padding, frame_padding);
   }
 }
+// Overload: measure using an already-loaded FreeType face (UTF-8 aware)
+std::pair<int, int> estimate_legend_size_accurate(
+    FT_Face face,
+    int font_px,
+    std::pair<int, int> handle_wh,
+    int row_spacing,
+    const std::vector<std::u8string>& labels_utf8,
+    int text_padding,
+    int frame_padding) {
+  if (!face) return estimate_legend_size(font_px, handle_wh, row_spacing,
+                                         labels_utf8, text_padding, frame_padding);
+
+  int max_text_w = 0;
+  for (const auto& label : labels_utf8) {
+    // UTF-8 aware measurement
+    max_text_w = std::max(max_text_w, utf8::measure_text_width(face, std::string(reinterpret_cast<const char*>(label.c_str()))));
+  }
+
+  const auto [handle_w, handle_h] = handle_wh;
+  const int row_h = std::max(handle_h, font_px);
+  const int item_count = static_cast<int>(labels_utf8.size());
+
+  const int content_h = item_count > 0
+                          ? row_h * item_count + row_spacing * (item_count - 1)
+                          : 0;
+  const int content_w = handle_w + text_padding + max_text_w;
+
+  const int total_w = content_w + frame_padding * 2;
+  const int total_h = content_h + frame_padding * 2 + font_px;
+  return {total_w, total_h};
+}
+
 
 // Legend layout estimation
 LegendLayout estimate_legend_layout(

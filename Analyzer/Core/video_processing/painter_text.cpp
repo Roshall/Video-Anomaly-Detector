@@ -253,7 +253,7 @@ void render_text_yuva420p(AVFrame* frame, FT_Face face,
 }
 
 void draw_legend_yuva420p(AVFrame* frame,
-                                    const std::string& font_path,
+                                    const FontManager& font_manager,
                                     std::pair<int, int> origin,
                                     int font_size,
                                     std::pair<int, int> handle_size,
@@ -270,10 +270,8 @@ void draw_legend_yuva420p(AVFrame* frame,
     throw std::runtime_error("Frame must be in AV_PIX_FMT_YUVA420P format");
   }
 
-  // Initialize font
-  FontManager font_manager;
-  if (!font_manager.load_font(font_path, font_size)) {
-    throw std::runtime_error("Failed to load font: " + font_path);
+  if (!font_manager.is_valid()) {
+    throw std::runtime_error("Invalid font manager: font not loaded");
   }
 
   const FT_Face face = font_manager.get_face();
