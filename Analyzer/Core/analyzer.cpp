@@ -1,6 +1,5 @@
 ﻿#include "analyzer.h"
 
-#include <json/json.h>
 #include <vector>
 
 #include "Utils/log.h"

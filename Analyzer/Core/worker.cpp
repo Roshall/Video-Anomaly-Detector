@@ -1,6 +1,6 @@
 ﻿#include "worker.h"
 
-#include <json/value.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <exception>
@@ -489,14 +489,14 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         if (push) {
           const std::string url =
               std::format("{}/api/postAddAlarm", conf.admin_host);
-          Json::Value param;
+          nlohmann::json param;
           param["control_code"] = code;
           param["desc"] = "";
           param["img_path"] = img_path_str;
           param["create_time"] = time_str;
           param["level"] = level;
 
-          const std::string data = param.toStyledString();
+          const std::string data = param.dump();
           std::string response;
           Request::post(url.data(), data.data(), response);
           LOGI("sent alarm image to {}", conf.admin_host);

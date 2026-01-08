@@ -1,6 +1,6 @@
 ﻿#include "alarm.h"
 
-#include <json/json.h>
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <iostream>
@@ -48,13 +48,13 @@ void Alarm::Finalize(const std::string& upload_dir,
   // report saved video
   if (!admin_host.empty()) {
     std::string url = std::format("{}/api/postAddAlarmVideo", admin_host );
-    Json::Value param;
+    nlohmann::json param;
     param["video_id"] = control_code;
     param["desc"] = "";
     param["video_path"] = path;
-    param["create_time"] =   start_time;
+    param["create_time"] = start_time;
 
-    std::string data = param.toStyledString();
+    const std::string data = param.dump();
     std::string response;
     Request::post(url.data(), data.data(), response);
 
