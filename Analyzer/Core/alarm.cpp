@@ -63,6 +63,7 @@ void Alarm::Finalize(
   // report saved video
   if (!admin_host.empty()) {
     std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
+    path.erase(0, upload_dir.length() + 1);  // remove upload_dir and leading '/'
     nlohmann::json param;
     param["video_code"] = video_code;
     param["alarm_id"] = std::to_string(id);
