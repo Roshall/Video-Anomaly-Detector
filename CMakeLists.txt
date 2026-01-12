@@ -333,6 +333,7 @@ set(source
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
+        Analyzer/Core/Utils/common.cpp
         Analyzer/Core/video_processing/painter_base.h
         Analyzer/Core/video_processing/painter_primitives.h
         Analyzer/Core/video_processing/painter_shapes.h
