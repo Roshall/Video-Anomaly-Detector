@@ -1012,7 +1012,7 @@ void Worker::NotifyAdminStreamEvent(std::string_view state) {
   g_th_pool.detach_task([url]() {
     std::string response;
     Request::get(url.c_str(), response);
-    LOGI("sent stream event to {}", url);
+    LOGI("sent stream event to {}, response: {}", url, response);
   });
 }
 
