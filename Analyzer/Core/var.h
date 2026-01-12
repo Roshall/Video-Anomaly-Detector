@@ -1,4 +1,0 @@
-﻿#ifndef ANALYZER_VAR_H
-#define ANALYZER_VAR_H
-//#define IS_SUPPORT_RKNPU
-#endif //ANALYZER_VAR_H
