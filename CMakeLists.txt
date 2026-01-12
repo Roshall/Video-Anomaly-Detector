@@ -279,6 +279,14 @@ target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_co
 target_include_directories(dynamic_annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
+# Unit tests for CombinedEventManager edge transitions
+add_executable(combined_event_manager_test
+        tests/combined_event_manager_test.cpp
+        tests/dynamic_annotator_stub.cpp
+        Analyzer/Core/combined_event_manager.cpp)
+target_link_libraries(combined_event_manager_test PRIVATE GTest::gtest_main PkgConfig::FFMPEG opencv_core opencv_imgproc)
+target_include_directories(combined_event_manager_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/video_processing)
+add_test(NAME combined_event_manager_test COMMAND $<TARGET_FILE:combined_event_manager_test>)
 
 set(source
         Analyzer/main.cpp

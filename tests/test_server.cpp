@@ -23,6 +23,9 @@
 
 using namespace std::chrono_literals;
 
+static std::atomic<int> stream_event_start_count{0};
+static std::atomic<int> stream_event_end_count{0};
+
 static void ApiHealthForTest(evhttp_request* req, void*) {
   evbuffer* buff = evbuffer_new();
   if (!buff) {
@@ -30,6 +33,28 @@ static void ApiHealthForTest(evhttp_request* req, void*) {
     return;
   }
   evbuffer_add_printf(buff, "{\"msg\":\"current service health\",\"code\":1000}");
+  evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type",
+                   "application/json; charset=utf-8");
+  evhttp_send_reply(req, HTTP_OK, nullptr, buff);
+  evbuffer_free(buff);
+}
+
+static void ApiStreamEventForTest(evhttp_request* req, void*) {
+  // Very small query parsing: look for state=start/state=end
+  const char* uri = evhttp_request_get_uri(req);
+  std::string s = uri ? uri : "";
+  if (s.find("state=start") != std::string::npos) {
+    stream_event_start_count.fetch_add(1, std::memory_order_relaxed);
+  }
+  if (s.find("state=end") != std::string::npos) {
+    stream_event_end_count.fetch_add(1, std::memory_order_relaxed);
+  }
+  evbuffer* buff = evbuffer_new();
+  if (!buff) {
+    evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
+    return;
+  }
+  evbuffer_add_printf(buff, "{\"msg\":\"ok\",\"code\":0}");
   evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type",
                    "application/json; charset=utf-8");
   evhttp_send_reply(req, HTTP_OK, nullptr, buff);
@@ -183,6 +208,7 @@ class HTTPServerFixture : public ::testing::Test {
       evhttp_set_default_content_type(http, "text/html; charset=utf-8");
       evhttp_set_timeout(http, 2);
       evhttp_set_cb(http, "/api/health", ApiHealthForTest, nullptr);
+      evhttp_set_cb(http, "/api/stream_event", ApiStreamEventForTest, nullptr);
 
       // Generic callback serves files under route_prefix (/video/...)
       evhttp_set_gencb(http, file_route_cb, &file_opts_);
@@ -258,6 +284,21 @@ TEST_F(HTTPServerFixture, VideoRouteRespondsToRequest) {
   // libevent may respond with HTTP/1.0 or HTTP/1.1
   ASSERT_NE(status_line.find(" 200"), std::string::npos) << "status_line=" << status_line << "\nresp=" << resp;
   ASSERT_NE(resp.find("Content-Type: video/mp4"), std::string::npos);
+}
+
+TEST_F(HTTPServerFixture, StreamEventEndpointRecordsStartEnd) {
+  stream_event_start_count.store(0, std::memory_order_relaxed);
+  stream_event_end_count.store(0, std::memory_order_relaxed);
+
+  std::string resp1 = http_get("127.0.0.1", PORT, "/api/stream_event?state=start&streamCode=test123");
+  ASSERT_FALSE(resp1.empty());
+  std::this_thread::sleep_for(10ms);
+  EXPECT_EQ(stream_event_start_count.load(std::memory_order_relaxed), 1);
+
+  std::string resp2 = http_get("127.0.0.1", PORT, "/api/stream_event?state=end&streamCode=test123");
+  ASSERT_FALSE(resp2.empty());
+  std::this_thread::sleep_for(10ms);
+  EXPECT_EQ(stream_event_end_count.load(std::memory_order_relaxed), 1);
 }
 
 int main(int argc, char** argv) {
