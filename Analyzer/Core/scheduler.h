@@ -27,6 +27,13 @@ class Algorithm;
 struct Monitor;
 struct Alarm;
 
+struct AlarmJob {
+  std::shared_ptr<const Alarm> alarm;
+  std::unique_ptr<Event> event;
+  std::chrono::time_point<std::chrono::system_clock> start_ts;
+  std::string monitor_code;
+};
+
 class Scheduler {
  public:
   friend class Analyzer;
@@ -41,7 +48,7 @@ class Scheduler {
   void SetState(bool state);
   bool GetState() const;
 
-  void AddAlarm(std::unique_ptr<Alarm> alarm);
+  void AddAlarm(AlarmJob job);
 
   AlarmController* GetAlarmController() noexcept { return alarm_controller_.get(); }
   const AlarmController* GetAlarmController() const noexcept { return alarm_controller_.get(); }
@@ -85,8 +92,7 @@ class Scheduler {
   std::mutex worker_map_mutex_;
   ConcurrentQueue<std::unique_ptr<Worker>> to_be_deleted_workers_queue_;
 
-
-  ConcurrentQueue<std::unique_ptr<Alarm>> alarm_queue_;
+  ConcurrentQueue<AlarmJob> alarm_queue_;
   DetectorPool detector_pool_;
 
   std::counting_semaphore<> clean_up_cs_{0};

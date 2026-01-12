@@ -15,18 +15,8 @@
 namespace avs_analyzer {
 class Analyzer;
 
-// Represents a detected event, containing all relevant frames.
-struct Event {
-  int64_t start_timestamp{};
-  int64_t end_timestamp{};
-  bool more_segments{false};
-
-  std::vector<std::unique_ptr<Frame>> frames{};
-
-  [[nodiscard]] int64_t GetDuration() const {
-    return end_timestamp - start_timestamp;
-  }
-};
+// Forward declaration for Event. Definition moved to combined_event_manager.h
+struct Event;
 
 // Configuration for the EventDetector.
 struct EventDetectorConfig {  // all time in base ms
@@ -56,7 +46,7 @@ class EventDetector {
 
   // Processes a single frame and returns an Event if one has just been
   // completed.
-  EventDetector::State ProcessFrame(const int64_t current_ts, const int64_t best_effort_ts);
+  State ProcessFrame(int64_t current_ts, int64_t best_effort_ts);
 
   [[nodiscard]] const std::vector<cv::Rect>& detections() const {
     return kept_bboxes_;
@@ -113,7 +103,7 @@ class EventDetector {
     int votes_{0};
   };
 
-  std::vector<cv::Rect> Detect() const;
+  [[nodiscard]] std::vector<cv::Rect> Detect() const;
   void SetNextFrameTimestamp(int64_t ts) const;
 
   // Helper to find the timestamp of the first positive vote in the window.

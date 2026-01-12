@@ -10,9 +10,10 @@
 #include <vector>
 #include <mutex>
 
-#include "event.h"
+// Event definition moved into the avs_analyzer namespace below.
 #include "frame.h"
 #include "task.h"
+#include "event.h"
 #include "video_processing/dynamic_annotator.h"
 
 extern "C" {
@@ -20,6 +21,19 @@ extern "C" {
 }
 
 namespace avs_analyzer {
+
+// Represents a detected event, containing all relevant frames.
+struct Event {
+  int64_t start_timestamp{};
+  int64_t end_timestamp{};
+  bool more_segments{false};
+
+  std::vector<std::unique_ptr<Frame>> frames{};
+
+  [[nodiscard]] int64_t GetDuration() const {
+    return end_timestamp - start_timestamp;
+  }
+};
 
 struct CombinedEventConfig {
   int64_t pre_event_buffer_ms{0};
