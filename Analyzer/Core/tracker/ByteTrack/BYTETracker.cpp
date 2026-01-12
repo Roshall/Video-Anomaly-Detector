@@ -18,7 +18,7 @@ byte_track::BYTETracker::BYTETracker(int frame_rate, int track_buffer,
 
 byte_track::BYTETracker::~BYTETracker() = default;
 
-std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object> &objects) {
+std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::vector<Object> &objects, uint64_t frame_ms) {
   ////////////////// Step 1: Get detections //////////////////
   frame_id_++;
 
@@ -75,10 +75,10 @@ std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::ve
       const auto& track = strack_pool[match_idx[0]];
       const auto& det = det_stracks[match_idx[1]];
       if (track->getSTrackState() == STrackState::Tracked) {
-        track->update(*det, frame_id_);
+        track->update(*det, frame_id_, frame_ms);
         current_tracked_stracks.push_back(track);
       } else {
-        track->reActivate(*det, frame_id_);
+        track->reActivate(*det, frame_id_, frame_ms);
         refind_stracks.push_back(track);
       }
     }
@@ -111,10 +111,10 @@ std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::ve
       const auto& track = remain_tracked_stracks[match_idx[0]];
       const auto& det = det_low_stracks[match_idx[1]];
       if (track->getSTrackState() == STrackState::Tracked) {
-        track->update(*det, frame_id_);
+        track->update(*det, frame_id_, frame_ms);
         current_tracked_stracks.push_back(track);
       } else {
-        track->reActivate(*det, frame_id_);
+        track->reActivate(*det, frame_id_, frame_ms);
         refind_stracks.push_back(track);
       }
     }
@@ -143,7 +143,7 @@ std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::ve
 
     for (const auto &match_idx : matches_idx) {
       non_active_stracks[match_idx[0]]->update(
-          *remain_det_stracks[match_idx[1]], frame_id_);
+          *remain_det_stracks[match_idx[1]], frame_id_, frame_ms);
       current_tracked_stracks.push_back(non_active_stracks[match_idx[0]]);
     }
 
@@ -154,7 +154,7 @@ std::vector<byte_track::STrackPtr> byte_track::BYTETracker::update(const std::ve
         continue;
       }
       track_id_count_++;
-      track->activate(frame_id_, track_id_count_);
+      track->activate(frame_id_, frame_ms, track_id_count_);
       current_tracked_stracks.push_back(track);
     }
   }

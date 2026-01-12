@@ -2,3 +2,9 @@
 *.jp*g
 3rdparty/*
 .cache/*
+.clang*
+*.json
+models/*
+*.log
+*.txt
+resources/*

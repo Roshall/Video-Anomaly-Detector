@@ -6,11 +6,11 @@
             "description": "Debug Config",
             "hidden": false,
             "generator": "Ninja",
-            "binaryDir": "${workspaceFolder}/cmake-build-debug",
+            "binaryDir": "${workspaceFolder}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_PROGRAM": "/home/lg/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja"
+                "CMAKE_MAKE_PROGRAM": "/home/lg/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja"
             }
         },
         {
@@ -18,11 +18,11 @@
             "description": "Release Config",
             "hidden": false,
             "generator": "Ninja",
-            "binaryDir": "${workspaceFolder}/cmake-build-release",
+            "binaryDir": "${workspaceFolder}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_PROGRAM": "/home/lg/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja"
+                "CMAKE_MAKE_PROGRAM": "/home/lg/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja"
             }
         }
     ],
@@ -30,12 +30,14 @@
         {
             "name": "debug",
             "configurePreset": "debug",
-            "cleanFirst": false
+            "cleanFirst": false,
+            "jobs": 8
         },
         {
             "name": "release",
             "configurePreset": "release",
-            "cleanFirst": false
+            "cleanFirst": false,
+            "jobs": 0
         }
     ]
 }

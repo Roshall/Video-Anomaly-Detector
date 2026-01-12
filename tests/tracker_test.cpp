@@ -2,15 +2,20 @@
 // Created by lg on 10/11/25.
 //
 #include "track_algorithm.h"
+#include "detector/inference.h"
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <vector>
-#include "config.h"
 
 int main() {
-  avs_analyzer::Config config{"/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/config.json"};
-  avs_analyzer::TrackAlgorithm track_algo(&config);
+  // create track algorithm (min_frame_duration in milliseconds). Using 0 disables filtering
+  avs_analyzer::TrackAlgorithm track_algo(0);
+  YOLOv8Detect detector;
+  DL_INIT_PARAM param{};
+  param.modelPath = "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models/yolov8n.onnx";
+  param.target_id = 0;
+  detector.CreateSession(param);
   cv::VideoWriter writer("output_video.mp4", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 30, cv::Size(1920, 1080));
 
   for (int i =1; i < 601; ++i) {
@@ -20,7 +25,13 @@ int main() {
     auto img = cv::imread("/home/lg/Downloads/MOT16/train/MOT16-02/img1/" + paddedString + ".jpg");
 
     // Detect objects and get tracking results
-    auto [bbox, confs] = track_algo.DetectObjects(img);
+    // Run detector on the frame and push result to algorithm queue.
+    std::vector<DL_RESULT> res = detector.RunSession(img);
+    unsigned long frame_ms = static_cast<unsigned long>(i * (1000 / 30));
+    track_algo.PushResult(std::pair<std::vector<DL_RESULT>, unsigned long>(res, frame_ms));
+    auto detection = track_algo.ProcessDetections();
+    auto& bbox = detection.bbox;
+    auto& confs = detection.confidences;
 
     // Draw bounding boxes on the frame
     for (size_t i = 0; i < bbox.size(); ++i) {
@@ -29,8 +40,8 @@ int main() {
     }
 
     // Save the frame to output video
-    cv::imwrite("test/" +paddedString + ".jpg", img);
-
+    cv::imwrite("/home/lg/tmp/test/" +paddedString + ".jpg", img);
+    std::cout << "write to /home/lg/tmp/test/" +paddedString + ".jpg" << std::endl;
   }
 
   writer.release();

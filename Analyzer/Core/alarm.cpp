@@ -1,6 +1,6 @@
 ﻿#include "alarm.h"
 
-#include <json/json.h>
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <iostream>
@@ -21,7 +21,8 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
       width(width),
       height(height),
       fps(fps) {}
-bool Alarm::Finalize(const std::string& upload_dir,
+
+void Alarm::Finalize(const std::string& upload_dir,
                      const std::string& admin_host) const {
   Recorder recorder({width, height, fps});
   std::filesystem::path prefix_dir{upload_dir};
@@ -36,36 +37,31 @@ bool Alarm::Finalize(const std::string& upload_dir,
     } catch (std::filesystem::filesystem_error& e) {
       std::cout << "genAlarmVideo() create_directorys error:" << e.what()
                 << std::endl;
-      return false;
     }
   }
-  prefix_dir /= std::to_string(event->frames[1]->data->best_effort_timestamp) + ".ts";
+  prefix_dir /= std::to_string(event->frames[0]->data->best_effort_timestamp) + ".ts";
   std::string path = prefix_dir.c_str();
   if (!recorder.Initialize(path, true)) {
     std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
-    return false;
   }
 
-  // 上传报警信息start
+  // report saved video
   if (!admin_host.empty()) {
     std::string url = std::format("{}/api/postAddAlarmVideo", admin_host );
-    Json::Value param;
-    param["control_code"] = control_code;
+    nlohmann::json param;
+    param["video_id"] = control_code;
     param["desc"] = "";
     param["video_path"] = path;
-    param["create_time"] =   start_time;
+    param["create_time"] = start_time;
 
-    std::string data = param.toStyledString();
-    Request request;
+    const std::string data = param.dump();
     std::string response;
-    request.post(url.data(), data.data(), response);
+    Request::post(url.data(), data.data(), response);
 
     LOGI("\n \t request:{} \n \t response:{}", url.data(), response.data());
     for (auto& frame : event->frames) {
-      recorder.AddVideoFrame(frame.get()->data.get());
+      recorder.AddVideoFrame(frame->data.get());
     }
   }
-
-  return true;
 }
 }  // namespace avs_analyzer

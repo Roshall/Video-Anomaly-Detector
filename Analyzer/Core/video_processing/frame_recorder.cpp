@@ -1,6 +1,5 @@
 #include "frame_recorder.h"
 
-#include <format>
 #include <iostream>
 
 extern "C" {

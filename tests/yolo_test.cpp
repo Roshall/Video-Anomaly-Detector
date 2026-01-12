@@ -4,14 +4,18 @@
 #include <filesystem>
 
 #include "constant_pool.h"
-#include "yolo_detector_onnx.h"
+#include "detector/inference.h"
 #include "constant_yolo.h"
+using avs_analyzer::Task;
+void Detector(std::string model_path, int target_id, std::string path) {
+  YOLOv8Detect model;
+  DL_INIT_PARAM param{};
+  param.modelPath = model_path;
+  param.target_id = target_id;
+  model.CreateSession(param);
 
-void Detector(std::shared_ptr<const YOLODetector> p, std::string path) {
-
-      cv::Mat img = cv::imread(path);
-      std::vector<DL_RESULT> res;
-      res = p->Run(img);
+  cv::Mat img = cv::imread(path);
+  std::vector<DL_RESULT> res = model.RunSession(img);
 
       for (auto& re : res)
       {
@@ -49,11 +53,13 @@ void Detector(std::shared_ptr<const YOLODetector> p, std::string path) {
 }
 
 int main() {
-  std::vector<std::string> tasks{"break-in", "sleep-at-work", "wall-climbing", "phone-at-work"};
-  std::vector<std::string> test_img{"ireland10h.jpg", "sleep.jpg", "ireland10h.jpg", "phone.jpg"};
-  for(int i =2; i < tasks.size(); ++i) {
-    auto detector = GetDetector(tasks[i]);
-    Detector(detector, std::format("/home/lg/Pictures/{}", test_img[i]));
+  std::vector<Task> tasks{Task::kBreakIn, Task::kSleepWork, Task::kWallClimbing, Task::kPhonePlaying};
+  std::vector<std::string> test_img{"ireland10h.jpg", "sleep.jpg", "climb.jpg", "phone.jpg"};
+  std::vector<std::string> model_names{"yolov8n.onnx", "sleeping_n.onnx", "climbing_m.onnx", "phone_playing_m.onnx"};
+  for(size_t i = 0; i < tasks.size(); ++i) {
+    std::string model_path = std::format("/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models/{}", model_names[i]);
+    int target_id = 0; // most models default to target 0; adjust if needed per task
+    Detector(model_path, target_id, std::format("/home/lg/Pictures/{}", test_img[i]));
   }
   return 0;
 }
