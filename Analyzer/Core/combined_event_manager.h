@@ -43,6 +43,10 @@ class CombinedEventManager {
   struct Result {
     std::unique_ptr<Frame> annotated_frame{};
     std::optional<std::unique_ptr<Event>> flushed_event{};
+    // Edge transition reported as an enum to indicate a single transition per
+    // frame: none, became active, or became idle.
+    enum class Transition { kNone, kBecameActive, kBecameIdle };
+    Transition transition{Transition::kNone};
   };
 
   CombinedEventManager() = default;

@@ -424,7 +424,7 @@ void Worker::OfflineAnalyze() {
   for (auto& rt : monitors_) {
     if (!rt->monitor) continue;
     const std::string url =
-        std::format("{}/api/offline/finished?code={}",
+        std::format("{}/api/offline/finished?controlCode={}",
                     scheduler->GetConfig().admin_host, rt->monitor->code);
     std::string res;
     Request::get(url.c_str(), res);
@@ -746,6 +746,20 @@ void Worker::DetectEvent() {
       }
     }
 
+    // Notify admin for combined event edges (start / end).
+    if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameActive) {
+      if (!admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(true, std::memory_order_release);
+        NotifyAdminStreamEvent("start");
+      }
+    }
+    if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
+      if (admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(false, std::memory_order_release);
+        NotifyAdminStreamEvent("end");
+      }
+    }
+
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
     // Process alarms using snapshots
@@ -810,7 +824,13 @@ void Worker::DetectEvent() {
   {
     std::lock_guard lock(event_manager_mutex_);
     if (event_manager_) {
+      bool had_active = event_manager_->HasActiveEvent();
       tail_events = event_manager_->FlushPending();
+      // If we were previously active, ensure admin is notified about stream end on flush.
+      if (had_active && admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(false, std::memory_order_release);
+        NotifyAdminStreamEvent("end");
+      }
     }
   }
   for (auto& event_ptr : tail_events) {
@@ -978,6 +998,22 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
       break;
     }
   }
+}
+
+void Worker::NotifyAdminStreamEvent(std::string_view state) {
+  if (!scheduler) return;
+  const auto& conf = scheduler->GetConfig();
+  if (conf.admin_host.empty() || video_code_.empty()) {
+    return;
+  }
+  const std::string url = std::format("{}/api/stream_event?state={}&streamCode={}",
+                                      conf.admin_host, state, video_code_);
+  // Fire-and-forget async request to avoid blocking the DetectEvent loop.
+  g_th_pool.detach_task([url]() {
+    std::string response;
+    Request::get(url.c_str(), response);
+    LOGI("sent stream event to {}", url);
+  });
 }
 
 void Worker::StartPushThreadIfNeeded() {

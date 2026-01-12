@@ -35,6 +35,8 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
   }
 
   TrimFrameBuffer(timestamp_ms);
+  // Record previous combined state so we can report edge transitions to callers.
+  const CombinedState prev_state = state_;
 
   // Update per-monitor states and track if any are active.
   has_active_monitors_ = false;
@@ -147,6 +149,14 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       }
       break;
     }
+  }
+
+  // Report edge transitions for callers to take external actions. Only one
+  // transition is represented per frame (idle->active or active->idle).
+  if (prev_state == CombinedState::kIdle && state_ == CombinedState::kActive) {
+    result.transition = Result::Transition::kBecameActive;
+  } else if (prev_state != CombinedState::kIdle && state_ == CombinedState::kIdle) {
+    result.transition = Result::Transition::kBecameIdle;
   }
 
   return result;
