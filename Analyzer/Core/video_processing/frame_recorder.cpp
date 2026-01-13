@@ -23,12 +23,15 @@ bool Recorder::Initialize(std::string_view file_path, bool file) {
   file_path_ = file_path;
   CodeConfig conf{};
 
+  AVDictionaryPtr fmt_options{};
   if (!file) {
-    AVDictionaryPtr fmt_options{};
     fmt_options.set("rw_timeout", "30000000", 0);  // 设置rtmp/http-flv连接超时
     fmt_options.set("stimeout", "30000000", 0);  // ns
     fmt_options.set("rtsp_transport", "tcp", 0);
     conf = {1, 0, "25", "ultrafast", "rtsp", std::move(fmt_options)};
+  } else {
+    fmt_options.set("movflags", "+faststart+use_metadata_tags", 0);
+    conf.fmt_options = std::move(fmt_options);
   }
   return OpenOutputSegment(conf);  // Start the first segment
 }
