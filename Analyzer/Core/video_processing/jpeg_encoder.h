@@ -12,6 +12,9 @@ extern "C" {
 #include <stdexcept>
 #include <string>
 #include <cstdio>
+#include <cerrno>
+#include <fstream>
+#include <mutex>
 
 #include <helper.h>
 
@@ -21,7 +24,6 @@ class JPEGEncoder {
  private:
   AVCodecContextPtr ctx = nullptr;
   SwsContextPtr sws_ctx = nullptr;
-  int64_t pts_;
 
   int current_width = 0;
   int current_height = 0;
@@ -32,6 +34,8 @@ class JPEGEncoder {
   int quality_q = -1;           // 2..31 (lower = better). If <0, use bitrate.
 
   AVFramePtr conv_frame = nullptr; // cached conversion frame when needed
+  int64_t pts_ = 0;
+  std::recursive_mutex mutex_;
 
   void ensureConvFrame(int w, int h, AVPixelFormat fmt) {
     if (!conv_frame) {
@@ -46,6 +50,7 @@ class JPEGEncoder {
   }
 
   void initCodec(int width, int height) {
+    std::scoped_lock lock(mutex_);
     auto codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
     if (!codec) throw std::runtime_error("MJPEG codec not found");
 
@@ -57,7 +62,7 @@ class JPEGEncoder {
     ctx->height = height;
     ctx->pix_fmt = AV_PIX_FMT_YUV420P;         // modern way (no YUVJ*)
 //    ctx->color_range = AVCOL_RANGE_JPEG;       // full-range (JPEG)
-    // ctx->colorspace   = AVCOL_SPC_BT470BG;   // optional, pick correct one for your source
+    // ctx->colorspace   = AVCOL_SPC_BT470BG;   // optional
 
     ctx->time_base = {1, 25};
     ctx->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
@@ -87,18 +92,21 @@ class JPEGEncoder {
   }
 
   void setBitRate(int new_bit_rate) {
+    std::scoped_lock lock(mutex_);
     bit_rate = new_bit_rate;
     if (quality_q < 0 && current_width > 0) initCodec(current_width, current_height);
   }
 
   void setQualityQ(int q /*2..31, lower is better*/) {
     if (q < 2 || q > 31) throw std::invalid_argument("quality q must be in [2,31]");
+    std::scoped_lock lock(mutex_);
     quality_q = q;
     if (current_width > 0) initCodec(current_width, current_height);
   }
 
-  int saveFrame(AVFrame *in, const std::string &filename) {
-    if (!in) return AVERROR(EINVAL);
+  std::pair<int,int> saveFrame(AVFrame *in, const std::string &filename) {
+    if (!in) return {AVERROR(EINVAL), 0};
+    std::scoped_lock lock(mutex_);
 
     // Reinit encoder if size changed
     if (in->width != current_width || in->height != current_height) {
@@ -122,14 +130,14 @@ class JPEGEncoder {
             in->width, in->height, AV_PIX_FMT_YUV420P,
             SWS_BILINEAR, nullptr, nullptr, nullptr
         ));
-        if (!sws_ctx) return AVERROR(ENOMEM);
+        if (!sws_ctx) return {AVERROR(ENOMEM), 0};
         current_src_fmt = (AVPixelFormat)in->format;
       }
 
       ensureConvFrame(in->width, in->height, AV_PIX_FMT_YUV420P);
 
       // Make sure destination is writable
-      if (av_frame_make_writable(conv_frame.get()) < 0) return AVERROR(EINVAL);
+      if (av_frame_make_writable(conv_frame.get()) < 0) return {AVERROR(EINVAL), 0};
 
       sws_scale(sws_ctx.get(),
                 in->data, in->linesize,
@@ -137,41 +145,43 @@ class JPEGEncoder {
                 conv_frame->data, conv_frame->linesize);
 
       conv_frame->color_range = AVCOL_RANGE_JPEG;
+      // send converted frame
+      src = conv_frame.get();
     }
 
     // If using global Q-scale, you can set per-frame quality too
     if ((ctx->flags & AV_CODEC_FLAG_QSCALE) && quality_q >= 0) {
-      conv_frame->quality = quality_q * FF_QP2LAMBDA;
+      src->quality = quality_q * FF_QP2LAMBDA;
     }
 
     int ret = avcodec_send_frame(ctx.get(), src);
-    if (ret < 0) return ret;
+    if (ret < 0) return {ret, 0};
 
-    AVPacket *pkt = av_packet_alloc();
-    if (!pkt) return AVERROR(ENOMEM);
+    auto pkt = AVPacketPtr(av_packet_alloc());
+    if (!pkt) return {AVERROR(ENOMEM), 0};
 
-    FILE *f = fopen(filename.c_str(), "wb");
-    if (!f) {
-      av_packet_free(&pkt);
-      return AVERROR(errno);
+    std::ofstream out(filename, std::ios::binary);
+    if (!out.is_open()) {
+      return {AVERROR(errno), 0};
     }
 
+    int total_size = 0;
     // Drain all packets for this frame
     while (true) {
-      ret = avcodec_receive_packet(ctx.get(), pkt);
+      ret = avcodec_receive_packet(ctx.get(), pkt.get());
       if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
       if (ret < 0) {
-        fclose(f);
-        av_packet_free(&pkt);
-        return ret;
+        return {ret, 0};
       }
-      fwrite(pkt->data, 1, pkt->size, f);
-      av_packet_unref(pkt);
+      out.write(reinterpret_cast<const char*>(pkt->data), pkt->size);
+      if (!out) {
+        return {AVERROR(EIO), 0};
+      }
+      total_size += pkt->size;
+      av_packet_unref(pkt.get());
     }
-
-    fclose(f);
-    av_packet_free(&pkt);
-    return 0;
+    out.close();
+    return {0, total_size};
   }
 };
 }

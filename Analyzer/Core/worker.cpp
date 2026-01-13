@@ -398,8 +398,8 @@ void Worker::OfflineAnalyze() {
           case EventDetector::kEventStart:
             if (annotated_frame) {
               rt->current_highest_level = level_idx;;
-              AlarmImage(rt->monitor->code,
-                        rt->detector->timestamp(),
+              AlarmImage(rt->monitor->code, rt->detector->start_ts(),
+                        rt->detector->timestamp(), *annotated_frame, pict_writer,
                         rt->monitor->levels.second[level_idx], combined_event_id, false);
             }
             break;
@@ -443,8 +443,10 @@ void Worker::OfflineAnalyze() {
   }
 }
 
-void Worker::AlarmImage(const std::string& monitor_code,
-                        int64_t event_pts, std::string_view level,
+void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
+                        int64_t event_pts, const Frame& frame,
+                        std::shared_ptr<JPEGEncoder> pict_writer,
+                        std::string_view level,
                         int64_t alarm_id,
                         bool push) noexcept {
   if (!push) {
@@ -453,25 +455,55 @@ void Worker::AlarmImage(const std::string& monitor_code,
   LOGI("检测到异常，发送报警图片到后台视频管理平台，摄像头： {}，监控点：{}，警报id： {}， 等级：{}",
        video_code_, monitor_code, alarm_id, level);
   const auto event_timestamp = timer_.compute(event_pts);
-  g_th_pool.detach_task([conf = scheduler->GetConfig(),
-    video_code = video_code_, alarm_id = alarm_id,
-        event_timestamp = event_timestamp,
-        code = monitor_code,
-        level = std::string(level)]() mutable {
+  const auto start_timestamp = timer_.compute(start_pts);
 
+  AVFramePtr frame_clone{av_frame_clone(frame.data.get())};
+  if (!frame_clone) {
+    LOGE("AlarmImage failed to clone frame for monitor {}", monitor_code);
+    return;
+  }
+  frame_clone->best_effort_timestamp = frame.data->best_effort_timestamp;
+  frame_clone->pts = frame.data->pts;
+  frame_clone->time_base = frame.data->time_base;
+
+  auto async_frame = std::make_unique<Frame>();
+  async_frame->timestamp = frame.timestamp;
+  async_frame->object_count = frame.object_count;
+  async_frame->data = std::move(frame_clone);
+
+  g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
+        code = monitor_code, start_timestamp, event_timestamp,
+        level = std::string(level), push, alarm_id, video_code = video_code_,
+        frame = std::move(async_frame)]() mutable {
+        auto img_path =
+            std::format("{}/alarm/{}/{}", conf.upload_dir, code,
+                        FrameWallClock::to_iso8601_utc(start_timestamp));
+        std::filesystem::create_directories(std::filesystem::path(img_path));
+        auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
+        auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
+        auto [save_ret, save_size] = pict_writer->saveFrame(frame->data.get(), img_path_str);
+        if (save_ret < 0) {
+          LOGE_FFMPEG("failed to save picture", save_ret);
+          return;
+        }
+        LOGI("Saved alarm image {} ({} bytes)", img_path_str, save_size);
+
+        if (push) {
           const std::string url =
               std::format("{}/api/postAddAlarm", conf.admin_host);
-          nlohmann::json param;
-          param["control_code"] = code;
-          param["video_code"] = video_code;
-          param["alarm_id"] = std::to_string(alarm_id);
-          param["create_time"] = FrameWallClock::to_iso8601_utc(event_timestamp);
-          param["level"] = level;
-
+          nlohmann::json param {
+          {"imagePath", img_path_str},
+          {"controlCode", code},
+          {"videoCode", video_code},
+          {"alarmId", std::to_string(alarm_id)},
+          {"createTime", FrameWallClock::to_iso8601_utc(event_timestamp)},
+          {"level", level}
+          };
           const std::string data = param.dump();
           std::string response;
           Request::post(url.data(), data.data(), response);
           LOGI("sent alarm image to {}", conf.admin_host);
+        }
       });
 }
 
@@ -760,8 +792,8 @@ void Worker::DetectEvent() {
               alarm->trigger();
               LOGD("Alarm sound triggered for monitor {}", snapshot.monitor_code);
             }
-            AlarmImage(snapshot.monitor_code,
-                       snapshot.timestamp,
+            AlarmImage(snapshot.monitor_code, snapshot.start_pts,
+                       snapshot.timestamp, *annotated_frame, pict_writer,
                        snapshot.levels.second[level_idx], combined_event_id, true);
           }
           break;

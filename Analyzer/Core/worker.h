@@ -122,6 +122,7 @@ class Worker {
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
                   int64_t event_pts, const Frame& frame,
                   std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
+                  int64_t alarm_id,
                   bool push) noexcept;
   bool NeedPushStream() const;
   
@@ -150,11 +151,6 @@ class Worker {
   mutable std::mutex annotator_mutex_;
   uint64_t id_{NextId()};
   std::unique_ptr<FormatConvertor> convertor_;
-
-  void AlarmImage(const std::string& monitor_code,
-                  int64_t event_pts, std::string_view level,
-                  int64_t alarm_id,
-                  bool push) noexcept;
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_WORKER_H
