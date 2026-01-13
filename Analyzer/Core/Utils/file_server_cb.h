@@ -474,8 +474,12 @@ inline void file_route_cb(evhttp_request* req, void* arg) {
   evhttp_add_header(out_headers, "Content-Type", mime_type.c_str());
 
   // Set caching headers
-  evhttp_add_header(out_headers, "Cache-Control",
-                    ("public, max-age=" + std::to_string(opt->max_age_seconds)).c_str());
+  if (mime_type == "application/vnd.apple.mpegurl") {
+    evhttp_add_header(out_headers, "Cache-Control", "no-cache, no-store, must-revalidate");
+  } else {
+    evhttp_add_header(out_headers, "Cache-Control",
+        ("public, max-age=" + std::to_string(opt->max_age_seconds)).c_str());
+  }
   evhttp_add_header(out_headers, "Last-Modified", http_date(st.st_mtime).c_str());
 
   // Set ETag
