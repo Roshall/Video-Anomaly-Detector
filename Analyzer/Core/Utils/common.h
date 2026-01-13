@@ -2,7 +2,6 @@
 #define ANALYZER_COMMON_H
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace avs_analyzer {
