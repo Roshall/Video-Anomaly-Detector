@@ -107,10 +107,13 @@ void test_jpeg_encoder(const std::string& video1_path, const std::string& video2
                           std::to_string(frame_count + 1) + ".jpg";
 
             // Save frame as JPEG
-            if (encoder.saveFrame(frame, output_file) < 0) {
-              fprintf(stderr, "Failed to save frame %d for %s\n", frame_count + 1, video_path.c_str());
-            } else {
-              printf("Saved %s\n", output_file.c_str());
+            {
+              auto [ret, size] = encoder.saveFrame(frame, output_file);
+              if (ret < 0) {
+                fprintf(stderr, "Failed to save frame %d for %s\n", frame_count + 1, video_path.c_str());
+              } else {
+                printf("Saved %s (%d bytes)\n", output_file.c_str(), size);
+              }
             }
             frame_count++;
             if (frame_count >= 10) break;
@@ -127,10 +130,13 @@ void test_jpeg_encoder(const std::string& video1_path, const std::string& video2
         std::string output_file = video_path.substr(video_path.find_last_of("/\\") + 1);
         output_file = output_file.substr(0, output_file.find_last_of(".")) + "_frame" +
                       std::to_string(frame_count + 1) + ".jpg";
-        if (encoder.saveFrame(frame, output_file) < 0) {
-          fprintf(stderr, "Failed to save frame %d for %s\n", frame_count + 1, video_path.c_str());
-        } else {
-          printf("Saved %s\n", output_file.c_str());
+        {
+          auto [ret, size] = encoder.saveFrame(frame, output_file);
+          if (ret < 0) {
+            fprintf(stderr, "Failed to save frame %d for %s\n", frame_count + 1, video_path.c_str());
+          } else {
+            printf("Saved %s (%d bytes)\n", output_file.c_str(), size);
+          }
         }
         frame_count++;
       }
