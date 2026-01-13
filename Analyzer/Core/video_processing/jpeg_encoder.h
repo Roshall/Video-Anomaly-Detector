@@ -9,11 +9,9 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
-#include <stdexcept>
 #include <string>
 #include <cstdio>
 #include <cerrno>
-#include <fstream>
 #include <mutex>
 
 #include <helper.h>

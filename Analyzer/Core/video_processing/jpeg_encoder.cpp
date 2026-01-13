@@ -1,4 +1,7 @@
 #include "jpeg_encoder.h"
+
+#include <stdexcept>
+#include <fstream>
 void avs_analyzer::JPEGEncoder::ensureConvFrame(int w, int h, AVPixelFormat fmt) {
   if (!conv_frame) {
     conv_frame.reset(av_frame_alloc());
