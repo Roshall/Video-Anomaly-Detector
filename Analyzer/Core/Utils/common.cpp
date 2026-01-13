@@ -1,4 +1,5 @@
 #include "Utils/common.h"
+#include <sys/stat.h>
 
 #include <chrono>
 
@@ -20,6 +21,14 @@ std::vector<std::string> split(const std::string& str,
   }
 
   return arr;
+}
+
+long getFileSize(const std::string& filename) {
+    struct stat st;
+    if (stat(filename.c_str(), &st) != 0) {
+        return -1;
+    }
+    return st.st_size;
 }
 
 int64_t getCurTimestamp()  // 获取毫秒级时间戳（13位）
