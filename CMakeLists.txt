@@ -204,7 +204,7 @@ target_compile_definitions(annotator_test PRIVATE
         __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
 add_executable(write_pict_test
-        Analyzer/Core/video_processing/jpeg_encoder.h
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
         Analyzer/Core/video_processing/helper.cpp
         tests/save_pict_test.cpp
 )
@@ -212,6 +212,19 @@ target_link_libraries(write_pict_test PRIVATE PkgConfig::FFMPEG)
 target_include_directories(write_pict_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_include_directories(write_pict_test PRIVATE
         Analyzer/Core/video_processing)
+
+add_executable(concurrent_save_test
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
+        tests/concurrent_save_test.cpp
+)
+target_link_libraries(concurrent_save_test PRIVATE PkgConfig::FFMPEG Threads::Threads spdlog::spdlog)
+target_include_directories(concurrent_save_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_include_directories(concurrent_save_test PRIVATE
+        Analyzer/Core/video_processing
+        Analyzer/Core)
+add_test(NAME concurrent_save_test COMMAND $<TARGET_FILE:concurrent_save_test>)
 
 add_executable(yolo_test
         Analyzer/Core/detector/inference.h
@@ -307,62 +320,61 @@ add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
 endif()
 
 set(source
-        Analyzer/main.cpp
         Analyzer/Core/alarm.cpp
+        Analyzer/Core/alarm_sound.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/analyzer.cpp
-        Analyzer/Core/general_analyzer.cpp
-        Analyzer/Core/bunkoff_analyzer.cpp
-        Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/av_pull_stream.cpp
         Analyzer/Core/av_push_stream.cpp
+        Analyzer/Core/bunkoff_analyzer.cpp
+        Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/config.cpp
         Analyzer/Core/detection_algorithm.cpp
-        Analyzer/Core/detector/yolo_detector_onnx.h
-        Analyzer/Core/detector/yolo_detector_onnx.cpp
         Analyzer/Core/detector/constant_pool.h
         Analyzer/Core/detector/constant_yolo.cpp
         Analyzer/Core/detector/inference.cpp
+        Analyzer/Core/detector/yolo_detector_onnx.cpp
+        Analyzer/Core/detector/yolo_detector_onnx.h
         Analyzer/Core/event.cpp
+        Analyzer/Core/general_analyzer.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
+        Analyzer/Core/streamer.cpp
         Analyzer/Core/task.cpp
         Analyzer/Core/track_algorithm.cpp
         Analyzer/Core/tracker/ByteTrack/BYTETracker.cpp
         Analyzer/Core/tracker/ByteTrack/KalmanFilter.cpp
-        Analyzer/Core/tracker/ByteTrack/lapjv.cpp
         Analyzer/Core/tracker/ByteTrack/Object.cpp
         Analyzer/Core/tracker/ByteTrack/Rect.cpp
         Analyzer/Core/tracker/ByteTrack/STrack.cpp
-        Analyzer/Core/track_algorithm.cpp
-        Analyzer/Core/worker.cpp
+        Analyzer/Core/tracker/ByteTrack/lapjv.cpp
+        Analyzer/Core/Utils/bas64.cpp
+        Analyzer/Core/Utils/common.cpp
         Analyzer/Core/Utils/img_processing.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/request.cpp
-        Analyzer/Core/video_processing/frame_recorder.cpp
-        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/Utils/file_server_cb.h
         Analyzer/Core/video_processing/annotator.cpp
         Analyzer/Core/video_processing/annotator.h
+        Analyzer/Core/video_processing/dynamic_annotator.cpp
         Analyzer/Core/video_processing/format_convertor.cpp
         Analyzer/Core/video_processing/format_convertor.h
+        Analyzer/Core/video_processing/frame_recorder.cpp
         Analyzer/Core/video_processing/frame_walk_time.h
-        Analyzer/Core/video_processing/jpeg_encoder.h
-        Analyzer/Core/streamer.cpp
-        Analyzer/Core/Utils/log.cpp
-        Analyzer/Core/Utils/bas64.cpp
-        Analyzer/Core/Utils/log_formatter.cpp
-        Analyzer/Core/Utils/file_server_cb.h
-        Analyzer/Core/Utils/common.cpp
-        Analyzer/Core/video_processing/painter_base.h
-        Analyzer/Core/video_processing/painter_primitives.h
-        Analyzer/Core/video_processing/painter_shapes.h
-        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
         Analyzer/Core/video_processing/painter.h
         Analyzer/Core/video_processing/painter.cpp
-        Analyzer/Core/video_processing/painter_text.h
+        Analyzer/Core/video_processing/painter_base.h
+        Analyzer/Core/video_processing/painter_primitives.h
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/painter_shapes.h
         Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_types.h
-        Analyzer/Core/video_processing/dynamic_annotator.cpp
-        Analyzer/Core/alarm_sound.cpp
+        Analyzer/main.cpp
+        Analyzer/Core/worker.cpp
 )
 
 add_executable(Analyzer ${source})
