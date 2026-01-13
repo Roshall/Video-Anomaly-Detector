@@ -350,7 +350,6 @@ set(source
         Analyzer/Core/tracker/ByteTrack/lapjv.cpp
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/common.cpp
-        Analyzer/Core/Utils/img_processing.cpp
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/request.cpp
