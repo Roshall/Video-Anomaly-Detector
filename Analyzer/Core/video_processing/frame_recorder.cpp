@@ -1,5 +1,7 @@
 #include "frame_recorder.h"
 
+#include <filesystem>
+#include <format>
 #include <iostream>
 
 extern "C" {
@@ -17,23 +19,130 @@ Recorder::Recorder(VideoConfig config)
   }
 }
 
-Recorder::~Recorder() {CloseOutputSegment(); }
+Recorder::~Recorder() { CloseOutputSegment(); }
 
-bool Recorder::Initialize(std::string_view file_path, bool file) {
+bool Recorder::Initialize(std::string_view file_path, OutputType type) {
+  if (type == OutputType::kHls) {
+    return Initialize(file_path, type, HlsConfig{});
+  }
+
+  // record last used mode
+  last_output_type_ = type;
+  last_hls_paths_.reset();
+  last_hls_config_ = HlsConfig{};
+
   file_path_ = file_path;
   CodeConfig conf{};
 
   AVDictionaryPtr fmt_options{};
-  if (!file) {
-    fmt_options.set("rw_timeout", "30000000", 0);  // 设置rtmp/http-flv连接超时
-    fmt_options.set("stimeout", "30000000", 0);  // ns
-    fmt_options.set("rtsp_transport", "tcp", 0);
-    conf = {1, 0, "25", "ultrafast", "rtsp", std::move(fmt_options)};
-  } else {
-    fmt_options.set("movflags", "+faststart+use_metadata_tags", 0);
-    conf.fmt_options = std::move(fmt_options);
+  switch (type) {
+    case OutputType::kRtsp:
+      fmt_options.set("rw_timeout", "30000000",
+                      0);  // rtmp/http-flv connect timeout
+      fmt_options.set("stimeout", "30000000", 0);  // ns
+      fmt_options.set("rtsp_transport", "tcp", 0);
+      conf = {1, 0, "25", "ultrafast", "rtsp", std::move(fmt_options)};
+      break;
+    case OutputType::kFile:
+      fmt_options.set("movflags", "+faststart+use_metadata_tags", 0);
+      conf.fmt_options = std::move(fmt_options);
+      break;
+    case OutputType::kHls:
+      // handled above
+      break;
   }
+
   return OpenOutputSegment(conf);  // Start the first segment
+}
+
+bool Recorder::Initialize(std::string_view file_path, OutputType type,
+                          const HlsConfig& hls) {
+  if (type != OutputType::kHls) {
+    return Initialize(file_path, type);
+  }
+
+  // Derive canonical HLS paths and set them as recorder state
+  const auto paths = MakeHlsPaths(file_path, hls);
+  file_path_ = paths.playlist;
+  last_output_type_ = OutputType::kHls;
+  last_hls_config_ = hls;
+  last_hls_paths_ = paths;
+
+  CodeConfig conf{};
+  conf.format_name = "hls";
+
+  AVDictionaryPtr fmt_options{};
+  const int segment_seconds = std::max(1, hls.segment_seconds);
+  fmt_options.set("hls_time", std::to_string(segment_seconds).c_str(), 0);
+
+  const int playlist_size = std::max(0, hls.playlist_size);
+  fmt_options.set("hls_list_size", std::to_string(playlist_size).c_str(), 0);
+
+  if (hls.segment_format == HlsSegmentFormat::kMpegts) {
+    fmt_options.set("hls_segment_type", "mpegts", 0);
+  } else {
+    fmt_options.set("hls_segment_type", "fmp4", 0);
+    if (!paths.init_filename.empty()) {
+      fmt_options.set("hls_fmp4_init_filename", paths.init_filename.c_str(), 0);
+    }
+  }
+
+  fmt_options.set("hls_segment_filename", paths.segment_pattern.c_str(), 0);
+
+  std::string hls_flags = "independent_segments+program_date_time+temp_file+append_list+omit_endlist";
+  if (hls.delete_segments && playlist_size > 0) {
+    hls_flags += "+delete_segments";
+  }
+  fmt_options.set("hls_flags", hls_flags.c_str(), 0);
+
+  conf.fmt_options = std::move(fmt_options);
+  return OpenOutputSegment(conf);
+}
+
+Recorder::HlsPaths Recorder::MakeHlsPaths(std::string_view base) {
+  return MakeHlsPaths(base, HlsConfig{});
+}
+
+Recorder::HlsPaths Recorder::MakeHlsPaths(std::string_view base,
+                                          const HlsConfig& hls) {
+  std::filesystem::path p{std::string(base)};
+  // If user passed an explicit playlist path ending with .m3u8, use that;
+  // otherwise append .m3u8
+  std::filesystem::path playlist_path = p;
+  if (playlist_path.extension() != ".m3u8") {
+    playlist_path += ".m3u8";
+  }
+
+  const std::string stem = playlist_path.stem().string();
+  const std::filesystem::path dir = playlist_path.parent_path();
+
+  HlsPaths out;
+  out.playlist = playlist_path.string();
+  out.mp4_output = (dir / std::format("{}.mp4", stem)).string();
+
+  if (hls.segment_format == HlsSegmentFormat::kMpegts) {
+    out.segment_pattern = (dir / std::format("{}_%05d.ts", stem)).string();
+    out.init_filename = "";  // no init file for mpegts
+  } else {
+    out.segment_pattern = (dir / std::format("{}_%05d.m4s", stem)).string();
+    out.init_filename = std::format("{}_init.mp4", stem);
+  }
+  return out;
+}
+
+std::optional<std::string> Recorder::GetSuggestedMp4() const {
+  // HLS: return derived mp4
+  if (last_output_type_ == OutputType::kHls && last_hls_paths_) {
+    return last_hls_paths_->mp4_output;
+  }
+  // File mode: normalize to .mp4
+  if (last_output_type_ == OutputType::kFile && !file_path_.empty()) {
+    std::filesystem::path p{file_path_};
+    if (p.extension() == ".mp4") return p.string();
+    p.replace_extension(".mp4");
+    return p.string();
+  }
+  return std::nullopt;
 }
 
 bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
@@ -58,7 +167,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   video_codec_ctx_->height = config.height;
   //  video_codec_ctx_->bit_rate = config.bitrate;
   video_codec_ctx_->time_base = {1, config.fps};
-    video_codec_ctx_->framerate = {config.fps, 1};
+  video_codec_ctx_->framerate = {config.fps, 1};
   video_codec_ctx_->gop_size = config.fps * cconfig.gop_size_scale;
   video_codec_ctx_->max_b_frames = cconfig.max_b_frame;
   video_codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
@@ -118,7 +227,7 @@ bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
 }
 
 void Recorder::CloseOutputSegment() {
-  if ( initialized_ && output_ctx_) {
+  if (initialized_ && output_ctx_) {
     // Flush any remaining packets from the encoder
     EncodeAndWrite(nullptr);
 
@@ -163,9 +272,9 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
 bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
   auto pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
-                            video_codec_ctx_->time_base);
+                          video_codec_ctx_->time_base);
   if (pts <= last_pts_) {
-    LOGD("recoder->throw frame because of pts: {} <= {}",  pts, last_pts_);
+    LOGD("recoder->throw frame because of pts: {} <= {}", pts, last_pts_);
     return true;
   }
   last_pts_ = frame->pts = pts;

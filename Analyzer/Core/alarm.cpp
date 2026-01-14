@@ -51,7 +51,7 @@ void Alarm::Finalize(
       std::to_string(event->frames[0]->data->best_effort_timestamp) + ".ts";
   std::string path = prefix_dir.string();
 
-  if (!recorder.Initialize(path, true)) {
+  if (!recorder.Initialize(std::format("{}.mp4", path), Recorder::OutputType::kFile)) {
     LOGE("Alarm::Finalize: cannot initialize recorder at {}", path);
     return;
   }
@@ -59,16 +59,19 @@ void Alarm::Finalize(
   for (auto& frame : event->frames) {
     recorder.AddVideoFrame(frame->data.get());
   }
+  recorder.CloseOutputSegment();
+  auto file_size = getFileSize(std::format("{}.mp4", path));
 
   // report saved video
   if (!admin_host.empty()) {
     std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
     path.erase(0, upload_dir.length() + 1);  // remove upload_dir and leading '/'
     nlohmann::json param;
-    param["video_code"] = video_code;
-    param["alarm_id"] = std::to_string(id);
-    param["video_path"] = path;
-    param["create_time"] = start_time;
+    param["videoCode"] = video_code;
+    param["videoPath"] = std::format("{}.mp4", path);
+    param["alarmId"] = std::to_string(id);
+    param["createTime"] = start_time;
+    param["fileSize"] = file_size;
 
     const std::string data = param.dump();
     std::string response;

@@ -1,0 +1,138 @@
+#include <gtest/gtest.h>
+
+#include <chrono>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <vector>
+
+extern "C" {
+#include <libavutil/imgutils.h>
+}
+
+#include "frame_recorder.h"
+
+namespace {
+
+std::filesystem::path MakeTempDir() {
+  const auto base = std::filesystem::temp_directory_path();
+  const auto dir = base / std::filesystem::path(
+                          "bxc_videoanalyzer_hls_" +
+                          std::to_string(
+                              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count()));
+  std::filesystem::create_directories(dir);
+  return dir;
+}
+
+AVFrame* MakeYuv420pFrame(int width, int height, int64_t best_effort_ts,
+                          AVRational time_base) {
+  AVFrame* frame = av_frame_alloc();
+  if (!frame) {
+    return nullptr;
+  }
+
+  frame->format = AV_PIX_FMT_YUV420P;
+  frame->width = width;
+  frame->height = height;
+  frame->time_base = time_base;
+  frame->best_effort_timestamp = best_effort_ts;
+
+  if (av_frame_get_buffer(frame, 32) < 0) {
+    av_frame_free(&frame);
+    return nullptr;
+  }
+  if (av_frame_make_writable(frame) < 0) {
+    av_frame_free(&frame);
+    return nullptr;
+  }
+
+  const uint8_t y = static_cast<uint8_t>(best_effort_ts % 255);
+  for (int r = 0; r < height; ++r) {
+    std::memset(frame->data[0] + r * frame->linesize[0], y, width);
+  }
+  for (int r = 0; r < height / 2; ++r) {
+    std::memset(frame->data[1] + r * frame->linesize[1], 128, width / 2);
+    std::memset(frame->data[2] + r * frame->linesize[2], 128, width / 2);
+  }
+
+  frame->pict_type = AV_PICTURE_TYPE_NONE;
+  return frame;
+}
+
+std::string ReadAllText(const std::filesystem::path& p) {
+  std::ifstream in(p);
+  return std::string(std::istreambuf_iterator<char>(in),
+                     std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+TEST(FrameRecorderHlsTest, WritesFmp4PlaylistAndSegments) {
+  using Recorder = avs_analyzer::Recorder;
+
+  const auto out_dir = MakeTempDir();
+  const auto playlist = out_dir / "out.m3u8";
+
+  Recorder::VideoConfig config{};
+  config.width = 64;
+  config.height = 64;
+  config.fps = 10;
+
+  Recorder recorder(config);
+
+  Recorder::HlsConfig hls{};
+  hls.segment_format = Recorder::HlsSegmentFormat::kFmp4;
+  hls.segment_seconds = 1;
+  hls.playlist_size = 6;
+  hls.delete_segments = false;  // keep files for assertions
+
+  ASSERT_TRUE(recorder.Initialize(playlist.string(), Recorder::OutputType::kHls, hls));
+  EXPECT_EQ(recorder.dst(), playlist.string());
+
+  // Instance getter should match
+  {
+    auto last = recorder.GetLastHlsPaths();
+    ASSERT_TRUE(last.has_value());
+    EXPECT_EQ(last->playlist, playlist.string());
+    EXPECT_EQ(last->init_filename, "out_init.mp4");
+    EXPECT_EQ(last->segment_pattern, (out_dir / "out_%05d.m4s").string());
+    EXPECT_EQ(last->mp4_output, (out_dir / "out.mp4").string());
+  }
+
+  // Also check helper output for the same base path (without extension)
+  {
+    const auto base = (out_dir / "out").string();
+    const auto paths = Recorder::MakeHlsPaths(base, hls);
+    EXPECT_EQ(paths.playlist, (out_dir / "out.m3u8").string());
+    EXPECT_EQ(paths.init_filename, "out_init.mp4");
+    EXPECT_EQ(paths.segment_pattern, (out_dir / "out_%05d.m4s").string());
+    EXPECT_EQ(paths.mp4_output, (out_dir / "out.mp4").string());
+  }
+
+  // Suggested mp4 should match for HLS
+  {
+    auto s = recorder.GetSuggestedMp4();
+    ASSERT_TRUE(s.has_value());
+    EXPECT_EQ(*s, (out_dir / "out.mp4").string());
+  }
+}
+
+TEST(FrameRecorderSuggestedMp4Test, FileModeSuggestion) {
+  using Recorder = avs_analyzer::Recorder;
+  Recorder::VideoConfig config{};
+  config.width = 32;
+  config.height = 32;
+  config.fps = 10;
+
+  Recorder recorder(config);
+  // initialize file mode with a .ts path and expect suggested .mp4
+  ASSERT_TRUE(recorder.Initialize("/tmp/foo.ts", Recorder::OutputType::kFile));
+  auto s = recorder.GetSuggestedMp4();
+  ASSERT_TRUE(s.has_value());
+  EXPECT_EQ(*s, std::string("/tmp/foo.mp4"));
+
+}

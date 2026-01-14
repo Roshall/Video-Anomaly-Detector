@@ -319,6 +319,26 @@ target_include_directories(test_server PRIVATE
 add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
 endif()
 
+add_executable(frame_recorder_hls_test
+        tests/frame_recorder_hls_test.cpp
+        Analyzer/Core/video_processing/frame_recorder.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(frame_recorder_hls_test PRIVATE
+        GTest::gtest_main
+        PkgConfig::FFMPEG
+        Threads::Threads
+        spdlog::spdlog)
+target_link_directories(frame_recorder_hls_test PRIVATE ${FFMPEG_LIBRARY_DIRS})
+set_target_properties(frame_recorder_hls_test PROPERTIES
+        BUILD_RPATH "${FFMPEG_LIBRARY_DIRS}")
+target_include_directories(frame_recorder_hls_test PRIVATE
+        ${FFMPEG_INCLUDE_DIRS}
+        Analyzer/Core
+        Analyzer/Core/video_processing)
+add_test(NAME frame_recorder_hls_test COMMAND $<TARGET_FILE:frame_recorder_hls_test>)
+
 set(source
         Analyzer/Core/alarm.cpp
         Analyzer/Core/alarm_sound.cpp

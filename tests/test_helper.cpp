@@ -20,7 +20,7 @@ int runner(Streamer& input_stream,
 
   // --- Recorder Setup ---
   avs_analyzer::Recorder recorder(config);
-  if (!recorder.Initialize("test.ts", false)) {
+  if (!recorder.Initialize("test.mp4", avs_analyzer::Recorder::OutputType::kFile)) {
     std::cerr << "Failed to initialize recorder_." << std::endl;
     return 1;
   }
