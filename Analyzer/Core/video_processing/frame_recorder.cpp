@@ -145,6 +145,104 @@ std::optional<std::string> Recorder::GetSuggestedMp4() const {
   return std::nullopt;
 }
 
+bool Recorder::RemuxToSuggestedMp4() {
+  if (last_output_type_ != OutputType::kHls || !last_hls_paths_) {
+    LOGE("RemuxToSuggestedMp4: recorder is not initialized for HLS or no HLS paths available.");
+    return false;
+  }
+
+  const std::string playlist = last_hls_paths_->playlist;
+  auto out_mp4_opt = GetSuggestedMp4();
+  if (!out_mp4_opt) {
+    LOGE("RemuxToSuggestedMp4: cannot determine output mp4 path");
+    return false;
+  }
+  const std::string out_mp4 = *out_mp4_opt;
+
+  AVFormatContext* in_fmt = nullptr;
+  int ret = avformat_open_input(&in_fmt, playlist.c_str(), nullptr, nullptr);
+  if (ret < 0) {
+    LOGE_FFMPEG(std::format("RemuxToSuggestedMp4: could not open playlist {}", playlist), ret);
+    return false;
+  }
+  AVFormatContextPtr in_ctx{in_fmt};
+
+  ret = avformat_find_stream_info(in_ctx.get(), nullptr);
+  if (ret < 0) {
+    LOGE_FFMPEG("RemuxToSuggestedMp4: could not find stream info", ret);
+    return false;
+  }
+
+  AVFormatContext* out_fmt = nullptr;
+  ret = avformat_alloc_output_context2(&out_fmt, nullptr, "mp4", out_mp4.c_str());
+  if (ret < 0 || !out_fmt) {
+    LOGE_FFMPEG("RemuxToSuggestedMp4: could not allocate output context", ret);
+    return false;
+  }
+  AVFormatContextPtr out_ctx{out_fmt};
+
+  std::vector<int> stream_map(in_ctx->nb_streams, -1);
+  for (unsigned i = 0; i < in_ctx->nb_streams; ++i) {
+    AVStream* in_stream = in_ctx->streams[i];
+    AVStream* out_stream = avformat_new_stream(out_ctx.get(), nullptr);
+    if (!out_stream) {
+      LOGE("RemuxToSuggestedMp4: could not create output stream");
+      return false;
+    }
+    ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
+    if (ret < 0) {
+      LOGE_FFMPEG("RemuxToSuggestedMp4: could not copy codec parameters", ret);
+      return false;
+    }
+    out_stream->codecpar->codec_tag = 0;
+    stream_map[i] = out_stream->index;
+  }
+
+  if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
+    ret = avio_open(&out_ctx->pb, out_mp4.c_str(), AVIO_FLAG_WRITE);
+    if (ret < 0) {
+      LOGE_FFMPEG(std::format("RemuxToSuggestedMp4: could not open output file {}", out_mp4), ret);
+      return false;
+    }
+  }
+
+  ret = avformat_write_header(out_ctx.get(), nullptr);
+  if (ret < 0) {
+    LOGE_FFMPEG("RemuxToSuggestedMp4: could not write header", ret);
+    return false;
+  }
+
+  AVPacketPtr pkt{av_packet_alloc()};
+  while ((ret = av_read_frame(in_ctx.get(), pkt.get())) >= 0) {
+    if (pkt->stream_index < 0 || (unsigned)pkt->stream_index >= stream_map.size()) {
+      av_packet_unref(pkt.get());
+      continue;
+    }
+    int out_index = stream_map[pkt->stream_index];
+    if (out_index < 0) {
+      av_packet_unref(pkt.get());
+      continue;
+    }
+    AVStream* in_stream = in_ctx->streams[pkt->stream_index];
+    AVStream* out_stream = out_ctx->streams[out_index];
+
+    pkt->stream_index = out_index;
+    av_packet_rescale_ts(pkt.get(), in_stream->time_base, out_stream->time_base);
+    pkt->pos = -1;
+
+    ret = av_interleaved_write_frame(out_ctx.get(), pkt.get());
+    if (ret < 0) {
+      LOGE_FFMPEG("RemuxToSuggestedMp4: error writing packet", ret);
+      av_packet_unref(pkt.get());
+      return false;
+    }
+    av_packet_unref(pkt.get());
+  }
+
+  av_write_trailer(out_ctx.get());
+  return true;
+}
+
 bool Recorder::OpenOutputSegment(const CodeConfig& cconfig) {
   // set up codec
   // 1. Find the H.265 encoder

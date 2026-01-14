@@ -119,6 +119,56 @@ TEST(FrameRecorderHlsTest, WritesFmp4PlaylistAndSegments) {
     ASSERT_TRUE(s.has_value());
     EXPECT_EQ(*s, (out_dir / "out.mp4").string());
   }
+
+  // Write frames and finalize the playlist + segments
+  {
+    const AVRational tb{1, config.fps};
+    for (int i = 0; i < 30; ++i) {
+      AVFrame* frame = MakeYuv420pFrame(config.width, config.height, i, tb);
+      ASSERT_NE(frame, nullptr);
+      ASSERT_TRUE(recorder.AddVideoFrame(frame));
+      av_frame_free(&frame);
+    }
+    recorder.CloseOutputSegment();
+
+    // playlist and segments should exist
+    ASSERT_TRUE(std::filesystem::exists(playlist));
+    const std::string content = ReadAllText(playlist);
+    ASSERT_NE(content.find("#EXTM3U"), std::string::npos);
+
+    const auto init_file = out_dir / "out_init.mp4";
+    EXPECT_TRUE(std::filesystem::exists(init_file));
+
+    std::vector<std::filesystem::path> segments;
+    {
+      std::ifstream in(playlist);
+      std::string line;
+      while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') {
+          continue;
+        }
+        segments.emplace_back(out_dir / line);
+      }
+    }
+
+    ASSERT_FALSE(segments.empty());
+    for (const auto& seg : segments) {
+      EXPECT_TRUE(std::filesystem::exists(seg)) << seg.string();
+      if (std::filesystem::exists(seg)) {
+        EXPECT_GT(std::filesystem::file_size(seg), 0u) << seg.string();
+      }
+    }
+
+    // Remux into single mp4 and validate
+    ASSERT_TRUE(recorder.RemuxToSuggestedMp4());
+    auto mp4 = recorder.GetSuggestedMp4();
+    ASSERT_TRUE(mp4.has_value());
+
+    AVFormatContext* fmt = nullptr;
+    ASSERT_EQ(avformat_open_input(&fmt, mp4->c_str(), nullptr, nullptr), 0);
+    avs_analyzer::AVFormatContextPtr fmtp{fmt};
+    EXPECT_GT(fmtp->nb_streams, 0);
+  }
 }
 
 TEST(FrameRecorderSuggestedMp4Test, FileModeSuggestion) {

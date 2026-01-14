@@ -93,6 +93,12 @@ class Recorder {
   // recorder's file path normalized to .mp4; otherwise std::nullopt.
   std::optional<std::string> GetSuggestedMp4() const;
 
+  // Remux the generated HLS (fMP4) playlist/segments into a single MP4 file
+  // located at the suggested MP4 path (GetSuggestedMp4()). Returns true on
+  // success. Requires the recorder to have been initialized for HLS and the
+  // HLS output segments to be present (i.e., after CloseOutputSegment()).
+  bool RemuxToSuggestedMp4();
+
  private:
   bool EncodeAndWrite(AVFrame* frame);
 
