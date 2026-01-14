@@ -372,8 +372,8 @@ bool Recorder::AddVideoFrame(AVFrame* frame) {
   auto pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
                           video_codec_ctx_->time_base);
   if (pts <= last_pts_) {
-    LOGD("recoder->throw frame because of pts: {} <= {}", pts, last_pts_);
-    return true;
+    LOGD("recorder reconstruct frame's pts because of pts: {} <= {}", pts, last_pts_);
+    pts = last_pts_ + 1;
   }
   last_pts_ = frame->pts = pts;
   return EncodeAndWrite(frame);
