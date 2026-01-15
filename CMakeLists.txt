@@ -182,6 +182,7 @@ add_executable(detect_test Analyzer/Core/event.cpp tests/strategic_detect_test.c
         tests/test_helper.cpp)
 add_executable(write_test
         Analyzer/Core/video_processing/frame_recorder.cpp
+        Analyzer/Core/video_processing/hls_utils.cpp
         Analyzer/Core/video_processing/helper.cpp
         tests/test_helper.cpp
         tests/continuous_video_test.cpp)
@@ -194,6 +195,7 @@ add_executable(annotator_test
         Analyzer/Core/video_processing/annotator.cpp
         Analyzer/Core/video_processing/helper.cpp
         Analyzer/Core/video_processing/frame_recorder.cpp
+        Analyzer/Core/video_processing/hls_utils.cpp
         tests/test_helper.cpp
         tests/annotator_test.cpp
 )
@@ -321,6 +323,7 @@ add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
 add_executable(frame_recorder_hls_test
         tests/frame_recorder_hls_test.cpp
         Analyzer/Core/video_processing/frame_recorder.cpp
+        Analyzer/Core/video_processing/hls_utils.cpp
         Analyzer/Core/video_processing/helper.cpp
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp)
@@ -382,6 +385,7 @@ set(source
         Analyzer/Core/video_processing/frame_recorder.cpp
         Analyzer/Core/video_processing/frame_walk_time.h
         Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/video_processing/hls_utils.cpp
         Analyzer/Core/video_processing/jpeg_encoder.cpp
         Analyzer/Core/video_processing/painter.h
         Analyzer/Core/video_processing/painter.cpp

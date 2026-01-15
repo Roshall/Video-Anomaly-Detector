@@ -13,6 +13,7 @@ extern "C" {
 }
 
 #include "frame_recorder.h"
+#include "hls_utils.h"
 
 namespace {
 
@@ -95,7 +96,7 @@ TEST(FrameRecorderHlsTest, WritesFmp4PlaylistAndSegments) {
 
   // Instance getter should match
   {
-    auto last = recorder.GetLastHlsPaths();
+    auto last = recorder.last_hls_paths;
     ASSERT_TRUE(last.has_value());
     EXPECT_EQ(last->playlist, playlist.string());
     EXPECT_EQ(last->init_filename, "out_init.mp4");
@@ -160,7 +161,7 @@ TEST(FrameRecorderHlsTest, WritesFmp4PlaylistAndSegments) {
     }
 
     // Remux into single mp4 and validate
-    ASSERT_TRUE(recorder.RemuxToSuggestedMp4());
+    ASSERT_TRUE(avs_analyzer::RemuxHlsToSuggestedMp4(*recorder.last_hls_paths));
     auto mp4 = recorder.GetSuggestedMp4();
     ASSERT_TRUE(mp4.has_value());
 
@@ -168,6 +169,17 @@ TEST(FrameRecorderHlsTest, WritesFmp4PlaylistAndSegments) {
     ASSERT_EQ(avformat_open_input(&fmt, mp4->c_str(), nullptr, nullptr), 0);
     avs_analyzer::AVFormatContextPtr fmtp{fmt};
     EXPECT_GT(fmtp->nb_streams, 0);
+
+    // Cleanup HLS files
+    ASSERT_TRUE(avs_analyzer::RemoveHlsFiles(*recorder.last_hls_paths));
+    EXPECT_FALSE(std::filesystem::exists(playlist));
+    EXPECT_FALSE(std::filesystem::exists(out_dir / "out_init.mp4"));
+
+    // Segments should be removed
+    for (auto& e : std::filesystem::directory_iterator(out_dir)) {
+      const auto fn = e.path().filename().string();
+      EXPECT_FALSE(fn.rfind("out_", 0) == 0 && fn.find(".m4s") != std::string::npos);
+    }
   }
 }
 
@@ -185,4 +197,53 @@ TEST(FrameRecorderSuggestedMp4Test, FileModeSuggestion) {
   ASSERT_TRUE(s.has_value());
   EXPECT_EQ(*s, std::string("/tmp/foo.mp4"));
 
+}
+
+TEST(FrameRecorderHlsCleanupTest, RemovesExpectedFilesAndDir) {
+  using Recorder = avs_analyzer::Recorder;
+  Recorder::VideoConfig cfg{};
+  cfg.width = 16;
+  cfg.height = 16;
+  cfg.fps = 10;
+
+  Recorder recorder(cfg);
+
+  auto dir = std::filesystem::temp_directory_path() / std::filesystem::path("bxc_hls_cleanup_test");
+  if (std::filesystem::exists(dir)) std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+
+  auto playlist = dir / "test.m3u8";
+  auto init = dir / "test_init.mp4";
+  auto seg1 = dir / "test_00001.m4s";
+  auto seg2 = dir / "test_00002.m4s";
+
+  // create files
+  std::ofstream(playlist.string()).put('x');
+  std::ofstream(init.string()).put('x');
+  std::ofstream(seg1.string()).put('x');
+  std::ofstream(seg2.string()).put('x');
+
+  Recorder::HlsPaths paths;
+  paths.playlist = playlist.string();
+  paths.init_filename = init.filename().string();
+  paths.segment_pattern = (dir / std::string("test_%05d.m4s")).string();
+  paths.mp4_output = (dir / std::string("test.mp4")).string();
+
+  recorder.last_output_type = Recorder::OutputType::kHls;
+  recorder.last_hls_paths = std::move(paths);
+
+  ASSERT_TRUE(std::filesystem::exists(playlist));
+  ASSERT_TRUE(std::filesystem::exists(init));
+  ASSERT_TRUE(std::filesystem::exists(seg1));
+  ASSERT_TRUE(std::filesystem::exists(seg2));
+
+  ASSERT_TRUE(avs_analyzer::RemoveHlsFiles(*recorder.last_hls_paths));
+
+  EXPECT_FALSE(std::filesystem::exists(playlist));
+  EXPECT_FALSE(std::filesystem::exists(init));
+  EXPECT_FALSE(std::filesystem::exists(seg1));
+  EXPECT_FALSE(std::filesystem::exists(seg2));
+
+  // Directory should be removed when empty
+  EXPECT_FALSE(std::filesystem::exists(dir));
 }
