@@ -69,6 +69,19 @@ class Recorder {
     mutable AVDictionaryPtr fmt_options{};
   };
 
+  struct ReencodeConfig {
+    std::string preset{"veryslow"};
+    int crf{30};
+    std::string profile{"high"};
+    int gop_size{96};
+    int keyint_min{120};
+    int sc_threshold{0};
+    int max_b_frames{3};
+    int refs{4};
+    std::string x264_params{
+        "cabac=1:aq-mode=2:aq-strength=1.1:deblock=-1,-1:psy-rd=1.0,0.15"};
+  };
+
   explicit Recorder(VideoConfig config);
   ~Recorder();
 
@@ -98,6 +111,10 @@ class Recorder {
   // success. Requires the recorder to have been initialized for HLS and the
   // HLS output segments to be present (i.e., after CloseOutputSegment()).
   bool RemuxToSuggestedMp4();
+
+  // Re-encode the HLS output into a smaller MP4 using libx264 settings.
+  // This decodes the HLS playlist and encodes to MP4 with the provided config.
+  bool ReencodeToSuggestedMp4(const ReencodeConfig& cfg);
 
  private:
   bool EncodeAndWrite(AVFrame* frame);
