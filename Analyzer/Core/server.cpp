@@ -7,6 +7,7 @@
 #include <json/json.h>
 #include <json/value.h>
 
+#include <numeric>
 #include <sstream>
 #include <thread>
 
@@ -81,6 +82,45 @@ static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const 
 
   if (!levelsNode || !levelsNode.isObject()) return { thresholds, levels};
 
+  // v2 format: { "mode": "seconds"|"people", "values": [3, 5, ...] }
+  if (levelsNode.isMember("values") && levelsNode["values"].isArray()) {
+    const auto mode_str = get_string(levelsNode["mode"], "");
+    mode = (mode_str == "seconds" || mode_str == "duration")
+               ? LevelMode::kDuration
+               : LevelMode::kNumPeople;
+
+    const Json::Value& values = levelsNode["values"];
+    thresholds.reserve(values.size());
+    levels.reserve(values.size());
+
+    for (const auto& v : values) {
+      int threshold = get_int_any(v, 0);
+      if (mode == LevelMode::kDuration) {
+        threshold *= 1000;
+        thresholds.push_back(threshold);
+        levels.push_back(std::to_string(get_int_any(v, 0)) + "s");
+      } else {
+        thresholds.push_back(threshold);
+        levels.push_back(std::to_string(threshold));
+      }
+    }
+
+    std::vector<size_t> idx(thresholds.size());
+    std::iota(idx.begin(), idx.end(), 0);
+    std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
+      return thresholds[a] < thresholds[b];
+    });
+    std::vector<int> t_sorted;
+    std::vector<std::string> l_sorted;
+    t_sorted.reserve(thresholds.size());
+    l_sorted.reserve(levels.size());
+    for (auto i : idx) {
+      t_sorted.push_back(thresholds[i]);
+      l_sorted.push_back(levels[i]);
+    }
+    return {t_sorted, l_sorted};
+  }
+
   // Iterate through all levels
   std::vector<std::pair<int, std::string>> combined;
   const auto keys = levelsNode.getMemberNames();
@@ -116,6 +156,7 @@ void send_json(evhttp_request* req, int code, const std::string& json) {
     evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
     return;
   }
+  LOGI("sending http code: {}, json: {}", code, json);
   evbuffer_add(out, json.data(), json.size());
   evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type", "application/json; charset=utf-8");
   // (Optional) CORS
@@ -264,8 +305,8 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
       int64_t startTimestamp = 0;
       for (auto& monitor : monitors) {
         startTimestamp = monitor.start_timestamp;
-
         result_data_item["code"] = monitor.code.data();
+        result_data_item["cameraId"] = monitor.video_code.data();
         result_data_item["streamUrl"] = monitor.stream_url.data();
         result_data_item["pushStream"] = monitor.push_stream;
         result_data_item["pushStreamUrl"] = monitor.push_stream_url.data();
@@ -313,21 +354,22 @@ void ApiMonitor(evhttp_request* req, void* arg) {
 
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
-    Monitor* monitor = nullptr;
-    if (root["code"].isString()) {
-      std::string code = root["code"].asCString();
-      monitor = scheduler->GetMonitorByCode(code);
-    }
-
-    if (monitor) {
-      result_monitor["code"] = monitor->code;
-
-      result_code = 1000;
-      result_msg = "success";
-
+    Monitor monitor;
+    if (!root["code"].isString() || !root["cameraId"].isString()) {
+      result_msg = "invalid request parameter";
     } else {
-      result_msg = "the monitor does not exist";
+      std::string code = root["code"].asCString();
+      std::string video_code = root["cameraId"].asCString();
+      if (scheduler->ContainsMonitor(video_code, code)) {
+        result_monitor["code"] = code;
+        result_code = 1000;
+        result_msg = "success";
+
+      } else {
+        result_msg = "the monitor does not exist";
+      }
     }
+
   } else {
     result_msg = "invalid request parameter";
   }
@@ -357,62 +399,118 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
 
   int result_code = 0;
   std::string result_msg;
+  Json::Value result;
 
   if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
       errs.empty()) {
-    try {
-      auto task = std::stoi(root["algorithmCode"].asCString());
-      if (task < 0 || task >= 6) {
-        LOGE("wrong algorithm code: {}", task);
-        return;
-      }
 
-      LevelMode mode;
-      Monitor monitor{
-          .code = root["code"].asCString(),
-          .source_type = root["sourceType"].asCString(),
-          .stream_url = root["streamUrl"].asString(),
-          .push_stream = root["pushStream"].asBool(),
-          .push_stream_url = root["pushStreamUrl"].asString(),
-          .task = static_cast<Task>(task),
-          .roi_str = root["recognitionRegion"].asString(),
-          .levels = parse_levels(root["levels"], mode),
-          .level_mode = mode
-      };
-      auto ws = root["alertWindowSize"].asInt();
-      auto duration = mode == LevelMode::kDuration ? monitor.levels.first[0]: 0;
-      EventDetectorConfig event_cfg{
-          .major_stride_ms = static_cast<int64_t>(root["minInterval"].asFloat() * 1000),
-          .minor_stride_ms = static_cast<int64_t>(root["alertInterval"].asFloat() * 1000),
-          .window_size = ws,
-          .min_vote = std::max(static_cast<int>(ws * root["alertFrameRatio"].asFloat() / 100), 1),
-          .max_event_duration_ms = static_cast<int64_t>(root["maxAlarmDuration"].asFloat() * 1000),
-          .latest_duration_ms = duration,
-          .minimum_num = mode == LevelMode::kNumPeople ? monitor.levels.first[0] : 1,
-      };
-      float conf_th = root["modelConfidenceThreshold"].asFloat();
-      if (monitor.ValidateAdd(result_msg)) {
-        scheduler->MonitorAdd(std::make_unique<Monitor>(std::move(monitor)),
-                              result_code, result_msg, event_cfg, conf_th);
-      } else {
-        LOGE("invalid message.");
-        return;
-      }
-
-    } catch (const Json::Exception& e){
-      LOGE("Json parsing error when adding monitor: {}", e.what());
-    }catch (const std::exception& e) {
-      LOGE("runtime error when adding monitor: {}", e.what());
+    // Required format:
+    // { cameraId, sourceType, streamUrl, controls: [ {...}, {...} ] }
+    if (!root.isObject() || !root.isMember("controls") || !root["controls"].isArray()) {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
       return;
     }
 
+    const std::string camera_id = root["cameraId"].asString();
+    const std::string source_type = root["sourceType"].asString();
+    const std::string stream_url = root["streamUrl"].asString();
+    const auto& controls = root["controls"];
+
+    std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> monitors;
+    std::vector<std::string> control_codes;
+    monitors.reserve(controls.size());
+    control_codes.reserve(controls.size());
+
+    for (const auto& ctrl : controls) {
+      try {
+        auto task = std::stoi(ctrl["algorithmCode"].asCString());
+        if (task < 0 || task >= 6) {
+          LOGE("wrong algorithm code: {}", task);
+          continue;
+        }
+
+        const std::string ctrl_code = ctrl["code"].asString();
+        control_codes.push_back(ctrl_code);
+
+        LevelMode mode{};
+        Monitor monitor{
+            .code = ctrl_code,
+            .video_code = camera_id,
+            .source_type = source_type,
+            .stream_url = stream_url,
+            .push_stream = ctrl["pushStream"].asBool(),
+            .push_stream_url = ctrl["pushStreamUrl"].asString(),
+            .task = static_cast<Task>(task),
+            .conf_threshold = ctrl["modelConfidenceThreshold"].asFloat(),
+            .roi_str = ctrl["recognitionRegion"].asString(),
+            .levels = parse_levels(ctrl["levels"], mode),
+            .level_mode = mode,
+        };
+
+        const int ws = ctrl["alertWindowSize"].asInt();
+        const int first_threshold = monitor.levels.first.empty() ? 0 : monitor.levels.first.front();
+        const int64_t duration = (mode == LevelMode::kDuration) ? first_threshold : 0;
+
+        EventDetectorConfig event_cfg{
+            .major_stride_ms = static_cast<int64_t>(ctrl["minInterval"].asFloat() * 1000),
+            .minor_stride_ms = static_cast<int64_t>(ctrl["alertInterval"].asFloat() * 1000),
+            .window_size = ws,
+            .min_vote = std::max(static_cast<int>(ws * ctrl["alertFrameRatio"].asFloat() / 100), 1),
+            .max_event_duration_ms = static_cast<int64_t>(ctrl["maxAlarmDuration"].asFloat() * 1000),
+            .latest_duration_ms = duration,
+            .minimum_num = (mode == LevelMode::kNumPeople) ? std::max(first_threshold, 1) : 1,
+        };
+
+        std::string validate_msg;
+        if (!monitor.ValidateAdd(validate_msg)) {
+          LOGE("invalid monitor in controls: {}", validate_msg);
+          continue;
+        }
+
+        monitors.emplace_back(std::make_unique<Monitor>(std::move(monitor)), std::move(event_cfg));
+      } catch (const std::exception& e) {
+        LOGE("runtime error in controls add: {}", e.what());
+      }
+    }
+
+    std::vector<std::pair<int, std::string>> add_results;
+    scheduler->MonitorBatchAdd(std::move(monitors), add_results);
+
+    if (source_type == "stream") {
+      Json::Value arr(Json::arrayValue);
+      const size_t n = std::min(control_codes.size(), add_results.size());
+      for (size_t i = 0; i < n; ++i) {
+        Json::Value item;
+        item["controlCode"] = control_codes[i];
+        item["code"] = add_results[i].first;
+        item["msg"] = add_results[i].second;
+        arr.append(item);
+      }
+      send_json(req, HTTP_OK, arr.toStyledString());
+      return;
+    }
+
+    // source_type == "file" : must be all successful or failed
+    bool all_ok = !add_results.empty();
+    std::string fail_msg;
+    for (const auto& [rc, msg] : add_results) {
+      if (rc != 1000) {
+        all_ok = false;
+        fail_msg = msg;
+        break;
+      }
+    }
+    Json::Value obj;
+    obj["cameraId"] = camera_id;
+    obj["code"] = all_ok ? 1000 : 0;
+    obj["msg"] = all_ok ? "added successfully" : (fail_msg.empty() ? "batch add failed" : fail_msg);
+    send_json(req, HTTP_OK, obj.toStyledString());
+    return;
   } else {
     result_msg = "invalid request parameter";
+    result["msg"] = result_msg;
+    result["code"] = result_code;
   }
-
-  Json::Value result;
-  result["msg"] = result_msg;
-  result["code"] = result_code;
 
   LOGI("\n \t request:{} \n \t response:{}", root.toStyledString().data(),
        result.toStyledString().data());
@@ -434,37 +532,58 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
   Json::Value root;
   JSONCPP_STRING errs;
 
-  int result_code = 0;
-  std::string result_msg = "error";
-
-  if (reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
-      errs.empty()) {
-    std::string code;
-
-    if (root["code"].isString()) {
-      code = root["code"].asCString();
-    }
-    if (!code.empty()) {
-      scheduler->MonitorRemove(code, result_code, result_msg);
-    } else {
-      result_msg = "validate parameter error";
-    }
-
-  } else {
-    result_msg = "invalid request parameter";
+  if (!(reader->parse(buf, buf + std::strlen(buf), &root, &errs) &&
+        errs.empty())) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
+    return;
   }
 
-  Json::Value result;
-  result["msg"] = result_msg;
-  result["code"] = result_code;
+  // Required format:
+  // { "cameraId": "...", "sourceType": "stream", "codes": ["..."] }
+  if (!root.isObject() || !root.isMember("codes") || !root["codes"].isArray()) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
+    return;
+  }
 
-  LOGI("\n \t request:{} \n \t response:{}", root.toStyledString().data(),
-       result.toStyledString().data());
+  const std::string camera_id = root["cameraId"].asString();
+  const std::string source_type = root["sourceType"].asString();
+  const auto& codes = root["codes"];
 
-  evbuffer* buff = evbuffer_new();
-  evbuffer_add_printf(buff, "%s", result.toStyledString().c_str());
-  evhttp_send_reply(req, HTTP_OK, nullptr, buff);
-  evbuffer_free(buff);
+  if (source_type == "file") {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"remove monitors for sourceType=file is not supported"})");
+    return;
+  }
+
+  std::vector<std::pair<std::string, std::string>> monitor_ids;
+  std::vector<std::string> control_codes;
+  monitor_ids.reserve(codes.size());
+  control_codes.reserve(codes.size());
+
+  for (const auto& c : codes) {
+    if (!c.isString()) {
+      continue;
+    }
+    const std::string code = c.asString();
+    if (code.empty()) {
+      continue;
+    }
+    control_codes.push_back(code);
+    monitor_ids.emplace_back(camera_id, code);
+  }
+
+  std::vector<std::pair<int, std::string>> rm_results;
+  scheduler->MonitorBatchRemove(monitor_ids, rm_results);
+
+  Json::Value arr(Json::arrayValue);
+  const size_t n = std::min(control_codes.size(), rm_results.size());
+  for (size_t i = 0; i < n; ++i) {
+    Json::Value item;
+    item["controlCode"] = control_codes[i];
+    item["code"] = rm_results[i].first;
+    item["msg"] = rm_results[i].second;
+    arr.append(item);
+  }
+  send_json(req, HTTP_OK, arr.toStyledString());
 }
 void ParseGetRequest(const evhttp_request* req, evkeyvalq* params) {
   if (req == nullptr) {

@@ -5,7 +5,6 @@
 #ifndef ANALYZER_DETECTION_ALGORITHM_H
 #define ANALYZER_DETECTION_ALGORITHM_H
 #include "algorithm.h"
-#include "task.h"
 
 
 namespace avs_analyzer {
@@ -13,10 +12,8 @@ class YOLODetector;
 struct Config;
 class DetectionAlgorithm: public Algorithm {
  public:
-  DetectionAlgorithm(const Config &config, Task task);
-  Detection DetectObjects(const cv::Mat &image) override;
- private:
-  std::shared_ptr<const YOLODetector> detector_;
+  DetectionAlgorithm() = default;
+  Detection ProcessDetections() override;
 };
 }
 

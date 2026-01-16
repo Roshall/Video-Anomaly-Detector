@@ -4,7 +4,10 @@
 
 #ifndef ANALYZER_FORMAT_CONVERTOR_H
 #define ANALYZER_FORMAT_CONVERTOR_H
+extern "C" {
 #include <libavutil/pixfmt.h>
+#include <libavutil/frame.h>
+}
 
 #include <opencv2/opencv.hpp>
 

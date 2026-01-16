@@ -82,6 +82,7 @@ add_compile_definitions(SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavcodec libavformat libavutil libswscale)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
+pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 
 # Find ONNX Runtime (prebuilt, no CMake config)
 find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_c_api.h PATH_SUFFIXES include)
@@ -168,11 +169,13 @@ add_executable(yolo_test
         Analyzer/Core/detector/yolo_detector_onnx.cpp
         Analyzer/Core/detector/constant_pool.h
         Analyzer/Core/detector/constant_yolo.cpp
+        Analyzer/Core/detector/inference.cpp
+        Analyzer/Core/task.cpp
         tests/yolo_test.cpp
 )
 target_link_libraries(yolo_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect onnxruntime)
 target_include_directories(yolo_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_include_directories(yolo_test PRIVATE Analyzer/Core/detector)
+target_include_directories(yolo_test PRIVATE Analyzer/Core/detector Analyzer/Core)
 target_compile_definitions(yolo_test PRIVATE
         __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
@@ -207,12 +210,35 @@ add_executable(log_test
 target_link_libraries(log_test PRIVATE spdlog::spdlog)
 target_include_directories(log_test PRIVATE Analyzer/Core/Utils)
 
+add_executable(draw_text_test Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        tests/draw_text_test.cpp
+)
+target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMPEG opencv_core)
+target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
+
+add_executable(dynamic_annotator_test
+        Analyzer/Core/video_processing/dynamic_annotator.cpp
+        Analyzer/Core/video_processing/painter.cpp
+        Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
+        tests/dynamic_annotator_test.cpp)
+target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE jsoncpp_lib)
+target_include_directories(dynamic_annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
+
 
 set(source
         Analyzer/main.cpp
         Analyzer/Core/alarm.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/analyzer.cpp
+        Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/av_pull_stream.cpp
         Analyzer/Core/av_push_stream.cpp
         Analyzer/Core/config.cpp
@@ -250,6 +276,16 @@ set(source
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
+        Analyzer/Core/video_processing/painter_base.h
+        Analyzer/Core/video_processing/painter_primitives.h
+        Analyzer/Core/video_processing/painter_shapes.h
+        Analyzer/Core/video_processing/painter_shapes.cpp
+        Analyzer/Core/video_processing/painter.h
+        Analyzer/Core/video_processing/painter.cpp
+        Analyzer/Core/video_processing/painter_text.h
+        Analyzer/Core/video_processing/painter_text.cpp
+        Analyzer/Core/video_processing/painter_types.h
+        Analyzer/Core/video_processing/dynamic_annotator.cpp
 )
 
 add_executable(Analyzer ${source})
@@ -270,6 +306,7 @@ target_link_libraries(Analyzer PRIVATE
         readerwriterqueue::readerwriterqueue
         concurrentqueue::concurrentqueue
         spdlog::spdlog
+        PkgConfig::FREETYPE
 )
 target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
 
@@ -279,9 +316,27 @@ target_include_directories(Analyzer PRIVATE
         ${FFMPEG_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
         ${EIGEN_INCLUDE_DIR}
+        ${FREETYPE_INCLUDE_DIRS}
 )
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
+
+# Test executable that starts the HTTP server and exercises endpoints
+add_executable(test_server
+        tests/test_server.cpp
+)
+target_link_libraries(test_server PRIVATE
+        GTest::gtest_main
+        Threads::Threads
+        libevent::core
+        libevent::pthreads
+        libevent::extra
+)
+target_include_directories(test_server PRIVATE
+        Analyzer/Core
+)
+add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
+
 
 install(TARGETS Analyzer
         RUNTIME DESTINATION bin

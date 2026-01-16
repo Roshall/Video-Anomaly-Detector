@@ -62,7 +62,11 @@ const size_t& byte_track::STrack::getTrackletLength() const
     return tracklet_len_;
 }
 
-void byte_track::STrack::activate(const size_t& frame_id, const size_t& track_id)
+const uint64_t byte_track::STrack::getFrameDuration() const {
+    return frame_ms_ - start_frame_ms_;
+}
+
+void byte_track::STrack::activate(const size_t frame_id, const uint64_t frame_ms, const size_t track_id)
 {
     kalman_filter_.initiate(mean_, covariance_, rect_.getXyah());
 
@@ -76,10 +80,12 @@ void byte_track::STrack::activate(const size_t& frame_id, const size_t& track_id
     track_id_ = track_id;
     frame_id_ = frame_id;
     start_frame_id_ = frame_id;
+    start_frame_ms_ = frame_ms;
+    frame_ms_ = frame_ms;
     tracklet_len_ = 0;
 }
 
-void byte_track::STrack::reActivate(const STrack &new_track, const size_t &frame_id, const int &new_track_id)
+void byte_track::STrack::reActivate(const STrack &new_track, const size_t frame_id, const uint64_t frame_ms, const int new_track_id)
 {
     kalman_filter_.update(mean_, covariance_, new_track.getRect().getXyah());
 
@@ -93,6 +99,7 @@ void byte_track::STrack::reActivate(const STrack &new_track, const size_t &frame
         track_id_ = new_track_id;
     }
     frame_id_ = frame_id;
+    frame_ms_ = frame_ms;
     tracklet_len_ = 0;
     idx_ = new_track.idx_;
 }
@@ -107,7 +114,7 @@ void byte_track::STrack::predict()
     updateRect();
 }
 
-void byte_track::STrack::update(const STrack &new_track, const size_t &frame_id)
+void byte_track::STrack::update(const STrack &new_track, const size_t frame_id, const uint64_t frame_ms)
 {
     kalman_filter_.update(mean_, covariance_, new_track.getRect().getXyah());
 
@@ -119,6 +126,7 @@ void byte_track::STrack::update(const STrack &new_track, const size_t &frame_id)
     frame_id_ = frame_id;
     idx_ = new_track.idx_;
     tracklet_len_++;
+    frame_ms_ = frame_ms;
 }
 
 void byte_track::STrack::markAsLost()

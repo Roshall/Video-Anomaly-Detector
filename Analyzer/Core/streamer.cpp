@@ -3,6 +3,7 @@
 //
 
 #include "streamer.h"
+#include <libavutil/frame.h>
 
 
 namespace avs_analyzer{

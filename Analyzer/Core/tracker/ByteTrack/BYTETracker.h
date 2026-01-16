@@ -26,7 +26,7 @@ public:
                 float match_thresh = 0.8);
     ~BYTETracker();
 
-    std::vector<byte_track::STrackPtr> update(const std::vector<Object>& objects);
+    std::vector<byte_track::STrackPtr> update(const std::vector<Object>& objects, uint64_t frame_ms = 0);
 
 private:
     static std::vector<STrackPtr> jointStracks(const std::vector<STrackPtr> &a_tlist,
