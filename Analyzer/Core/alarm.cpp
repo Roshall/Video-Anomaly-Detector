@@ -15,14 +15,14 @@ namespace avs_analyzer {
 
 Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
              std::string controlCode, std::unique_ptr<Event> event, int width,
-             int height, int fps, int64_t id)
+             int height, int64_t id, int fps)
     : start_ts(happenTimestamp),
       control_code(std::move(controlCode)),
       event(std::move(event)),
       width(width),
       height(height),
-      fps(fps),
-      id(id) {}
+      id(id),
+      fps(fps) {}
 
 void Alarm::Finalize(const std::string& upload_dir,
                      const std::string& admin_host) const {

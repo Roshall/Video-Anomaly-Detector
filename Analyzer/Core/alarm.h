@@ -12,7 +12,7 @@ struct Alarm {
   Alarm() = delete;
   Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
         std::string controlCode, std::unique_ptr<Event> event, int width,
-        int height, int fps = 25, int64_t id = 0);
+        int height, int64_t id = 0, int fps = 25);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
