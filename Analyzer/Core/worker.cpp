@@ -443,7 +443,8 @@ void Worker::AlarmImage(const std::string& monitor_code,
   if (!push) {
     return;
   }
-
+  LOGI("检测到异常，发送报警图片到后台视频管理平台，摄像头： {}，监控点：{}，警报id： {}， 等级：{}",
+       video_code_, monitor_code, alarm_id_counter_, level);
   const auto event_timestamp = timer_.compute(event_pts);
   g_th_pool.detach_task([conf = scheduler->GetConfig(),
     video_code = video_code_, alarm_id = alarm_id_counter_,
