@@ -54,7 +54,7 @@ std::vector<Task> Worker::GetMonitorTasks() const {
 
 Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
                const EventDetectorConfig& event_cfg, bool file)
-  : scheduler(scheduler), file_{file} {
+  : scheduler(scheduler), file_{file}, alarm_id_counter_(getCurTimestamp()) {
   AddMonitor(std::move(monitor), event_cfg);
 }
 

@@ -114,7 +114,9 @@ class Worker {
   // Set a monitor's current highest level (thread-safe)
   void SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level);
   int64_t GenerateAlarmId() {
-    return ++alarm_id_counter_;
+    auto res = alarm_id_counter_;
+    alarm_id_counter_ = getCurTimestamp();
+    return res;
   }
   int64_t AlarmIdCounter() const {
     return alarm_id_counter_;
