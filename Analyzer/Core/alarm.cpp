@@ -8,19 +8,21 @@
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "frame_recorder.h"
+#include "jpeg_encoder.h"
 #include "frame_walk_time.h"
 
 namespace avs_analyzer {
 
 Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
-             std::string controlCode, std::unique_ptr<Event> event,
-             int width, int height, int fps)
+             std::string controlCode, std::unique_ptr<Event> event, int width,
+             int height, int fps, int64_t id)
     : start_ts(happenTimestamp),
       control_code(std::move(controlCode)),
       event(std::move(event)),
       width(width),
       height(height),
-      fps(fps) {}
+      fps(fps),
+      id(id) {}
 
 void Alarm::Finalize(const std::string& upload_dir,
                      const std::string& admin_host) const {
@@ -40,18 +42,41 @@ void Alarm::Finalize(const std::string& upload_dir,
     }
   }
   prefix_dir /= std::to_string(event->frames[0]->data->best_effort_timestamp) + ".ts";
-  std::string path = prefix_dir.c_str();
-  if (!recorder.Initialize(path, true)) {
+  std::string video_path = prefix_dir.string();
+  if (!recorder.Initialize(video_path, true)) {
     std::cout << "genAlarm can not initialize recorder_ error" << std::endl;
+  }
+
+  // save first frame as JPEG next to the video (same name, .jpg extension)
+  if (event && !event->frames.empty() && event->frames[0] && event->frames[0]->data) {
+    try {
+      std::filesystem::path image_path = prefix_dir;
+      image_path.replace_extension(".jpg");
+      std::string image_path_str = image_path.string();
+      avs_analyzer::JPEGEncoder encoder(width, height);
+      if (int r = encoder.saveFrame(event->frames[0]->data.get(), image_path_str); r < 0) {
+        std::cout << "genAlarm failed to save first frame to jpg, error: " << r << std::endl;
+      } else {
+        LOGI("Saved first frame to {}", image_path_str);
+      }
+    } catch (const std::exception &e) {
+      std::cout << "genAlarm save image error:" << e.what() << std::endl;
+    }
+  } else {
+    std::cout << "genAlarm has no frames to save image" << std::endl;
   }
 
   // report saved video
   if (!admin_host.empty()) {
     std::string url = std::format("{}/api/postAddAlarmVideo", admin_host );
     Json::Value param;
-    param["video_id"] = control_code;
-    param["desc"] = "";
-    param["video_path"] = path;
+    param["video_code"] = control_code;
+    param["alarm_id"] = std::to_string(id);
+    param["video_path"] = video_path;
+    // add image_path if exists
+    std::filesystem::path image_check = prefix_dir;
+    image_check.replace_extension(".jpg");
+    param["image_path"] = image_check.string();
     param["create_time"] =   start_time;
 
     std::string data = param.toStyledString();

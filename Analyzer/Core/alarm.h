@@ -1,5 +1,6 @@
 ﻿#ifndef ANALYZER_GENERATEALARMVIDEO_H
 #define ANALYZER_GENERATEALARMVIDEO_H
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -11,7 +12,7 @@ struct Alarm {
   Alarm() = delete;
   Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
         std::string controlCode, std::unique_ptr<Event> event, int width,
-        int height, int fps = 25);
+        int height, int fps = 25, int64_t id = 0);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
@@ -25,6 +26,7 @@ struct Alarm {
   std::string control_code;
   std::unique_ptr<Event> event;
   int width, height, fps;
+  int64_t id;
 };
 
 }  // namespace avs_analyzer

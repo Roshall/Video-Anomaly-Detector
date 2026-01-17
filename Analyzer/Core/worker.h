@@ -3,6 +3,7 @@
 
 #include <opencv2/core/hal/interface.h>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -112,6 +113,12 @@ class Worker {
 
   // Set a monitor's current highest level (thread-safe)
   void SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level);
+  int64_t GenerateAlarmId() {
+    return ++alarm_id_counter_;
+  }
+  int64_t AlarmIdCounter() const {
+    return alarm_id_counter_;
+  }
 
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
@@ -138,11 +145,11 @@ class Worker {
   mutable std::mutex annotator_mutex_;
   uint64_t id_{NextId()};
   std::unique_ptr<FormatConvertor> convertor_;
+  int64_t alarm_id_counter_{0};
 
   bool GrabFrame(AVFrame* frame) const;
-  void AlarmImage(const std::string& monitor_code, int64_t start_pts,
-                  int64_t event_pts, const Frame& frame,
-                  std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
+  void AlarmImage(const std::string& monitor_code,
+                  int64_t event_pts, std::string_view level,
                   bool push) noexcept;
   bool NeedPushStream() const;
 };

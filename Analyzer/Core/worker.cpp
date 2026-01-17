@@ -392,8 +392,8 @@ void Worker::OfflineAnalyze() {
           case EventDetector::kEventStart:
             if (annotated_frame) {
               rt->current_highest_level = level_idx;;
-              AlarmImage(rt->monitor->code, rt->detector->start_ts(),
-                        rt->detector->timestamp(), *annotated_frame, pict_writer,
+              AlarmImage(rt->monitor->code,
+                        rt->detector->timestamp(),
                         rt->monitor->levels.second[level_idx], false);
             }
             break;
@@ -437,65 +437,33 @@ void Worker::OfflineAnalyze() {
   }
 }
 
-void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
-                        int64_t event_pts, const Frame& frame,
-                        std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
+void Worker::AlarmImage(const std::string& monitor_code,
+                        int64_t event_pts, std::string_view level,
                         bool push) noexcept {
-  if (!frame.data) {
-    LOGW("AlarmImage skipped for monitor {}: missing frame data",
-         monitor_code);
+  if (!push) {
     return;
   }
 
   const auto event_timestamp = timer_.compute(event_pts);
-  const auto start_timestamp = timer_.compute(start_pts);
+  g_th_pool.detach_task([conf = scheduler->GetConfig(),
+    video_code = video_code_, alarm_id = alarm_id_counter_,
+        event_timestamp = event_timestamp,
+        code = monitor_code,
+        level = std::string(level)]() mutable {
 
-  AVFramePtr frame_clone{av_frame_clone(frame.data.get())};
-  if (!frame_clone) {
-    LOGE("AlarmImage failed to clone frame for monitor {}", monitor_code);
-    return;
-  }
-  frame_clone->best_effort_timestamp = frame.data->best_effort_timestamp;
-  frame_clone->pts = frame.data->pts;
-  frame_clone->time_base = frame.data->time_base;
-
-  auto async_frame = std::make_unique<Frame>();
-  async_frame->timestamp = frame.timestamp;
-  async_frame->object_count = frame.object_count;
-  async_frame->data = std::move(frame_clone);
-
-  g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
-        code = monitor_code, start_timestamp, event_timestamp,
-        level = std::string(level), push,
-        frame = std::move(async_frame)]() mutable {
-        auto img_path =
-            std::format("{}/alarm/{}/{}", conf.upload_dir, code,
-                        FrameWallClock::to_iso8601_utc(start_timestamp));
-        std::filesystem::create_directories(std::filesystem::path(img_path));
-        auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
-        auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
-          if (const int ret = pict_writer->saveFrame(
-            frame->data.get(), img_path_str);
-          ret < 0) {
-          LOGE_FFMPEG("failed to save picture", ret);
-          return;
-        }
-
-        if (push) {
           const std::string url =
               std::format("{}/api/postAddAlarm", conf.admin_host);
           Json::Value param;
           param["control_code"] = code;
-          param["desc"] = "";
-          param["img_path"] = img_path_str;
-          param["create_time"] = time_str;
+          param["video_code"] = video_code;
+          param["alarm_id"] = std::to_string(alarm_id);
+          param["create_time"] = FrameWallClock::to_iso8601_utc(event_timestamp);
           param["level"] = level;
 
           const std::string data = param.toStyledString();
           std::string response;
           Request::post(url.data(), data.data(), response);
           LOGI("sent alarm image to {}", conf.admin_host);
-        }
       });
 }
 
@@ -749,8 +717,7 @@ void Worker::DetectEvent() {
             // Update the highest level in context
             SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
             AlarmImage(snapshot.monitor_code,
-                       snapshot.start_pts, snapshot.timestamp,
-                       *annotated_frame, pict_writer,
+                       snapshot.timestamp,
                        snapshot.levels.second[level_idx], true);
           }
           break;
@@ -777,7 +744,7 @@ void Worker::DetectEvent() {
       if (auto& event_ptr = combined_result.flushed_event.value()) {
         scheduler->AddAlarm(std::make_unique<Alarm>(
             timer_.compute(event_ptr->start_timestamp), video_code_,
-            std::move(event_ptr), out_width, out_height));
+            std::move(event_ptr), out_width, out_height, GenerateAlarmId()));
       }
     }
 
@@ -802,7 +769,7 @@ void Worker::DetectEvent() {
     }
     scheduler->AddAlarm(std::make_unique<Alarm>(
         timer_.compute(event_ptr->start_timestamp), video_code_,
-        std::move(event_ptr), out_width, out_height));
+        std::move(event_ptr), out_width, out_height, GenerateAlarmId()));
   }
 }
 
