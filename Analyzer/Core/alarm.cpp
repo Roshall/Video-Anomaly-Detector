@@ -21,8 +21,8 @@ Alarm::Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
       event(std::move(event)),
       width(width),
       height(height),
-      id(id),
-      fps(fps) {}
+      fps(fps),
+      id(id) {}
 
 void Alarm::Finalize(const std::string& upload_dir,
                      const std::string& admin_host) const {
