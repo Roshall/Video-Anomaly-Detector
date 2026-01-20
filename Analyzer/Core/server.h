@@ -2,6 +2,8 @@
 #define ANALYZER_SERVER_H
 #include <event2/http.h>
 
+#include <thread>
+
 #include "Utils/file_server_cb.h"
 #include "scheduler.h"
 
@@ -19,5 +21,6 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg);
 void ParseGetRequest(const evhttp_request* req, evkeyvalq* params);
 void ParsePostRequest(const evhttp_request* req, char* buff);
 void ApiSnapShot(evhttp_request* req, void*);
+void alarm_sound_cv(evhttp_request* req, void* arg);
 
 #endif  // ANALYZER_SERVER_H

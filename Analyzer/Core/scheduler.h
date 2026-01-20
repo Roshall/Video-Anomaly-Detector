@@ -16,6 +16,8 @@
 
 using namespace moodycamel;
 
+class AlarmController;
+
 namespace avs_analyzer {
 extern BS::thread_pool<0> g_th_pool;
 
@@ -40,6 +42,9 @@ class Scheduler {
   bool GetState() const;
 
   void AddAlarm(std::unique_ptr<Alarm> alarm);
+
+  AlarmController* GetAlarmController() noexcept { return alarm_controller_.get(); }
+  const AlarmController* GetAlarmController() const noexcept { return alarm_controller_.get(); }
 
   // ApiServer 对应的函数 start
   std::vector<Monitor> GetAllMonitors();
@@ -67,6 +72,8 @@ class Scheduler {
  private:
   Config& config_;
   std::atomic<bool> state_{false};
+
+  std::unique_ptr<AlarmController> alarm_controller_;
 
   bool ContainsMonitor(const Monitor* monitor);
   size_t GetWorkerSize();

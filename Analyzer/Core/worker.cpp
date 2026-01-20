@@ -18,6 +18,7 @@
 #include "Utils/log.h"
 #include "Utils/request.h"
 #include "alarm.h"
+#include "alarm_sound.h"
 #include "analyzer.h"
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
@@ -717,6 +718,10 @@ void Worker::DetectEvent() {
           if (annotated_frame) {
             // Update the highest level in context
             SetMonitorCurrentHighestLevel(snapshot.monitor_code, level_idx);
+            if (auto* alarm = scheduler->GetAlarmController()) {
+              alarm->trigger();
+              LOGD("Alarm sound triggered for monitor {}", snapshot.monitor_code);
+            }
             AlarmImage(snapshot.monitor_code,
                        snapshot.timestamp,
                        snapshot.levels.second[level_idx], true);

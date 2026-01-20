@@ -4,6 +4,7 @@
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <event2/keyvalq_struct.h>
 #include <json/json.h>
 #include <json/value.h>
 
@@ -15,6 +16,7 @@
 #include "Utils/common.h"
 #include "Utils/file_server_cb.h"
 #include "Utils/log.h"
+#include "alarm_sound.h"
 #include "config.h"
 #include "event.h"
 #include "monitor.h"
@@ -50,6 +52,7 @@ std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
     evhttp_set_cb(http, "/video", file_route_cb, &file_route_opt);
+    evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
 
     evhttp_bind_socket(http, "0.0.0.0", port);
     event_base_dispatch(event_base_p);
@@ -621,4 +624,41 @@ void ParsePostRequest(const evhttp_request* req, char* buff) {
   memcpy(buff, evbuffer_pullup(req->input_buffer, -1), copy_len);
   buff[post_size] = '\0';
   //        printf("====line:%d,post msg:%s\n",__LINE__,buf);
+}
+void alarm_sound_cv(evhttp_request* req, void* arg) {
+  auto* alarm_ptr = static_cast<AlarmController*>(arg);
+  if (!alarm_ptr) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({\"msg\":\"alarm sound is not configured\"})");
+    return;
+  }
+
+  // Parse GET query
+  evkeyvalq params{};
+  ParseGetRequest(req, &params);
+  const char* method = evhttp_find_header(&params, "method");
+  if (!method) {
+    evhttp_clear_headers(&params);
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"missing parameter 'method'"})");
+    return;
+  }
+
+  // Dispatch
+  const std::string m(method);
+  if (m == "stop") {
+    alarm_ptr->stop();
+    evhttp_clear_headers(&params);
+    evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
+    LOGD("alarm api: Alarm sound stopped.");
+    return;
+  } else if (m == "start") {
+    alarm_ptr->trigger();
+    evhttp_clear_headers(&params);
+    evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
+    LOGD("alarm api: Alarm sound started.");
+    return;
+  } else {
+    evhttp_clear_headers(&params);
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"wrong method"})");
+    return;
+  }
 }

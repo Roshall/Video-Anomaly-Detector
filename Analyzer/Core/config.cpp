@@ -36,6 +36,13 @@ Config::Config(const char* file) {
       log_level = root["logLevel"].asCString();
       thread_pool_size = root["threadPoolSize"].asInt();
       file_cache_timeout = root["fileCacheTimeout"].asUInt();
+
+      if (root.isMember("alarmSoundPath") && root["alarmSoundPath"].isString()) {
+        alarm_sound_path = root["alarmSoundPath"].asString();
+      }
+      if (root.isMember("alarmSoundCooldownSec")) {
+        alarm_sound_cooldown_sec = root["alarmSoundCooldownSec"].asInt();
+      }
     } catch (const Json::Exception& e) {
       LOGE("Json parse error:{}", e.what());
       return;
@@ -43,6 +50,7 @@ Config::Config(const char* file) {
 
     // 0: use all core
     thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
+    alarm_sound_cooldown_sec = std::max(0, alarm_sound_cooldown_sec);
 
     std::filesystem::path path(upload_dir);
     try {
@@ -75,6 +83,8 @@ void Config::Show() {
          "Model Directory    : %s\n"
          "Use Accelerator    : %s\n"
          "Log Level          : %s\n"
+         "Alarm Sound Path   : %s\n"
+         "Alarm Cooldown Sec : %d\n"
          "----------------------\n",
          state ? "true" : "false",
          thread_pool_size,
@@ -86,6 +96,8 @@ void Config::Show() {
          upload_dir.data(),
          model_dir.data(),
          use_accelerator ? "true" : "false",
-         log_level.c_str());
+         log_level.c_str(),
+         alarm_sound_path.c_str(),
+         alarm_sound_cooldown_sec);
 }
 }  // namespace avs_analyzer

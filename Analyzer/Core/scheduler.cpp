@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "alarm.h"
+#include "alarm_sound.h"
 #include "analyzer.h"
 #include "config.h"
 #include "detector/constant_yolo.h"
@@ -16,7 +17,18 @@
 namespace avs_analyzer {
 BS::thread_pool<> g_th_pool{3};
 
-Scheduler::Scheduler(Config& config) : config_(config), detector_pool_(config.model_dir, config.use_accelerator) {}
+Scheduler::Scheduler(Config& config)
+    : config_(config), detector_pool_(config.model_dir, config.use_accelerator) {
+  if (!config_.alarm_sound_path.empty()) {
+    try {
+      alarm_controller_ = std::make_unique<AlarmController>(
+          config_.alarm_sound_path, config_.alarm_sound_cooldown_sec);
+    } catch (const std::exception& e) {
+      LOGE("failed to init AlarmController: {}", e.what());
+      alarm_controller_.reset();
+    }
+  }
+}
 
 Scheduler::~Scheduler() = default;
 
