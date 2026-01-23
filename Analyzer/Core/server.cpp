@@ -8,6 +8,7 @@
 #include <json/json.h>
 #include <json/value.h>
 
+#include <format>
 #include <numeric>
 #include <sstream>
 #include <thread>
@@ -159,7 +160,23 @@ void send_json(evhttp_request* req, int code, const std::string& json) {
     evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
     return;
   }
-  LOGI("sending http code: {}, json: {}", code, json);
+  bool log_json = true;
+  {
+    Json::Value root;
+    Json::CharReaderBuilder builder;
+    const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+    JSONCPP_STRING errs;
+    if (reader->parse(json.data(), json.data() + json.size(), &root, &errs) && errs.empty()) {
+      if (root.isObject() && root.isMember("mime")) {
+        log_json = false;
+      }
+    }
+  }
+  if (log_json) {
+    LOGI("sending http code: {}, json: {}", code, json);
+  } else {
+    LOGI("sending http code: {}, json with mime data", code);
+  }
   evbuffer_add(out, json.data(), json.size());
   evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type", "application/json; charset=utf-8");
   // (Optional) CORS
@@ -233,6 +250,20 @@ void ApiSnapShot(evhttp_request* req, void*) {
       send_json(req, HTTP_SERVUNAVAIL, R"({"error":"JPEG encode failed"})");
       return;
     }
+    // Get codec (FOURCC) and resolution
+    int fourcc = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
+    char codec_c[5] = {0};
+    codec_c[0] = static_cast<char>(fourcc & 0xFF);
+    codec_c[1] = static_cast<char>((fourcc >> 8) & 0xFF);
+    codec_c[2] = static_cast<char>((fourcc >> 16) & 0xFF);
+    codec_c[3] = static_cast<char>((fourcc >> 24) & 0xFF);
+    std::string codec = codec_c;
+    if (codec.empty() || codec.find_first_not_of("\0 ") == std::string::npos) {
+      codec = "unknown";
+    }
+
+    // Get resolution
+    std::string resolution = std::format("{}x{}", frame.cols, frame.rows);
 
     // Base64 encode (cpp-base64: base64_encode(unsigned char const*, unsigned int, bool url=false))
     const std::string b64 = base64_encode(jpeg.data(),
@@ -243,6 +274,8 @@ void ApiSnapShot(evhttp_request* req, void*) {
     Json::Value json;
     json["mime"] = "image/jpeg";
     json["data"] = b64;
+    json["codec"] = codec;
+    json["resolution"] = resolution;
 
     send_json(req, HTTP_OK, json.toStyledString());
     LOGI("receive request for snapshot: {}. Successfully sent.", path);
