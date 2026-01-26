@@ -5,7 +5,6 @@
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
-#include <nlohmann/json.hpp>
 
 #include <format>
 #include <charconv>
@@ -163,19 +162,8 @@ void send_json(evhttp_request* req, int code, const std::string& json) {
     evhttp_send_error(req, HTTP_SERVUNAVAIL, "No buffer");
     return;
   }
-  bool log_json = true;
-  {
-    Json::Value root;
-    Json::CharReaderBuilder builder;
-    const std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
-    JSONCPP_STRING errs;
-    if (reader->parse(json.data(), json.data() + json.size(), &root, &errs) && errs.empty()) {
-      if (root.isObject() && root.isMember("mime")) {
-        log_json = false;
-      }
-    }
-  }
-  if (log_json) {
+  auto parsed = nlohmann::json::parse(json, nullptr, false);
+  if (parsed.is_object() && parsed.contains("mime")) {
     LOGI("sending http code: {}, json: {}", code, json);
   } else {
     LOGI("sending http code: {}, json with mime data", code);
