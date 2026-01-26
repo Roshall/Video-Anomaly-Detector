@@ -65,6 +65,10 @@ class Worker {
   }
   void CleanUpPushThread(bool detach=false);
 
+  // Notify admin stream start/end state transitions
+  void NotifyAdminStreamEvent(std::string_view state);
+  std::atomic<bool> admin_stream_active_notified_{false};
+
   Scheduler* scheduler;
   std::unique_ptr<AvPullStream> in_stream{};
   // Push stream is accessed concurrently by decode thread, encoder thread,
@@ -121,7 +125,13 @@ class Worker {
   int64_t AlarmIdCounter() const {
     return alarm_id_counter_;
   }
-
+  bool GrabFrame(AVFrame* frame) const;
+  void AlarmImage(const std::string& monitor_code, int64_t start_pts,
+                  int64_t event_pts, const Frame& frame,
+                  std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
+                  bool push) noexcept;
+  bool NeedPushStream() const;
+  
   std::string video_code_;
   VideoContext video_context_{.format= AV_PIX_FMT_NONE, .width=0, .height=0, .video_index=-1};
   // Fast-path atomics for hot getters used by pull/push stream loops.
@@ -149,11 +159,9 @@ class Worker {
   std::unique_ptr<FormatConvertor> convertor_;
   int64_t alarm_id_counter_{0};
 
-  bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code,
                   int64_t event_pts, std::string_view level,
                   bool push) noexcept;
-  bool NeedPushStream() const;
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_WORKER_H

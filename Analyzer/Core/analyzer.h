@@ -21,11 +21,11 @@ struct Detection;
 class Analyzer {
  public:
   Analyzer(Monitor* monitor, const Config& config);
-  ~Analyzer();
+  virtual ~Analyzer();
 
   using ImagePtr = DetectorPool::ImagePtr;
   void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image);
-  [[nodiscard]] std::vector<cv::Rect> RetrieveDetection() const;
+  [[nodiscard]] virtual std::vector<cv::Rect> RetrieveDetection() const = 0;
   void SetNextFrameTimestamp(uint64_t ts) {
     frame_ts_ms_.store(ts, std::memory_order_release);
   }
@@ -41,7 +41,7 @@ class Analyzer {
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
-  void SetROIs(const std::vector<std::vector<cv::Point>>& polygons);
+  virtual void SetROIs(const std::vector<std::vector<cv::Point>>& polygons) = 0;
   uint64_t WantsFrame() const {
     return frame_ts_ms_.load(std::memory_order_acquire);
   }
@@ -51,6 +51,10 @@ class Analyzer {
     algorithm_->PushResult({{}, 0}, std::numeric_limits<uint64_t>::max());
   }
 
+ protected:
+  [[nodiscard]] Detection FetchRawDetection() const;
+  [[nodiscard]] float conf_threshold() const { return conf_th_; }
+
  private:
   static uint64_t NextId();
 
@@ -59,16 +63,9 @@ class Analyzer {
   Task task_;
   std::unique_ptr<Algorithm> algorithm_;
   float conf_th_;
-  // Single ROI (used by most tasks)
-  double roi_area_{};
-  cv::Rect roi_bbox_{};
-  std::vector<cv::Point> roi_points_{};
-
-  // Multi-ROI (used by some tasks like kBunkOff)
-  std::vector<std::vector<cv::Point>> roi_polygons_{};
-  std::vector<double> roi_areas_{};
-  std::vector<cv::Rect> roi_bboxes_{};
   DetectorPool::AddTaskFunc add_task_callback_;
 };
+
+std::unique_ptr<Analyzer> CreateAnalyzer(Monitor* monitor, const Config& config);
 }  // namespace avs_analyzer
 #endif  // ANALYZER_ANALYZER_H

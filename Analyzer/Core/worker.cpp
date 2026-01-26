@@ -1,6 +1,6 @@
 ﻿#include "worker.h"
 
-#include <json/value.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <exception>
@@ -122,8 +122,7 @@ void Worker::AddMonitorsBatch(std::vector<std::pair<std::unique_ptr<Monitor>, Ev
 
       auto ctx = std::make_unique<MonitorContext>();
       ctx->event_cfg = event_cfg;
-      ctx->analyzer = std::make_unique<Analyzer>(
-          monitor.get(), scheduler->GetConfig());
+        ctx->analyzer = CreateAnalyzer(monitor.get(), scheduler->GetConfig());
       ctx->analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx->analyzer));
       try {
         ctx->detector = std::make_unique<EventDetector>(
@@ -425,7 +424,7 @@ void Worker::OfflineAnalyze() {
   for (auto& rt : monitors_) {
     if (!rt->monitor) continue;
     const std::string url =
-        std::format("{}/api/offline/finished?code={}",
+        std::format("{}/api/offline/finished?controlCode={}",
                     scheduler->GetConfig().admin_host, rt->monitor->code);
     std::string res;
     Request::get(url.c_str(), res);
@@ -455,14 +454,14 @@ void Worker::AlarmImage(const std::string& monitor_code,
 
           const std::string url =
               std::format("{}/api/postAddAlarm", conf.admin_host);
-          Json::Value param;
+          nlohmann::json param;
           param["control_code"] = code;
           param["video_code"] = video_code;
           param["alarm_id"] = std::to_string(alarm_id);
           param["create_time"] = FrameWallClock::to_iso8601_utc(event_timestamp);
           param["level"] = level;
 
-          const std::string data = param.toStyledString();
+          const std::string data = param.dump();
           std::string response;
           Request::post(url.data(), data.data(), response);
           LOGI("sent alarm image to {}", conf.admin_host);
@@ -531,7 +530,19 @@ void Worker::EnsureAnnotatorReady() {
   std::unique_ptr<DynamicAnnotator> candidate;
   try {
     candidate = std::make_unique<DynamicAnnotator>();
-    if (const int ret = candidate->init(video_ctx_copy); ret < 0) {
+
+    DynamicAnnotator::LegendConfig legend_cfg;
+    if (scheduler) {
+      const auto& conf = scheduler->GetConfig();
+      if (!conf.font_path.empty()) {
+        legend_cfg.font_path = conf.font_path;
+      }
+      if (!conf.legend_position.empty()) {
+        legend_cfg.SetLocation(conf.legend_position);
+      }
+    }
+
+    if (const int ret = candidate->init(video_ctx_copy, legend_cfg); ret < 0) {
       LOGE("Failed to initialize worker annotator ({}x{}, fmt={}): {}",
           video_ctx_copy.width, video_ctx_copy.height,
           static_cast<int>(video_ctx_copy.format), ret);
@@ -699,6 +710,20 @@ void Worker::DetectEvent() {
       }
     }
 
+    // Notify admin for combined event edges (start / end).
+    if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameActive) {
+      if (!admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(true, std::memory_order_release);
+        NotifyAdminStreamEvent("start");
+      }
+    }
+    if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
+      if (admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(false, std::memory_order_release);
+        NotifyAdminStreamEvent("end");
+      }
+    }
+
     Frame* annotated_frame = combined_result.annotated_frame.get();
 
     // Process alarms using snapshots
@@ -766,7 +791,13 @@ void Worker::DetectEvent() {
   {
     std::lock_guard lock(event_manager_mutex_);
     if (event_manager_) {
+      bool had_active = event_manager_->HasActiveEvent();
       tail_events = event_manager_->FlushPending();
+      // If we were previously active, ensure admin is notified about stream end on flush.
+      if (had_active && admin_stream_active_notified_.load(std::memory_order_acquire)) {
+        admin_stream_active_notified_.store(false, std::memory_order_release);
+        NotifyAdminStreamEvent("end");
+      }
     }
   }
   for (auto& event_ptr : tail_events) {
@@ -904,8 +935,7 @@ void Worker::EnsureAllPipelinesReady() {
     PrepareMonitorForStream(ctx);
     if (!ctx.analyzer) {
       try {
-        ctx.analyzer = std::make_unique<Analyzer>(ctx.monitor.get(),
-                                                  scheduler->GetConfig());
+        ctx.analyzer = CreateAnalyzer(ctx.monitor.get(), scheduler->GetConfig());
         ctx.analyzer->SetAddTaskCallback(scheduler->RegisterAnalyzerCallback(*ctx.analyzer));
         
       } catch (const std::exception& ex) {
@@ -935,6 +965,22 @@ void Worker::SetMonitorCurrentHighestLevel(std::string_view monitor_code, int le
       break;
     }
   }
+}
+
+void Worker::NotifyAdminStreamEvent(std::string_view state) {
+  if (!scheduler) return;
+  const auto& conf = scheduler->GetConfig();
+  if (conf.admin_host.empty() || video_code_.empty()) {
+    return;
+  }
+  const std::string url = std::format("{}/api/stream_event?state={}&streamCode={}",
+                                      conf.admin_host, state, video_code_);
+  // Fire-and-forget async request to avoid blocking the DetectEvent loop.
+  g_th_pool.detach_task([url]() {
+    std::string response;
+    Request::get(url.c_str(), response);
+    LOGI("sent stream event to {}, response: {}", url, response);
+  });
 }
 
 void Worker::StartPushThreadIfNeeded() {

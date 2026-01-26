@@ -2,8 +2,7 @@
 #define ANALYZER_MONITOR_H
 
 #include <cctype>
-#include <json/json.h>
-#include <memory>
+#include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
@@ -88,23 +87,24 @@ struct Monitor {
           // Detect JSON array input.
           const std::string trimmed = trim_ws(roi_str);
           if (!trimmed.empty() && trimmed.front() == '[') {
-            Json::CharReaderBuilder builder;
-            builder["collectComments"] = false;
-            std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
-            Json::Value root;
-            std::string errs;
-            const bool ok = reader->parse(trimmed.data(), trimmed.data() + trimmed.size(), &root, &errs);
-            if (!ok || !root.isArray()) {
-              LOGE("ParseRecognitionRegion: invalid JSON array for kBunkOff: {}\nroi_str: {}", errs, roi_str);
+            nlohmann::json root;
+            try {
+              root = nlohmann::json::parse(trimmed);
+            } catch (const std::exception& e) {
+              LOGE("ParseRecognitionRegion: invalid JSON array for kBunkOff: {}\nroi_str: {}", e.what(), roi_str);
+              return false;
+            }
+            if (!root.is_array()) {
+              LOGE("ParseRecognitionRegion: invalid JSON array for kBunkOff\nroi_str: {}", roi_str);
               return false;
             }
             for (const auto& item : root) {
-              if (!item.isString()) {
+              if (!item.is_string()) {
                 LOGE("ParseRecognitionRegion: non-string polygon entry for kBunkOff\nroi_str: {}", roi_str);
                 return false;
               }
               std::vector<cv::Point> poly;
-              if (!parse_one_polygon(item.asString(), poly)) {
+              if (!parse_one_polygon(item.get<std::string>(), poly)) {
                 LOGE("ParseRecognitionRegion: invalid polygon entry for kBunkOff\nroi_str: {}", roi_str);
                 return false;
               }

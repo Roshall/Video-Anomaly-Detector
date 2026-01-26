@@ -66,6 +66,11 @@ int DynamicAnnotator::init(const VideoContext& video_ctx,
     }
   }
 
+// Load the font into the stored FontManager so subsequent legend ops can reuse it
+  if (!font_manager_.load_font(legend_config_.font_path, legend_config_.font_size)) {
+    LOGW("DynamicAnnotator::init - failed to load legend font: {}", legend_config_.font_path);
+  }
+
   // Ensure the legend overlay and filter graph are initialized once using the
   // entire Task enumeration. This will pre-allocate a YUVA frame and build a
   // single overlay filter graph that will be reused and never recreated.
@@ -95,8 +100,9 @@ bool DynamicAnnotator::ensure_legend_initialized() {
   }
 
   // Determine required legend size using accurate measurement
+  // Use the preloaded FreeType face for accurate measurement when available
   const auto [legend_width, legend_height] = estimate_legend_size_accurate(
-      legend_config_.font_path,
+      font_manager_.get_face(),
       legend_config_.font_size,
       legend_config_.handle_size,
       legend_config_.row_spacing,
@@ -158,7 +164,7 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
 
   // Get accurate legend size
   const auto [legend_width, legend_height] = estimate_legend_size_accurate(
-      legend_config_.font_path,
+      font_manager_.get_face(),
       legend_config_.font_size,
       legend_config_.handle_size,
       legend_config_.row_spacing,
@@ -188,10 +194,17 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
     }
     // Clear the buffer before re-drawing
     clear_legend_overlay();
+    // Ensure font is loaded; try to lazy-load if not
+    if (!font_manager_.is_valid()) {
+      if (!font_manager_.load_font(legend_config_.font_path, legend_config_.font_size)) {
+        LOGW("Legend font not available; skipping legend redraw");
+        return;
+      }
+    }
     // Draw legend in the buffer
     draw_legend_yuva420p(
         legend_overlay_frame_.get(),
-        legend_config_.font_path,
+        font_manager_,
         {legend_config_.legend_style.frame_padding, legend_config_.legend_style.frame_padding + legend_config_.font_size},
         legend_config_.font_size,
         legend_config_.handle_size,

@@ -93,9 +93,13 @@ int test_draw_legend_on_first_frame(const std::string& video_path,
       u8"未知",
     };
 
+    // Load font and draw legend using FontManager
+    avs_analyzer::FontManager fm;
+    if (!fm.load_font(font_path, 32)) throw std::runtime_error("Failed to load font in test: " + font_path);
+
     avs_analyzer::draw_legend_yuva420p(
         yuva,
-        font_path,
+        fm,
         {1640, 40},     // origin
         32,            // font px
         {28, 18},      // handle size

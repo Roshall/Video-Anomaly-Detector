@@ -46,12 +46,12 @@ else ()
     message(FATAL_ERROR "libevent not found")
 endif ()
 
-# Find jsoncpp
-find_package(jsoncpp CONFIG REQUIRED)
-if (jsoncpp_FOUND)
-    message(STATUS "jsoncpp found")
+# Find nlohmann_json
+find_package(nlohmann_json CONFIG REQUIRED)
+if (nlohmann_json_FOUND)
+        message(STATUS "nlohmann_json found")
 else ()
-    message(FATAL_ERROR "jsoncpp not found")
+        message(FATAL_ERROR "nlohmann_json not found")
 endif ()
 
 # Find lock free queues
@@ -243,7 +243,7 @@ add_executable(tracker_test
         Analyzer/Core/config.cpp
         tests/tracker_test.cpp
 )
-target_link_libraries(tracker_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect opencv_video opencv_videoio onnxruntime jsoncpp_lib)
+target_link_libraries(tracker_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect opencv_video opencv_videoio onnxruntime nlohmann_json::nlohmann_json)
 target_include_directories(tracker_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(tracker_test PRIVATE Analyzer/Core Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR})
 target_compile_definitions(tracker_test PRIVATE
@@ -275,16 +275,26 @@ add_executable(dynamic_annotator_test
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         tests/dynamic_annotator_test.cpp)
-target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE jsoncpp_lib)
+target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE nlohmann_json::nlohmann_json)
 target_include_directories(dynamic_annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
+# Unit tests for CombinedEventManager edge transitions
+add_executable(combined_event_manager_test
+        tests/combined_event_manager_test.cpp
+        tests/dynamic_annotator_stub.cpp
+        Analyzer/Core/combined_event_manager.cpp)
+target_link_libraries(combined_event_manager_test PRIVATE GTest::gtest_main PkgConfig::FFMPEG opencv_core opencv_imgproc)
+target_include_directories(combined_event_manager_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/video_processing)
+add_test(NAME combined_event_manager_test COMMAND $<TARGET_FILE:combined_event_manager_test>)
 
 set(source
         Analyzer/main.cpp
         Analyzer/Core/alarm.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/analyzer.cpp
+        Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/bunkoff_analyzer.cpp
         Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/av_pull_stream.cpp
         Analyzer/Core/av_push_stream.cpp
@@ -323,6 +333,7 @@ set(source
         Analyzer/Core/Utils/bas64.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/file_server_cb.h
+        Analyzer/Core/Utils/common.cpp
         Analyzer/Core/video_processing/painter_base.h
         Analyzer/Core/video_processing/painter_primitives.h
         Analyzer/Core/video_processing/painter_shapes.h
@@ -347,7 +358,7 @@ target_link_libraries(Analyzer PRIVATE
         libevent::core
         libevent::pthreads
         libevent::extra
-        jsoncpp_lib
+        nlohmann_json::nlohmann_json
         PkgConfig::FFMPEG
         PkgConfig::CURL
         onnxruntime

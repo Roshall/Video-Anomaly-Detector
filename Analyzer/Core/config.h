@@ -24,6 +24,9 @@ struct Config {
   std::string log_level{"info"};
   std::string alarm_sound_path{};
   int alarm_sound_cooldown_sec{10};
+  std::string font_path{"/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"};
+  std::string legend_position{"top-right"};
+  double bunkoff_overlap_ratio{0.3};
   // std::string video_file_name_format{};//%Y%m%d%H%M%S
 };
 }  // namespace avs_analyzer

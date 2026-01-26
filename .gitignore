@@ -4,3 +4,7 @@
 .cache/*
 .clang*
 *.json
+models/*
+*.log
+*.txt
+resources/*
