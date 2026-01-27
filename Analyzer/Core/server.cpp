@@ -353,28 +353,89 @@ void ApiProbeRtsp(evhttp_request* req, void* arg) {
     return;
   }
 
+  const size_t num_urls = root.size();
+  if (num_urls == 0) {
+    send_json(req, HTTP_OK, "[]");
+    return;
+  }
+
+  // Check if thread pool has capacity for concurrent probing
+  // Use concurrent mode only if:
+  // 1. Thread pool has available threads
+  // 2. Queue is not heavily loaded (tasks_queued < thread_count)
+  const size_t thread_count = g_th_pool.get_thread_count();
+  const size_t tasks_running = g_th_pool.get_tasks_running();
+  const size_t tasks_queued = g_th_pool.get_tasks_queued();
+  const bool use_concurrent = (tasks_running < thread_count) && (tasks_queued < thread_count);
+
   nlohmann::json result = nlohmann::json::array();
-  size_t idx = 0;
-  for (const auto& item : root) {
-    std::string name;
-    std::string url;
 
-    if (item.is_object()) {
-      name = item.value("name", "");
-      url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
+  if (use_concurrent) {
+    LOGD("rtsp probe: using concurrent mode for {} urls (pool: {}/{} threads, {} queued)", 
+         num_urls, tasks_running, thread_count, tasks_queued);
+
+    // Launch all probes concurrently using thread pool
+    std::vector<std::future<std::pair<std::string, int>>> futures;
+    futures.reserve(num_urls);
+
+    size_t idx = 0;
+    for (const auto& item : root) {
+      std::string name;
+      std::string url;
+
+      if (item.is_object()) {
+        name = item.value("name", "");
+        url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
+      }
+
+      if (name.empty()) {
+        name = std::format("stream-{}", idx);
+      }
+
+      // Submit probe task to thread pool
+      futures.push_back(g_th_pool.submit_task([name, url, timeout_ms]() {
+        const int code = probe_rtsp_url(url, timeout_ms);
+        return std::make_pair(name, code);
+      }));
+
+      ++idx;
     }
 
-    if (name.empty()) {
-      name = std::format("stream-{}", idx);
+    // Collect results in order
+    for (auto& fut : futures) {
+      auto [name, code] = fut.get();
+      nlohmann::json entry;
+      entry["name"] = name;
+      entry["code"] = code;
+      result.push_back(std::move(entry));
     }
+  } else {
+    LOGD("rtsp probe: using sequential mode for {} urls (pool busy: {}/{} threads, {} queued)", 
+         num_urls, tasks_running, thread_count, tasks_queued);
 
-    const int code = probe_rtsp_url(url, timeout_ms);
+    // Sequential probing when thread pool is busy
+    size_t idx = 0;
+    for (const auto& item : root) {
+      std::string name;
+      std::string url;
 
-    nlohmann::json entry;
-    entry["name"] = name;
-    entry["code"] = code;
-    result.push_back(std::move(entry));
-    ++idx;
+      if (item.is_object()) {
+        name = item.value("name", "");
+        url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
+      }
+
+      if (name.empty()) {
+        name = std::format("stream-{}", idx);
+      }
+
+      const int code = probe_rtsp_url(url, timeout_ms);
+
+      nlohmann::json entry;
+      entry["name"] = name;
+      entry["code"] = code;
+      result.push_back(std::move(entry));
+      ++idx;
+    }
   }
 
   send_json(req, HTTP_OK, result.dump());
