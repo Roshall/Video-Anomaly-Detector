@@ -97,6 +97,9 @@ Config::Config(const char* file) {
     file_cache_timeout = json_get_or<u_int32_t>(
         root, {"application", "fileCacheTimeout"},
         json_get_or<u_int32_t>(root, {"fileCacheTimeout"}, file_cache_timeout));
+    rtsp_probe_timeout_ms = json_get_or<int>(
+      root, {"application", "rtspProbeTimeoutMs"},
+      json_get_or<int>(root, {"rtspProbeTimeoutMs"}, rtsp_probe_timeout_ms));
 
     alarm_sound_path = json_get_or_string(
         root, {"alarm", "soundPath"},
@@ -121,6 +124,7 @@ Config::Config(const char* file) {
 
     // 0: use all core
     thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
+    rtsp_probe_timeout_ms = std::clamp(rtsp_probe_timeout_ms, 1000, 30000);
     alarm_sound_cooldown_sec = std::max(0, alarm_sound_cooldown_sec);
     bunkoff_overlap_ratio = std::clamp(bunkoff_overlap_ratio, 0.0, 1.0);
 
@@ -151,6 +155,7 @@ void Config::Show() {
          "Model Directory    : %s\n"
          "Use Accelerator    : %s\n"
          "Log Level          : %s\n"
+         "RTSP Probe Timeout : %d ms\n"
          "Alarm Sound Path   : %s\n"
          "Alarm Cooldown Sec : %d\n"
          "Font Path          : %s\n"
@@ -168,6 +173,7 @@ void Config::Show() {
          model_dir.data(),
          use_accelerator ? "true" : "false",
          log_level.c_str(),
+         rtsp_probe_timeout_ms,
          alarm_sound_path.c_str(),
          alarm_sound_cooldown_sec,
          font_path.c_str(),

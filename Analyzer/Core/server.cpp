@@ -12,6 +12,12 @@
 #include <sstream>
 #include <thread>
 
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavutil/error.h>
+#include <libavutil/avutil.h>
+}
+
 #include "Utils/base64.h"
 #include "Utils/common.h"
 #include "Utils/file_server_cb.h"
@@ -50,6 +56,7 @@ std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
     evhttp_set_cb(http, "/api/control", ApiMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
+    evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
     evhttp_set_cb(http, "/video", file_route_cb, &file_route_opt);
     evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
@@ -80,6 +87,38 @@ static int get_int_any(const nlohmann::json& v, int def = 0) {
 
 static std::string get_string(const nlohmann::json& v, const std::string& def = "") {
   return v.is_string() ? v.get<std::string>() : def;
+}
+
+static int probe_rtsp_url(const std::string& url, int timeout_ms) {
+  if (url.empty()) {
+    LOGD("rtsp probe skipped: empty url");
+    return 1000;
+  }
+
+  AVFormatContext* fmt_ctx = nullptr;
+  AVDictionary* opts = nullptr;
+
+  const std::string timeout_us = std::to_string(static_cast<int64_t>(timeout_ms) * 1000);
+  av_dict_set(&opts, "rtsp_transport", "tcp", 0);
+  av_dict_set(&opts, "stimeout", timeout_us.c_str(), 0);
+  av_dict_set(&opts, "rw_timeout", timeout_us.c_str(), 0);
+
+  const int ret = avformat_open_input(&fmt_ctx, url.c_str(), nullptr, &opts);
+  av_dict_free(&opts);
+
+  if (ret < 0) {
+    char err_buf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, err_buf, sizeof(err_buf));
+    LOGD("rtsp probe failed url={} err={} ({})", url, err_buf, ret);
+    if (fmt_ctx) {
+      avformat_close_input(&fmt_ctx);
+    }
+    return 1000;
+  }
+
+  avformat_close_input(&fmt_ctx);
+  LOGD("rtsp probe success url={}", url);
+  return 0;
 }
 
 static std::pair<std::vector<int>, std::vector<std::string>> parse_levels(const nlohmann::json& levelsNode, LevelMode& mode) {
@@ -296,6 +335,48 @@ void ApiHealth(evhttp_request* req, void*) {
   nlohmann::json result;
   result["msg"] = result_msg;
   result["code"] = result_code;
+  send_json(req, HTTP_OK, result.dump());
+}
+
+void ApiProbeRtsp(evhttp_request* req, void* arg) {
+  auto* scheduler = static_cast<Scheduler*>(arg);
+  const int timeout_ms = scheduler ? scheduler->GetConfig().rtsp_probe_timeout_ms : 5000;
+
+  nlohmann::json root;
+  if (!get_request_json(req, root)) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
+    return;
+  }
+
+  if (!root.is_array()) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"request body must be an array"})");
+    return;
+  }
+
+  nlohmann::json result = nlohmann::json::array();
+  size_t idx = 0;
+  for (const auto& item : root) {
+    std::string name;
+    std::string url;
+
+    if (item.is_object()) {
+      name = item.value("name", "");
+      url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
+    }
+
+    if (name.empty()) {
+      name = std::format("stream-{}", idx);
+    }
+
+    const int code = probe_rtsp_url(url, timeout_ms);
+
+    nlohmann::json entry;
+    entry["name"] = name;
+    entry["code"] = code;
+    result.push_back(std::move(entry));
+    ++idx;
+  }
+
   send_json(req, HTTP_OK, result.dump());
 }
 void ApiAllMonitors(evhttp_request* req, void* arg) {

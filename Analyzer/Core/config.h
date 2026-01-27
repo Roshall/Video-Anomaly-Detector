@@ -10,6 +10,7 @@ struct Config {
   bool state = false;
   int thread_pool_size{3};
   u_int32_t file_cache_timeout{3600}; // 1 hour
+  int rtsp_probe_timeout_ms{5000}; // RTSP probe timeout in milliseconds
   void Show();
 
   std::string admin_host{};  // 后台管理服务地址 http://192.168.1.4:9001
