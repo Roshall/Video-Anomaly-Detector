@@ -39,7 +39,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
   const CombinedState prev_state = state_;
 
   // Update per-monitor states and track if any are active.
-  has_active_monitors_ = false;
+  bool has_active_monitors = false;
   for (const auto& info : detectors) {
     auto [it, _] =
         monitor_state_.try_emplace(std::string(info.monitor_code));
@@ -64,7 +64,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
     }
 
     if (active) {
-      has_active_monitors_ = true;
+      has_active_monitors = true;
     }
   }
 
@@ -109,15 +109,16 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
   // Evaluate combined event state transitions.
   switch (state_) {
     case CombinedState::kIdle: {
-      if (has_active_monitors_) {
+      if (has_active_monitors) {
         state_ = CombinedState::kActive;
+        ++event_id_counter_;
         UpdateCombinedStartFromActive(timestamp_ms, best_effort_pts);
         event_end_candidate_ts_ = 0;
       }
       break;
     }
     case CombinedState::kActive: {
-      if (!has_active_monitors_) {
+      if (!has_active_monitors) {
         state_ = CombinedState::kEnding;
         event_end_candidate_ts_ = timestamp_ms;
       } else if (timestamp_ms - segment_start_ts_ >=
@@ -131,7 +132,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       break;
     }
     case CombinedState::kEnding: {
-      if (has_active_monitors_) {
+      if (has_active_monitors) {
         state_ = CombinedState::kActive;
         UpdateCombinedStartFromActive(timestamp_ms, best_effort_pts);
         event_end_candidate_ts_ = 0;
@@ -291,7 +292,6 @@ std::vector<std::unique_ptr<Event>> CombinedEventManager::FlushPending() {
   }
 
   state_ = CombinedState::kIdle;
-  has_active_monitors_ = false;
   combined_event_start_ts_ = 0;
   combined_event_start_pts_ = 0;
   segment_start_ts_ = 0;

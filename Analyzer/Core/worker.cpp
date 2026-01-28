@@ -1,5 +1,6 @@
 ﻿#include "worker.h"
 
+#include <cstdint>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -55,7 +56,7 @@ std::vector<Task> Worker::GetMonitorTasks() const {
 
 Worker::Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
                const EventDetectorConfig& event_cfg, bool file)
-  : scheduler(scheduler), file_{file}, alarm_id_counter_(getCurTimestamp()) {
+  : scheduler(scheduler), file_{file} {
   AddMonitor(std::move(monitor), event_cfg);
 }
 
@@ -380,6 +381,7 @@ void Worker::OfflineAnalyze() {
     if (event_manager_) {
       auto result = event_manager_->ProcessFrame(
           frame, timestamp_ms, timestamp, info_vec);
+      auto combined_event_id = event_manager_->CurrentEventId();
       Frame* annotated_frame = result.annotated_frame.get();
       size_t idx = 0;
       for (auto& rt : monitors_) {
@@ -398,7 +400,7 @@ void Worker::OfflineAnalyze() {
               rt->current_highest_level = level_idx;;
               AlarmImage(rt->monitor->code,
                         rt->detector->timestamp(),
-                        rt->monitor->levels.second[level_idx], false);
+                        rt->monitor->levels.second[level_idx], combined_event_id, false);
             }
             break;
           case EventDetector::kEventActive:
@@ -443,15 +445,16 @@ void Worker::OfflineAnalyze() {
 
 void Worker::AlarmImage(const std::string& monitor_code,
                         int64_t event_pts, std::string_view level,
+                        int64_t alarm_id,
                         bool push) noexcept {
   if (!push) {
     return;
   }
   LOGI("检测到异常，发送报警图片到后台视频管理平台，摄像头： {}，监控点：{}，警报id： {}， 等级：{}",
-       video_code_, monitor_code, alarm_id_counter_, level);
+       video_code_, monitor_code, alarm_id, level);
   const auto event_timestamp = timer_.compute(event_pts);
   g_th_pool.detach_task([conf = scheduler->GetConfig(),
-    video_code = video_code_, alarm_id = alarm_id_counter_,
+    video_code = video_code_, alarm_id = alarm_id,
         event_timestamp = event_timestamp,
         code = monitor_code,
         level = std::string(level)]() mutable {
@@ -709,11 +712,13 @@ void Worker::DetectEvent() {
       }
     }
     // monitors_mutex_ released here - detector_infos holds copied data
+    int64_t combined_event_id = -1;
     {
       std::lock_guard em_lock(event_manager_mutex_);
       if (event_manager_) {
         combined_result = event_manager_->ProcessFrame(
             frame_yuv420p.get(), timestamp_ms, timestamp, detector_infos);
+        combined_event_id = event_manager_->CurrentEventId();
       }
     }
 
@@ -722,6 +727,7 @@ void Worker::DetectEvent() {
       if (!admin_stream_active_notified_.load(std::memory_order_acquire)) {
         admin_stream_active_notified_.store(true, std::memory_order_release);
         NotifyAdminStreamEvent("start");
+        alarm_finalizer->SetId(combined_event_id);
       }
     }
     if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
@@ -756,7 +762,7 @@ void Worker::DetectEvent() {
             }
             AlarmImage(snapshot.monitor_code,
                        snapshot.timestamp,
-                       snapshot.levels.second[level_idx], true);
+                       snapshot.levels.second[level_idx], combined_event_id, true);
           }
           break;
         }

@@ -97,6 +97,7 @@ class Worker {
     std::pair<std::vector<int>, std::vector<std::string>> levels;
     LevelMode level_mode;
     int current_highest_level;
+    int64_t event_id{};
   };
 
   void PrepareMonitorForStream(MonitorContext& ctx) const;
@@ -117,14 +118,6 @@ class Worker {
 
   // Set a monitor's current highest level (thread-safe)
   void SetMonitorCurrentHighestLevel(std::string_view monitor_code, int level);
-  int64_t GenerateAlarmId() {
-    auto res = alarm_id_counter_;
-    alarm_id_counter_ = getCurTimestamp();
-    return res;
-  }
-  int64_t AlarmIdCounter() const {
-    return alarm_id_counter_;
-  }
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
                   int64_t event_pts, const Frame& frame,
@@ -157,10 +150,10 @@ class Worker {
   mutable std::mutex annotator_mutex_;
   uint64_t id_{NextId()};
   std::unique_ptr<FormatConvertor> convertor_;
-  int64_t alarm_id_counter_{0};
 
   void AlarmImage(const std::string& monitor_code,
                   int64_t event_pts, std::string_view level,
+                  int64_t alarm_id,
                   bool push) noexcept;
 };
 }  // namespace avs_analyzer

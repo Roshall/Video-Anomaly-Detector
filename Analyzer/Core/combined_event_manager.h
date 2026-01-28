@@ -1,6 +1,7 @@
 #ifndef ANALYZER_COMBINED_EVENT_MANAGER_H
 #define ANALYZER_COMBINED_EVENT_MANAGER_H
 
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -83,6 +84,9 @@ class CombinedEventManager {
   [[nodiscard]] bool HasAnnotator() const noexcept {
     return annotator_ != nullptr;
   }
+  [[nodiscard]] int64_t CurrentEventId() const noexcept {
+    return event_id_counter_;
+  }
 
  private:
   struct MonitorState {
@@ -107,13 +111,13 @@ class CombinedEventManager {
   CombinedState state_{CombinedState::kIdle};
   std::deque<std::unique_ptr<Frame>> frame_buffer_{};
   std::unordered_map<std::string, MonitorState> monitor_state_{};
-  bool has_active_monitors_{false};
 
   int64_t combined_event_start_ts_{0};
   int64_t combined_event_start_pts_{0};
   int64_t segment_start_ts_{0};
   int64_t segment_start_pts_{0};
   int64_t event_end_candidate_ts_{0};
+  int64_t event_id_counter_{0};
 
   const DynamicAnnotator* annotator_{nullptr};
   std::mutex* annotator_mutex_{nullptr};
