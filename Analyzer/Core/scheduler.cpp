@@ -38,9 +38,12 @@ void Scheduler::CleanUpLoop() {
   while (state_) {
     clean_up_cs_.acquire();
     {
-      std::unique_ptr<Alarm> alarm;
-      while (alarm_queue_.try_dequeue(alarm)) {
-        alarm->Finalize(config_.upload_dir, config_.admin_host);
+      AlarmJob job;
+      while (alarm_queue_.try_dequeue(job)) {
+        if (job.alarm) {
+          job.alarm->Finalize(std::move(job.event), job.start_ts,
+                             job.video_code);
+        }
       }
     }
     std::unique_ptr<Worker> worker;
@@ -338,9 +341,8 @@ void Scheduler::NotifyCleanUp() {
   clean_up_cs_.release();
 }
 
-void Scheduler::AddAlarm(std::unique_ptr<Alarm> alarm) {
-  std::unique_ptr<Alarm> old_alarm;
-  alarm_queue_.enqueue(std::move(alarm));
+void Scheduler::AddAlarm(AlarmJob job) {
+  alarm_queue_.enqueue(std::move(job));
   NotifyCleanUp();
 }
 void Scheduler::ClearWorker() {

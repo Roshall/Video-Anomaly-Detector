@@ -2,6 +2,7 @@
 // Created by lg on 9/28/25.
 //
 #include "event.h"
+#include "combined_event_manager.h"
 #include "frame.h"
 
 #include "gtest/gtest.h"

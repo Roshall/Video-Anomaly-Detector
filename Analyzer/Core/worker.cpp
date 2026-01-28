@@ -23,7 +23,7 @@
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "config.h"
-#include "event.h"
+#include "combined_event_manager.h"
 #include "format_convertor.h"
 #include "frame.h"
 #include "helper.h"
@@ -338,6 +338,10 @@ void Worker::OfflineAnalyze() {
     event_manager_->UpdateConfig(ComputeCombinedEventConfig());
   }
 
+  auto alarm_finalizer = std::make_shared<Alarm>(
+      scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
+      width, height);
+
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
   while (!in.EoF()) {
@@ -412,8 +416,8 @@ void Worker::OfflineAnalyze() {
         if (result.flushed_event) {
           if (auto& event = result.flushed_event.value()) {
             const auto start_ts = timer_.compute(event->start_timestamp);
-            scheduler->AddAlarm(std::make_unique<Alarm>(start_ts, video_code_,
-                                std::move(event), width, height));
+            scheduler->AddAlarm({alarm_finalizer, std::move(event), start_ts,
+                                 video_code_});
           }
         }
       }
@@ -632,10 +636,13 @@ void Worker::DetectEvent() {
     return;
   }
 
-  // Cache out_stream at start of loop for consistent frame processing
   auto out_cached = std::atomic_load(&out_stream);
   int out_width = out_cached ? out_cached->width() : width;
   int out_height = out_cached ? out_cached->height() : height;
+
+  auto alarm_finalizer = std::make_shared<Alarm>(
+      scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
+      out_width, out_height);
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
@@ -773,9 +780,9 @@ void Worker::DetectEvent() {
 
     if (combined_result.flushed_event) {
       if (auto& event_ptr = combined_result.flushed_event.value()) {
-        scheduler->AddAlarm(std::make_unique<Alarm>(
-            timer_.compute(event_ptr->start_timestamp), video_code_,
-            std::move(event_ptr), out_width, out_height, GenerateAlarmId()));
+        scheduler->AddAlarm({alarm_finalizer, std::move(event_ptr),
+                             timer_.compute(event_ptr->start_timestamp),
+                             video_code_});
       }
     }
 
@@ -804,9 +811,9 @@ void Worker::DetectEvent() {
     if (!event_ptr) {
       continue;
     }
-    scheduler->AddAlarm(std::make_unique<Alarm>(
-        timer_.compute(event_ptr->start_timestamp), video_code_,
-        std::move(event_ptr), out_width, out_height, GenerateAlarmId()));
+    scheduler->AddAlarm({alarm_finalizer, std::move(event_ptr),
+                         timer_.compute(event_ptr->start_timestamp),
+                         video_code_});
   }
 }
 

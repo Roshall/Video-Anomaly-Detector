@@ -24,7 +24,6 @@ extern "C" {
 #include "Utils/log.h"
 #include "alarm_sound.h"
 #include "config.h"
-#include "event.h"
 #include "monitor.h"
 #include "scheduler.h"
 #include "task.h"

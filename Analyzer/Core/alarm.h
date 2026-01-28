@@ -3,28 +3,27 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-
+#include <chrono>
 #include "event.h"
 
 namespace avs_analyzer {
 
 struct Alarm {
   Alarm() = delete;
-  Alarm(std::chrono::time_point<std::chrono::system_clock> happenTimestamp,
-        std::string controlCode, std::unique_ptr<Event> event, int width,
-        int height, int64_t id = 0, int fps = 25);
+  Alarm(std::string upload_dir, std::string admin_host, int width, int height, int64_t id = 0,
+        int fps = 25);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
   Alarm(Alarm&&) noexcept = default;
   Alarm& operator=(Alarm&&) noexcept = default;
 
-  void Finalize(const std::string& upload_dir,
-                                 const std::string& admin_host) const;
+  void Finalize(std::unique_ptr<Event> event,
+                std::chrono::time_point<std::chrono::system_clock> start_ts,
+                const std::string& monitor_code) const;
 
-  std::chrono::time_point<std::chrono::system_clock> start_ts{}; // ms
-  std::string control_code;
-  std::unique_ptr<Event> event;
+  std::string upload_dir;
+  std::string admin_host;
   int width, height, fps;
   int64_t id;
 };
