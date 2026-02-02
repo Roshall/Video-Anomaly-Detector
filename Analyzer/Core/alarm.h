@@ -20,7 +20,7 @@ struct Alarm {
 
   void Finalize(std::unique_ptr<Event> event,
                 std::chrono::time_point<std::chrono::system_clock> start_ts,
-                const std::string& monitor_code) const;
+                const std::string& video_code) const;
   void SetId(int64_t new_id) { id = new_id; }
 
   std::string upload_dir;
