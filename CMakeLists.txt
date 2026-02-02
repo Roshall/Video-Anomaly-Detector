@@ -317,7 +317,6 @@ target_include_directories(test_server PRIVATE
         Analyzer/Core
 )
 add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
-endif()
 
 add_executable(frame_recorder_hls_test
         tests/frame_recorder_hls_test.cpp
@@ -338,6 +337,7 @@ target_include_directories(frame_recorder_hls_test PRIVATE
         Analyzer/Core
         Analyzer/Core/video_processing)
 add_test(NAME frame_recorder_hls_test COMMAND $<TARGET_FILE:frame_recorder_hls_test>)
+endif()
 
 set(source
         Analyzer/Core/alarm.cpp
