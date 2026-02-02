@@ -48,7 +48,7 @@ void Alarm::Finalize(
   }
 
   prefix_dir /=
-      std::to_string(event->frames[0]->data->best_effort_timestamp) + ".ts";
+      std::to_string(event->frames[0]->data->best_effort_timestamp);
   std::string path = prefix_dir.string();
 
   if (!recorder.Initialize(std::format("{}.mp4", path), Recorder::OutputType::kFile)) {
