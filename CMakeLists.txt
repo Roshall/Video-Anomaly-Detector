@@ -23,6 +23,8 @@ if(USE_CUDA)
     add_compile_definitions(USE_CUDA)
 endif()
 
+option(BUILD_TESTS "Build unit tests" OFF)
+
 list(APPEND CMAKE_PREFIX_PATH
         "${CMAKE_SOURCE_DIR}/3rdparty"
         "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
@@ -154,9 +156,9 @@ set_target_properties(miniaudio PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${MINIAUDIO_INCLUDE_DIR}"
 )
 
-
-# google test
-include(FetchContent)
+if(BUILD_TESTS)
+    # google test
+    include(FetchContent)
 FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
@@ -287,6 +289,22 @@ add_executable(combined_event_manager_test
 target_link_libraries(combined_event_manager_test PRIVATE GTest::gtest_main PkgConfig::FFMPEG opencv_core opencv_imgproc)
 target_include_directories(combined_event_manager_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/video_processing)
 add_test(NAME combined_event_manager_test COMMAND $<TARGET_FILE:combined_event_manager_test>)
+# Test executable that starts the HTTP server and exercises endpoints
+add_executable(test_server
+        tests/test_server.cpp
+)
+target_link_libraries(test_server PRIVATE
+        GTest::gtest_main
+        Threads::Threads
+        libevent::core
+        libevent::pthreads
+        libevent::extra
+)
+target_include_directories(test_server PRIVATE
+        Analyzer/Core
+)
+add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
+endif()
 
 set(source
         Analyzer/main.cpp
@@ -381,22 +399,6 @@ target_include_directories(Analyzer PRIVATE
 )
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
-
-# Test executable that starts the HTTP server and exercises endpoints
-add_executable(test_server
-        tests/test_server.cpp
-)
-target_link_libraries(test_server PRIVATE
-        GTest::gtest_main
-        Threads::Threads
-        libevent::core
-        libevent::pthreads
-        libevent::extra
-)
-target_include_directories(test_server PRIVATE
-        Analyzer/Core
-)
-add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
 
 
 install(TARGETS Analyzer
