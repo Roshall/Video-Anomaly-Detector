@@ -7,9 +7,9 @@
 #include <chrono>
 
 #include "Utils/log.h"
+#include "Utils/common.h"
 #include "Utils/request.h"
 #include "frame_recorder.h"
-#include "jpeg_encoder.h"
 #include "frame_walk_time.h"
 #include "combined_event_manager.h"
 
