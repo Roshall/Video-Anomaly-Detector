@@ -82,12 +82,10 @@ void Alarm::Finalize(
       }
     }
 
-    prefix_dir /=
-        std::to_string(event->frames[0]->data->best_effort_timestamp);
-    std::string path = prefix_dir.string();
+    auto video_path = std::format("{}/{}.mp4", prefix_dir.string(), event->frames[0]->data->best_effort_timestamp);
 
-    if (!recorder.Initialize(std::format("{}.mp4", path), Recorder::OutputType::kFile)) {
-      LOGE("Alarm::Finalize: cannot initialize recorder at {}", path);
+    if (!recorder.Initialize(video_path, Recorder::OutputType::kFile)) {
+      LOGE("Alarm::Finalize: cannot initialize recorder at {}", video_path);
       return;
     }
 
@@ -95,15 +93,14 @@ void Alarm::Finalize(
       recorder.AddVideoFrame(frame->data.get());
     }
     recorder.CloseOutputSegment();
-    auto file_size = getFileSize(std::format("{}.mp4", path));
+    auto file_size = getFileSize(video_path);
 
     // report saved video
     if (!admin_host.empty()) {
       std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
-      path.erase(0, upload_dir.length() + 1);  // remove upload_dir and leading '/'
       nlohmann::json param;
       param["videoCode"] = video_code;
-      param["videoPath"] = std::format("{}.mp4", path);
+      param["videoPath"] = video_path.substr(upload_dir.length() + 1);
       param["alarmId"] = std::to_string(id);
       param["createTime"] = start_time;
       param["fileSize"] = file_size;
@@ -114,7 +111,7 @@ void Alarm::Finalize(
 
       LOGI("Alarm::Finalize report success: request:{} response:{}", url, response);
     } else {
-      LOGW("Alarm::Finalize: admin_host is empty, skipping reporting for {}", path);
+      LOGW("Alarm::Finalize: admin_host is empty, skipping reporting for {}", video_path);
     }
   }
 }
@@ -146,10 +143,6 @@ void Alarm::FinializeHlsEvent(
   // Copy data needed for async task
   const auto hls_paths = hls_recorder->last_hls_paths.value();
   const std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-  const std::string upload_dir_copy = upload_dir;
-  const std::string admin_host_copy = admin_host;
-  const int64_t alarm_id = id;
-  const std::string video_code_copy = video_code;
   
   // Reset recorder now that it's closed
   hls_recorder.reset();
@@ -157,14 +150,15 @@ void Alarm::FinializeHlsEvent(
   LOGI("Alarm::FinializeHlsEvent: submitting async reencode task for video_code: {}", video_code);
 
   // Submit async reencode and reporting task to global thread pool
-  g_th_pool.detach_task([hls_paths, start_time, upload_dir_copy, admin_host_copy, 
-                         alarm_id, video_code_copy]() {
+  g_th_pool.detach_task([hls_paths, start_time, upload_dir = upload_dir,
+     admin_host = admin_host,
+                         alarm_id = id, video_code]() {
     // Reencode HLS to MP4
     ReencodeConfig reencode_cfg;
     bool reencode_success = ReencodeHlsToSuggestedMp4(hls_paths, reencode_cfg);
 
     if (!reencode_success) {
-      LOGE("Alarm async reencode: ReencodeHlsToSuggestedMp4 failed for video_code: {}", video_code_copy);
+      LOGE("Alarm async reencode: ReencodeHlsToSuggestedMp4 failed for video_code: {}", video_code);
       return;
     }
 
@@ -172,17 +166,17 @@ void Alarm::FinializeHlsEvent(
     auto file_size = getFileSize(mp4_path);
 
     // Report MP4 to admin
-    if (!admin_host_copy.empty()) {
-      std::string url = std::format("{}/api/postAddAlarmVideo", admin_host_copy);
+    if (!admin_host.empty()) {
+      std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
       
       // Make path relative to upload_dir
       std::string relative_path = mp4_path;
-      if (relative_path.find(upload_dir_copy) == 0) {
-        relative_path.erase(0, upload_dir_copy.length() + 1);
+      if (relative_path.find(upload_dir) == 0) {
+        relative_path.erase(0, upload_dir.length() + 1);
       }
 
       nlohmann::json param;
-      param["videoCode"] = video_code_copy;
+      param["videoCode"] = video_code;
       param["videoPath"] = relative_path;
       param["alarmId"] = std::to_string(alarm_id);
       param["createTime"] = start_time;
