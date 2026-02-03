@@ -82,8 +82,8 @@ TEST_F(EventDetectorTest, SimpleEventDetectedAndEnds) {
   EXPECT_NEAR(final_event->GetDuration(), 2.0, 0.01);
 
   // Check buffers. Start should be ~1.0s, End should be ~4.8s
-  EXPECT_NEAR(final_event->frames.front().timestamp, 2.0, 0.01);
-  EXPECT_NEAR(final_event->frames.back().timestamp, 5.0, 0.01);
+  EXPECT_NEAR(final_event->frames.front()->timestamp, 2.0, 0.01);
+  EXPECT_NEAR(final_event->frames.back()->timestamp, 5.0, 0.01);
 }
 
 

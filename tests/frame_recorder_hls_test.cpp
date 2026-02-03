@@ -208,7 +208,7 @@ TEST(FrameRecorderHlsCleanupTest, RemovesExpectedFilesAndDir) {
 
   Recorder recorder(cfg);
 
-  auto dir = std::filesystem::temp_directory_path() / std::filesystem::path("bxc_hls_cleanup_test");
+  auto dir = std::filesystem::temp_directory_path() / std::filesystem::path("hls_cleanup_test");
   if (std::filesystem::exists(dir)) std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir);
 
