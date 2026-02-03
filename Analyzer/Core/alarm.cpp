@@ -175,12 +175,13 @@ void Alarm::FinializeHlsEvent(
         relative_path.erase(0, upload_dir.length() + 1);
       }
 
-      nlohmann::json param;
-      param["videoCode"] = video_code;
-      param["videoPath"] = relative_path;
-      param["alarmId"] = std::to_string(alarm_id);
-      param["createTime"] = start_time;
-      param["fileSize"] = file_size;
+      nlohmann::json param {
+      {"videoCode", video_code},
+      {"videoPath", relative_path},
+      {"alarmId", std::to_string(alarm_id)},
+      {"createTime", start_time},
+      {"fileSize", file_size}
+      };
 
       const std::string data = param.dump();
       std::string response;
