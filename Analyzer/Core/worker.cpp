@@ -382,7 +382,7 @@ void Worker::OfflineAnalyze() {
       auto result = event_manager_->ProcessFrame(
           frame, timestamp_ms, timestamp, info_vec);
       auto combined_event_id = event_manager_->CurrentEventId();
-      Frame* annotated_frame = result.annotated_frame.get();
+      std::shared_ptr<const Frame> annotated_frame = result.annotated_frame;
       size_t idx = 0;
       for (auto& rt : monitors_) {
         if (!rt->monitor || !rt->detector || rt->detector->detections().empty()) {
@@ -399,7 +399,7 @@ void Worker::OfflineAnalyze() {
             if (annotated_frame) {
               rt->current_highest_level = level_idx;;
               AlarmImage(rt->monitor->code, rt->detector->start_ts(),
-                        rt->detector->timestamp(), *annotated_frame, pict_writer,
+                        rt->detector->timestamp(), annotated_frame, pict_writer,
                         rt->monitor->levels.second[level_idx], combined_event_id, false);
             }
             break;
@@ -444,7 +444,7 @@ void Worker::OfflineAnalyze() {
 }
 
 void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
-                        int64_t event_pts, const Frame& frame,
+                        int64_t event_pts, std::shared_ptr<const Frame> frame,
                         std::shared_ptr<JPEGEncoder> pict_writer,
                         std::string_view level,
                         int64_t alarm_id,
@@ -452,29 +452,19 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
   if (!push) {
     return;
   }
+  if (!frame || !frame->data) {
+    LOGW("AlarmImage received empty frame for monitor {}", monitor_code);
+    return;
+  }
   LOGI("检测到异常，发送报警图片到后台视频管理平台，摄像头： {}，监控点：{}，警报id： {}， 等级：{}",
        video_code_, monitor_code, alarm_id, level);
   const auto event_timestamp = timer_.compute(event_pts);
   const auto start_timestamp = timer_.compute(start_pts);
 
-  AVFramePtr frame_clone{av_frame_clone(frame.data.get())};
-  if (!frame_clone) {
-    LOGE("AlarmImage failed to clone frame for monitor {}", monitor_code);
-    return;
-  }
-  frame_clone->best_effort_timestamp = frame.data->best_effort_timestamp;
-  frame_clone->pts = frame.data->pts;
-  frame_clone->time_base = frame.data->time_base;
-
-  auto async_frame = std::make_unique<Frame>();
-  async_frame->timestamp = frame.timestamp;
-  async_frame->object_count = frame.object_count;
-  async_frame->data = std::move(frame_clone);
-
   g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
         code = monitor_code, start_timestamp, event_timestamp,
         level = std::string(level), push, alarm_id, video_code = video_code_,
-        frame = std::move(async_frame)]() mutable {
+        frame = std::move(frame)]() mutable {
         auto img_path =
             std::format("{}/alarm/{}/{}", conf.upload_dir, code,
                         FrameWallClock::to_iso8601_utc(start_timestamp));
@@ -534,6 +524,18 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
+  
+  // Validate synchronization between slice_ms and HLS segment_seconds
+  if (cfg.slice_ms > 0 && scheduler) {
+    const int64_t segment_ms = scheduler->GetConfig().hls_config.segment_seconds * 1000;
+    if (segment_ms > 0 && cfg.slice_ms != segment_ms) {
+      LOGW("Worker::RebuildEventManager: slice_ms ({}ms) does not match "
+           "hls_config.segment_seconds ({}ms). Frame buffering may be unsynchronized. "
+           "Consider aligning these values for consistent HLS segment duration.",
+           cfg.slice_ms, segment_ms);
+    }
+  }
+  
   // Consistent lock ordering: monitors_mutex_ -> event_manager_mutex_ -> annotator_mutex_
   std::lock_guard<std::mutex> lock_em(event_manager_mutex_);
   std::lock_guard<std::mutex> lock_an(annotator_mutex_);
@@ -760,6 +762,32 @@ void Worker::DetectEvent() {
         admin_stream_active_notified_.store(true, std::memory_order_release);
         NotifyAdminStreamEvent("start");
         alarm_finalizer->SetId(combined_event_id);
+        
+        // Initialize HLS recorder for this event
+        auto hls_recorder = std::make_unique<Recorder>(
+            Recorder::VideoConfig{width, height, in_stream->video_codec_ctx->framerate.num});
+        
+        // Create inline HLS paths in alarm directory
+        std::string start_time = FrameWallClock::to_iso8601_utc(std::chrono::system_clock::now());
+        std::filesystem::path hls_dir = std::filesystem::path(scheduler->GetConfig().upload_dir) /
+                                         "alarm" / video_code_ / start_time / "videos";
+        
+        if (!std::filesystem::exists(hls_dir)) {
+          try {
+            std::filesystem::create_directories(hls_dir);
+          } catch (std::filesystem::filesystem_error& e) {
+            LOGE("Failed to create HLS directory: {}", e.what());
+          }
+        }
+        
+        std::string hls_base = (hls_dir / "stream").string();
+        if (hls_recorder->Initialize(hls_base, Recorder::OutputType::kHls, 
+                                      scheduler->GetConfig().hls_config)) {
+          alarm_finalizer->SetHlsRecorder(std::move(hls_recorder));
+          LOGI("HLS recorder initialized for combined event {}", combined_event_id);
+        } else {
+          LOGW("Failed to initialize HLS recorder for event {}", combined_event_id);
+        }
       }
     }
     if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
@@ -769,7 +797,7 @@ void Worker::DetectEvent() {
       }
     }
 
-    Frame* annotated_frame = combined_result.annotated_frame.get();
+    std::shared_ptr<const Frame> annotated_frame = combined_result.annotated_frame;
 
     // Process alarms using snapshots
     for (auto& snapshot : event_snapshots) {
@@ -793,7 +821,7 @@ void Worker::DetectEvent() {
               LOGD("Alarm sound triggered for monitor {}", snapshot.monitor_code);
             }
             AlarmImage(snapshot.monitor_code, snapshot.start_pts,
-                       snapshot.timestamp, *annotated_frame, pict_writer,
+                       snapshot.timestamp, annotated_frame, pict_writer,
                        snapshot.levels.second[level_idx], combined_event_id, true);
           }
           break;
@@ -824,9 +852,9 @@ void Worker::DetectEvent() {
       }
     }
 
-    // Use cached out_stream for this frame
+    // Route annotated frames to output stream
     if (out_cached && combined_result.annotated_frame) {
-      out_cached->AddVideoFrame(std::move(combined_result.annotated_frame));
+      out_cached->AddVideoFrame(combined_result.annotated_frame);
     }
 
     av_frame_unref(frame_yuv420p.get());

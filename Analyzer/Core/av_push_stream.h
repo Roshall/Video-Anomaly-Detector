@@ -1,6 +1,7 @@
 ﻿#ifndef ANALYZER_AVPUSHSTREAM_H
 #define ANALYZER_AVPUSHSTREAM_H
 #include <semaphore>
+#include <memory>
 
 #include "frame_recorder.h"
 extern "C" {
@@ -25,7 +26,7 @@ class AvPushStream {
   int connect_count = 0;
   AVStream* video_stream = nullptr;
   int video_index = -1;
-  void AddVideoFrame(std::unique_ptr<Frame> frame);
+  void AddVideoFrame(std::shared_ptr<const Frame> frame);
   int GetVideoFrameQSize();
   void SignalShutdown();
   void ClearVideoFrameQueue();
@@ -40,9 +41,9 @@ class AvPushStream {
   Recorder recorder_;
 
   // 视频帧
-  ReaderWriterQueue<std::unique_ptr<Frame>> video_frame_q_;
+  ReaderWriterQueue<std::shared_ptr<const Frame>> video_frame_q_;
   std::counting_semaphore<> video_frame_cs_{0};
-  std::unique_ptr<Frame> PopVideoFrame();
+  std::shared_ptr<const Frame> PopVideoFrame();
 };
 
 }  // namespace avs_analyzer

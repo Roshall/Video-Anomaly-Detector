@@ -35,7 +35,7 @@ void AvPushStream::CloseConnect() {
   //  fmt_ctx.reset();
 }
 
-void AvPushStream::AddVideoFrame(std::unique_ptr<Frame> frame) {
+void AvPushStream::AddVideoFrame(std::shared_ptr<const Frame> frame) {
   if (video_frame_q_.size_approx() > 30 * 10) {
     LOGW("Too many frames remain, throw away one");
     return;
@@ -45,17 +45,16 @@ void AvPushStream::AddVideoFrame(std::unique_ptr<Frame> frame) {
 }
 int AvPushStream::GetVideoFrameQSize() { return video_frame_q_.size_approx(); }
 
-std::unique_ptr<Frame> AvPushStream::PopVideoFrame() {
+std::shared_ptr<const Frame> AvPushStream::PopVideoFrame() {
   video_frame_cs_.acquire();
-  std::unique_ptr<Frame> frame;
+  std::shared_ptr<const Frame> frame;
   video_frame_q_.try_dequeue(frame);
   return frame;
 }
 void AvPushStream::ClearVideoFrameQueue() {
-  std::shared_ptr<Frame> video_frame;
+  std::shared_ptr<const Frame> video_frame;
   while (video_frame_cs_.try_acquire() &&
          video_frame_q_.try_dequeue(video_frame)) {
-    // delete video_frame;
   }
 }
 void AvPushStream::EncodeVideo() {
