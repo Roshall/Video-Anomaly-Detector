@@ -482,7 +482,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
           const std::string url =
               std::format("{}/api/postAddAlarm", conf.admin_host);
           nlohmann::json param {
-          {"imagePath", img_path_str},
+          {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
           {"controlCode", code},
           {"videoCode", video_code},
           {"alarmId", std::to_string(alarm_id)},
