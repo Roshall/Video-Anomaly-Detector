@@ -485,7 +485,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
           {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
           {"controlCode", code},
           {"videoCode", video_code},
-          {"alarmId", std::to_string(alarm_id)},
+          {"alarmId", alarm_id},
           {"createTime", FrameWallClock::to_iso8601_utc(event_timestamp)},
           {"level", level}
           };
