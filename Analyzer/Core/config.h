@@ -2,6 +2,7 @@
 #define ANALYZER_CONFIG_H
 
 #include <string>
+#include "video_processing/frame_recorder.h"
 
 namespace avs_analyzer {
 struct Config {
@@ -29,6 +30,9 @@ struct Config {
   std::string legend_position{"top-right"};
   double bunkoff_overlap_ratio{0.3};
   // std::string video_file_name_format{};//%Y%m%d%H%M%S
+  
+  // HLS configuration for event recording
+  Recorder::HlsConfig hls_config{};
 };
 }  // namespace avs_analyzer
 #endif  // ANALYZER_CONFIG_H

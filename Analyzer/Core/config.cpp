@@ -117,6 +117,28 @@ Config::Config(const char* file) {
     bunkoff_overlap_ratio = json_get_or<double>(
         root, {"analyzer", "bunkOffOverlapRatio"},
         json_get_or<double>(root, {"bunkOffOverlapRatio"}, bunkoff_overlap_ratio));
+    
+    // Load HLS configuration
+    if (root.contains("hls_config")) {
+      const auto& hls_obj = root["hls_config"];
+      if (hls_obj.contains("segment_seconds")) {
+        hls_config.segment_seconds = hls_obj["segment_seconds"];
+      }
+      if (hls_obj.contains("playlist_size")) {
+        hls_config.playlist_size = hls_obj["playlist_size"];
+      }
+      if (hls_obj.contains("delete_segments")) {
+        hls_config.delete_segments = hls_obj["delete_segments"];
+      }
+      if (hls_obj.contains("segment_format")) {
+        std::string fmt = hls_obj["segment_format"];
+        if (fmt == "mpegts") {
+          hls_config.segment_format = Recorder::HlsSegmentFormat::kMpegts;
+        } else {
+          hls_config.segment_format = Recorder::HlsSegmentFormat::kFmp4;
+        }
+      }
+    }
   } catch (const std::exception& e) {
     LOGE("Json parse error:{}", e.what());
     return;
