@@ -57,7 +57,7 @@ std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
     evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
-    evhttp_set_cb(http, "/video", file_route_cb, &file_route_opt);
+    evhttp_set_cb(http, "/file", file_route_cb, &file_route_opt);
     evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
 
     evhttp_bind_socket(http, "0.0.0.0", port);
