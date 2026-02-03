@@ -446,36 +446,29 @@ void ApiAllMonitors(evhttp_request* req, void* arg) {
   std::string result_msg = "error";
 
   nlohmann::json result;
-  if (nlohmann::json root; get_request_json(req, root)) {
-    if (auto monitors = scheduler->GetAllMonitors(); !monitors.empty()) {
-      nlohmann::json result_data = nlohmann::json::array();
-      int64_t curTimestamp = getCurTimestamp();
-      int64_t startTimestamp = 0;
-      for (auto& monitor : monitors) {
-        startTimestamp = monitor.start_timestamp;
-        nlohmann::json result_data_item;
-        result_data_item["code"] = monitor.code;
-        result_data_item["cameraId"] = monitor.video_code;
-        result_data_item["streamUrl"] = monitor.stream_url;
-        result_data_item["pushStream"] = monitor.push_stream;
-        result_data_item["pushStreamUrl"] = monitor.push_stream_url;
-        result_data_item["algorithmCode"] = toString(monitor.task);
-        result_data_item["recognitionRegion"] = monitor.roi_str;
-        result_data_item["sourceType"] = monitor.source_type;
-        result_data_item["startTimestamp"] = startTimestamp;
-        result_data_item["liveMilliseconds"] = curTimestamp - startTimestamp;
-
-        result_data.push_back(std::move(result_data_item));
-      }
-      result["data"] = result_data;
-      result_code = 1000;
-      result_msg = "success";
-    } else {
-      result_msg = "the number of control exector is empty";
+  if (auto monitors = scheduler->GetAllMonitors(); !monitors.empty()) {
+    nlohmann::json result_data = nlohmann::json::array();
+    int64_t curTimestamp = getCurTimestamp();
+    for (auto& monitor : monitors) {
+      const int64_t startTimestamp = monitor.start_timestamp;
+      result_data.push_back({
+          {"code", monitor.code},
+          {"cameraId", monitor.video_code},
+          {"streamUrl", monitor.stream_url},
+          {"pushStream", monitor.push_stream},
+          {"pushStreamUrl", monitor.push_stream_url},
+          {"algorithmCode", toString(monitor.task)},
+          {"recognitionRegion", monitor.roi_str},
+          {"sourceType", monitor.source_type},
+          {"startTimestamp", startTimestamp},
+          {"liveMilliseconds", curTimestamp - startTimestamp}
+      });
     }
-
+    result["data"] = result_data;
+    result_code = 1000;
+    result_msg = "success";
   } else {
-    result_msg = "invalid request parameter";
+    result_msg = "the number of control exector is empty";
   }
   result["msg"] = result_msg;  result["code"] = result_code;
 
@@ -614,11 +607,11 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       nlohmann::json arr = nlohmann::json::array();
       const size_t n = std::min(control_codes.size(), add_results.size());
       for (size_t i = 0; i < n; ++i) {
-        nlohmann::json item;
-        item["controlCode"] = control_codes[i];
-        item["code"] = add_results[i].first;
-        item["msg"] = add_results[i].second;
-        arr.push_back(std::move(item));
+        arr.push_back({
+            {"controlCode", control_codes[i]},
+            {"code", add_results[i].first},
+            {"msg", add_results[i].second}
+        });
       }
       send_json(req, HTTP_OK, arr.dump());
       return;
@@ -634,10 +627,11 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
         break;
       }
     }
-    nlohmann::json obj;
-    obj["cameraId"] = camera_id;
-    obj["code"] = all_ok ? 1000 : 0;
-    obj["msg"] = all_ok ? "added successfully" : (fail_msg.empty() ? "batch add failed" : fail_msg);
+    nlohmann::json obj {
+      {"cameraId", camera_id},
+      {"code", all_ok ? 1000 : 0},
+      {"msg", all_ok ? "added successfully" : (fail_msg.empty() ? "batch add failed" : fail_msg)}
+    };
     send_json(req, HTTP_OK, obj.dump());
     return;
   } else {
@@ -698,11 +692,11 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
   nlohmann::json arr = nlohmann::json::array();
   const size_t n = std::min(control_codes.size(), rm_results.size());
   for (size_t i = 0; i < n; ++i) {
-    nlohmann::json item;
-    item["controlCode"] = control_codes[i];
-    item["code"] = rm_results[i].first;
-    item["msg"] = rm_results[i].second;
-    arr.push_back(std::move(item));
+    arr.push_back({
+        {"controlCode", control_codes[i]},
+        {"code", rm_results[i].first},
+        {"msg", rm_results[i].second}
+    });
   }
   send_json(req, HTTP_OK, arr.dump());
 }
