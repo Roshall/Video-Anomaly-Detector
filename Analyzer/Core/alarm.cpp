@@ -71,9 +71,8 @@ void Alarm::Finalize(
     Recorder recorder({width, height, fps});
     std::filesystem::path prefix_dir{upload_dir};
     std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-    prefix_dir = prefix_dir / "alarm" / video_code / start_time;
+    prefix_dir = prefix_dir / "alarms" / "videos" / video_code / start_time;
 
-    prefix_dir /= "videos";
     if (!std::filesystem::exists(prefix_dir)) {
       try {
         std::filesystem::create_directories(prefix_dir);
