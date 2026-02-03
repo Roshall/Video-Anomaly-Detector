@@ -466,7 +466,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         level = std::string(level), push, alarm_id, video_code = video_code_,
         frame = std::move(frame)]() mutable {
         auto img_path =
-            std::format("{}/alarm/{}/{}", conf.upload_dir, code,
+            std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
                         FrameWallClock::to_iso8601_utc(start_timestamp));
         std::filesystem::create_directories(std::filesystem::path(img_path));
         auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
