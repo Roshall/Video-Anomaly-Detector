@@ -29,7 +29,7 @@ struct Event {
   int64_t end_timestamp{};
   bool more_segments{false};
 
-  std::vector<std::unique_ptr<Frame>> frames{};
+  std::vector<std::shared_ptr<const Frame>> frames{};
 
   [[nodiscard]] int64_t GetDuration() const {
     return end_timestamp - start_timestamp;
@@ -40,6 +40,7 @@ struct CombinedEventConfig {
   int64_t pre_event_buffer_ms{0};
   int64_t post_event_buffer_ms{0};
   int64_t max_event_duration_ms{0};
+  int64_t slice_ms{3000};
   int64_t guard_window_ms{0};
 };
 
@@ -56,11 +57,11 @@ class CombinedEventManager {
   };
 
   struct Result {
-    std::unique_ptr<Frame> annotated_frame{};
+    std::shared_ptr<const Frame> annotated_frame{};
     std::optional<std::unique_ptr<Event>> flushed_event{};
     // Edge transition reported as an enum to indicate a single transition per
     // frame: none, became active, or became idle.
-    enum class Transition { kNone, kBecameActive, kBecameIdle };
+    enum class Transition { kNone, kBecameActive, kBecameIdle, kMaxDurationReached };
     Transition transition{Transition::kNone};
   };
 
@@ -109,8 +110,9 @@ class CombinedEventManager {
   int64_t max_buffer_time_ms_{0};
 
   CombinedState state_{CombinedState::kIdle};
-  std::deque<std::unique_ptr<Frame>> frame_buffer_{};
+  std::deque<std::shared_ptr<const Frame>> frame_buffer_{};
   std::unordered_map<std::string, MonitorState> monitor_state_{};
+  bool max_duration_exceeded_{false};
 
   int64_t combined_event_start_ts_{0};
   int64_t combined_event_start_pts_{0};

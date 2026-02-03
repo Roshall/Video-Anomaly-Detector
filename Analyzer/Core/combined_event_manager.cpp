@@ -19,8 +19,15 @@ constexpr int64_t kBufferSafetyMarginMs = 1000;
 
 void CombinedEventManager::UpdateConfig(const CombinedEventConfig& config) {
   config_ = config;
+  if (config_.slice_ms > 0 && config_.max_event_duration_ms > 0 &&
+      config_.max_event_duration_ms < config_.slice_ms) {
+    LOGI("slice_ms ({}ms) adjusted: was > max_event_duration_ms ({}ms). "
+         "Setting slice_ms to max_event_duration_ms for consistency.",
+         config_.slice_ms, config_.max_event_duration_ms);
+    config_.slice_ms = config_.max_event_duration_ms;
+  }
   const int64_t guard_window =
-      std::max(config_.max_event_duration_ms, config_.guard_window_ms);
+      std::max(config_.slice_ms, config_.guard_window_ms);
   max_buffer_time_ms_ = config_.pre_event_buffer_ms + guard_window +
                         config_.post_event_buffer_ms + kBufferSafetyMarginMs;
 }
@@ -78,7 +85,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
     }
   }
   if (annotated) {
-    auto frame = std::make_unique<Frame>();
+    auto frame = std::make_shared<Frame>();
     frame->timestamp = timestamp_ms;
     frame->object_count = object_count;
     frame->data = std::move(annotated);
@@ -86,24 +93,24 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       frame->data->best_effort_timestamp = best_effort_pts;
       frame->data->pts = source_frame->pts;
       frame->data->time_base = source_frame->time_base;
-
     }
 
-    // Prepare frame for push stream consumers.
+    std::shared_ptr<const Frame> const_frame = frame;
     if (frame->data) {
-      if (AVFramePtr push_clone{av_frame_clone(frame->data.get())}) {
-        push_clone->best_effort_timestamp = best_effort_pts;
-        push_clone->pts = source_frame->pts;
-        push_clone->time_base = source_frame->time_base;
-        auto push_frame = std::make_unique<Frame>();
-        push_frame->timestamp = timestamp_ms;
-        push_frame->object_count = object_count;
-        push_frame->data = std::move(push_clone);
-        result.annotated_frame = std::move(push_frame);
-      }
+      result.annotated_frame = const_frame;
     }
 
-    frame_buffer_.push_back(std::move(frame));
+    frame_buffer_.push_back(std::move(const_frame));
+  }
+
+  // Check if we've exceeded the max event duration - if so, flag it
+  if (!max_duration_exceeded_ && config_.max_event_duration_ms > 0 &&
+      state_ == CombinedState::kActive &&
+      timestamp_ms - combined_event_start_ts_ >= config_.max_event_duration_ms) {
+    max_duration_exceeded_ = true;
+    result.transition = Result::Transition::kMaxDurationReached;
+    LOGI("Max event duration reached: {}ms for event starting at {}",
+         timestamp_ms - combined_event_start_ts_, combined_event_start_ts_);
   }
 
   // Evaluate combined event state transitions.
@@ -121,8 +128,8 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
       if (!has_active_monitors) {
         state_ = CombinedState::kEnding;
         event_end_candidate_ts_ = timestamp_ms;
-      } else if (timestamp_ms - segment_start_ts_ >=
-                     config_.max_event_duration_ms) {
+      } else if (config_.slice_ms > 0 &&
+                 timestamp_ms - segment_start_ts_ >= config_.slice_ms) {
         if (auto event = FlushEvent(true)) {
           result.flushed_event = std::move(event);
         }
@@ -147,17 +154,21 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
         segment_start_ts_ = 0;
         segment_start_pts_ = 0;
         event_end_candidate_ts_ = 0;
+        max_duration_exceeded_ = false;
       }
       break;
     }
   }
 
   // Report edge transitions for callers to take external actions. Only one
-  // transition is represented per frame (idle->active or active->idle).
-  if (prev_state == CombinedState::kIdle && state_ == CombinedState::kActive) {
-    result.transition = Result::Transition::kBecameActive;
-  } else if (prev_state != CombinedState::kIdle && state_ == CombinedState::kIdle) {
-    result.transition = Result::Transition::kBecameIdle;
+  // transition is represented per frame (idle->active, active->idle, or max duration).
+  // Don't overwrite if a transition has already been set (e.g., kMaxDurationReached).
+  if (result.transition == Result::Transition::kNone) {
+    if (prev_state == CombinedState::kIdle && state_ == CombinedState::kActive) {
+      result.transition = Result::Transition::kBecameActive;
+    } else if (prev_state != CombinedState::kIdle && state_ == CombinedState::kIdle) {
+      result.transition = Result::Transition::kBecameIdle;
+    }
   }
 
   return result;
@@ -297,6 +308,7 @@ std::vector<std::unique_ptr<Event>> CombinedEventManager::FlushPending() {
   segment_start_ts_ = 0;
   segment_start_pts_ = 0;
   event_end_candidate_ts_ = 0;
+  max_duration_exceeded_ = false;
 
   return events;
 }
