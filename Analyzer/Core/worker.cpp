@@ -519,22 +519,15 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
         event_cfg.latest_duration_ms);
     cfg.guard_window_ms = std::max(cfg.guard_window_ms, guard);
   }
+  if (scheduler) {
+    cfg.slice_ms =
+        scheduler->GetConfig().hls_config.segment_seconds * 1000;
+  }
   return cfg;
 }
 
 void Worker::RebuildEventManager() {
   auto cfg = ComputeCombinedEventConfig();
-  
-  // Validate synchronization between slice_ms and HLS segment_seconds
-  if (cfg.slice_ms > 0 && scheduler) {
-    const int64_t segment_ms = scheduler->GetConfig().hls_config.segment_seconds * 1000;
-    if (segment_ms > 0 && cfg.slice_ms != segment_ms) {
-      LOGW("Worker::RebuildEventManager: slice_ms ({}ms) does not match "
-           "hls_config.segment_seconds ({}ms). Frame buffering may be unsynchronized. "
-           "Consider aligning these values for consistent HLS segment duration.",
-           cfg.slice_ms, segment_ms);
-    }
-  }
   
   // Consistent lock ordering: monitors_mutex_ -> event_manager_mutex_ -> annotator_mutex_
   std::lock_guard<std::mutex> lock_em(event_manager_mutex_);
