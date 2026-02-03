@@ -165,21 +165,6 @@ void Alarm::FinializeHlsEvent(
 
     if (!reencode_success) {
       LOGE("Alarm async reencode: ReencodeHlsToSuggestedMp4 failed for video_code: {}", video_code_copy);
-      // Report failure to admin but keep HLS segments
-      if (!admin_host_copy.empty()) {
-        std::string url = std::format("{}/api/postAddAlarmVideo", admin_host_copy);
-        nlohmann::json param;
-        param["videoCode"] = video_code_copy;
-        param["alarmId"] = std::to_string(alarm_id);
-        param["createTime"] = start_time;
-        param["error"] = "Failed to reencode HLS to MP4";
-        param["status"] = "failed";
-
-        const std::string data = param.dump();
-        std::string response;
-        Request::post(url.data(), data.data(), response);
-        LOGW("Alarm async reencode error reported to admin: {}", url);
-      }
       return;
     }
 
