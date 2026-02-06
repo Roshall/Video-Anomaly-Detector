@@ -274,9 +274,11 @@ bool Recorder::AddVideoFrame(AVFrame* frame) {
   // frame.time_base must set to input stream's time base
   auto pts = av_rescale_q(frame->best_effort_timestamp, frame->time_base,
                           video_codec_ctx_->time_base);
+  pts += refined_pts_;
   if (pts <= last_pts_) {
     LOGD("recorder reconstruct frame's pts because of pts: {} <= {}", pts, last_pts_);
     pts = last_pts_ + 1;
+    ++refined_pts_;
   }
   last_pts_ = frame->pts = pts;
   return EncodeAndWrite(frame);

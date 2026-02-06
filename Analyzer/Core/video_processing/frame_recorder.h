@@ -6,6 +6,7 @@
 #define ANALYZER_FRAME_RECORDER_H
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
@@ -96,6 +97,7 @@ class Recorder {
 
   bool initialized_{false};
   int64_t last_pts_{std::numeric_limits<int64_t>::min()};
+  int64_t refined_pts_{0};
   AVPacketPtr reused_pkt_;
   std::string file_path_{};
 
