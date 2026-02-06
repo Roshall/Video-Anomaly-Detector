@@ -763,7 +763,7 @@ void Worker::DetectEvent() {
         // Create inline HLS paths in alarm directory
         std::string start_time = FrameWallClock::to_iso8601_utc(std::chrono::system_clock::now());
         std::filesystem::path hls_dir = std::filesystem::path(scheduler->GetConfig().upload_dir) /
-                                         "alarm" / video_code_ / start_time / "videos";
+                                         "alarm" / "videos" / video_code_ / start_time ;
         
         if (!std::filesystem::exists(hls_dir)) {
           try {
