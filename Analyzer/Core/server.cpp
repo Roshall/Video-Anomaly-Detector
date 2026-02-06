@@ -712,9 +712,6 @@ void ParseGetRequest(const evhttp_request* req, evkeyvalq* params) {
   if (!decoded) {
     return;
   }
-  // if (const char* path = evhttp_uri_get_path(decoded); path == nullptr) {
-  //   path = "/";
-  // }
   const char* query = const_cast<char*>(evhttp_uri_get_query(decoded));
   if (query != nullptr) {
     evhttp_parse_query_str(query, params);
@@ -723,19 +720,14 @@ void ParseGetRequest(const evhttp_request* req, evkeyvalq* params) {
 }
 void ParsePostRequest(const evhttp_request* req, char* buff) {
   size_t post_size = 0;
-
   post_size = evbuffer_get_length(req->input_buffer);
   if (post_size <= 0) {
-    //        printf("====line:%d,post msg is empty!\n",__LINE__);
     return;
   }
   const size_t copy_len =
       post_size >= (kRecvBufMaxSize - 1) ? (kRecvBufMaxSize - 1) : post_size;
-  //        printf("====line:%d,post len:%d,
-  //        copy_len:%d\n",__LINE__,post_size,copy_len);
   memcpy(buff, evbuffer_pullup(req->input_buffer, -1), copy_len);
   buff[copy_len] = '\0';
-  //        printf("====line:%d,post msg:%s\n",__LINE__,buf);
 }
 void alarm_sound_cv(evhttp_request* req, void* arg) {
   auto* alarm_ptr = static_cast<AlarmController*>(arg);
@@ -749,28 +741,21 @@ void alarm_sound_cv(evhttp_request* req, void* arg) {
   ParseGetRequest(req, &params);
   const char* method = evhttp_find_header(&params, "method");
   if (!method) {
-    evhttp_clear_headers(&params);
     send_json(req, HTTP_BADREQUEST, R"({"msg":"missing parameter 'method'"})");
-    return;
-  }
-
-  // Dispatch
-  const std::string m(method);
-  if (m == "stop") {
-    alarm_ptr->stop();
-    evhttp_clear_headers(&params);
-    evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
-    LOGD("alarm api: Alarm sound stopped.");
-    return;
-  } else if (m == "start") {
-    alarm_ptr->trigger();
-    evhttp_clear_headers(&params);
-    evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
-    LOGD("alarm api: Alarm sound started.");
-    return;
   } else {
-    evhttp_clear_headers(&params);
-    send_json(req, HTTP_BADREQUEST, R"({"msg":"wrong method"})");
-    return;
+    // Dispatch
+    const std::string m(method);
+    if (m == "stop") {
+      alarm_ptr->stop();
+      evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
+      LOGD("alarm api: Alarm sound stopped.");
+    } else if (m == "start") {
+      alarm_ptr->trigger();
+      evhttp_send_reply(req, HTTP_OK, "OK", nullptr);
+      LOGD("alarm api: Alarm sound started.");
+    } else {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"wrong method"})");
+    }
   }
+  evhttp_clear_headers(&params);
 }
