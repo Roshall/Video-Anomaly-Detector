@@ -716,10 +716,10 @@ void ParseGetRequest(const evhttp_request* req, evkeyvalq* params) {
   //   path = "/";
   // }
   const char* query = const_cast<char*>(evhttp_uri_get_query(decoded));
-  if (query == nullptr) {
-    return;
+  if (query != nullptr) {
+    evhttp_parse_query_str(query, params);
   }
-  evhttp_parse_query_str(query, params);
+  evhttp_uri_free(const_cast<evhttp_uri*>(decoded));
 }
 void ParsePostRequest(const evhttp_request* req, char* buff) {
   size_t post_size = 0;
