@@ -12,6 +12,7 @@
 #include <mutex>
 
 // Event definition moved into the avs_analyzer namespace below.
+#include "Utils/common.h"
 #include "frame.h"
 #include "task.h"
 #include "event.h"
@@ -65,7 +66,7 @@ class CombinedEventManager {
     Transition transition{Transition::kNone};
   };
 
-  CombinedEventManager() = default;
+  CombinedEventManager(): event_id_counter_(getCurTimestamp()) {};
 
   void UpdateConfig(const CombinedEventConfig& config);
   void SetAnnotator(const DynamicAnnotator* annotator) noexcept {
