@@ -17,6 +17,43 @@
 
 namespace avs_analyzer {
 
+void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
+                                   const std::string& video_type,
+                                   const std::string& video_path,
+                                   const std::string& create_time,
+                                   int64_t file_size) const {
+  if (admin_host.empty()) {
+    LOGW("Alarm::PostAlarmVideoToAdmin: admin_host is empty, skipping.");
+    return;
+  }
+
+  std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
+  
+  // Make path relative to upload_dir
+  std::string relative_path = video_path;
+  if (relative_path.find(upload_dir) == 0) {
+    relative_path.erase(0, upload_dir.length() + 1);
+  }
+  
+  nlohmann::json param{
+    {"videoCode", video_code},
+    {"videoType", video_type},
+    {"videoPath", relative_path},
+    {"alarmId", std::to_string(id)},
+    {"createTime", create_time}
+  };
+  
+  if (file_size > 0) {
+    param["fileSize"] = file_size;
+  }
+  
+  const std::string data = param.dump();
+  std::string response;
+  Request::post(url.data(), data.data(), response);
+  
+  LOGI("Alarm::PostAlarmVideoToAdmin: {} video reported - request:{} response:{}", video_type, url, response);
+}
+
 Alarm::Alarm(std::string upload_dir, std::string admin_host, int width, int height,
              int64_t id, int fps)
     : upload_dir(std::move(upload_dir)),
@@ -51,34 +88,8 @@ void Alarm::AddFrameToHls(const Event& event) const {
 void Alarm::ReportHlsToAdmin(const std::string& playlist_path,
                              std::chrono::time_point<std::chrono::system_clock> start_ts,
                              const std::string& video_code) const {
-  if (admin_host.empty()) {
-    LOGW("Alarm::ReportHlsToAdmin: admin_host is empty, skipping.");
-    return;
-  }
-  
-  std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
-  
-  // Make path relative to upload_dir
-  std::string relative_path = playlist_path;
-  if (relative_path.find(upload_dir) == 0) {
-    relative_path.erase(0, upload_dir.length() + 1);
-  }
-  
   std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-  
-  nlohmann::json param{
-    {"videoCode", video_code},
-    {"videoType", "hls"},
-    {"videoPath", relative_path},
-    {"alarmId", std::to_string(id)},
-    {"createTime", start_time}
-  };
-  
-  const std::string data = param.dump();
-  std::string response;
-  Request::post(url.data(), data.data(), response);
-  
-  LOGI("Alarm::ReportHlsToAdmin: HLS stream reported - request:{} response:{}", url, response);
+  PostAlarmVideoToAdmin(video_code, "hls", playlist_path, start_time);
 }
 
 void Alarm::Finalize(
@@ -135,25 +146,7 @@ void Alarm::Finalize(
     auto file_size = getFileSize(video_path);
 
     // report saved video
-    if (!admin_host.empty()) {
-      std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
-      nlohmann::json param{
-        {"videoCode", video_code},
-        {"videoType", "mp4"},
-        {"videoPath", video_path.substr(upload_dir.length() + 1)},
-        {"alarmId", std::to_string(id)},
-        {"createTime", start_time},
-        {"fileSize", file_size}
-      };
-
-      const std::string data = param.dump();
-      std::string response;
-      Request::post(url.data(), data.data(), response);
-
-      LOGI("Alarm::Finalize report success: request:{} response:{}", url, response);
-    } else {
-      LOGW("Alarm::Finalize: admin_host is empty, skipping reporting for {}", video_path);
-    }
+    PostAlarmVideoToAdmin(video_code, "mp4", video_path, start_time, file_size);
   }
 }
 
@@ -207,32 +200,9 @@ void Alarm::FinializeHlsEvent(
     auto file_size = getFileSize(mp4_path);
 
     // Report MP4 to admin
-    if (!admin_host.empty()) {
-      std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
-      
-      // Make path relative to upload_dir
-      std::string relative_path = mp4_path;
-      if (relative_path.find(upload_dir) == 0) {
-        relative_path.erase(0, upload_dir.length() + 1);
-      }
-
-      nlohmann::json param {
-      {"videoCode", video_code},
-      {"videoType", "mp4"},
-      {"videoPath", relative_path},
-      {"alarmId", std::to_string(alarm_id)},
-      {"createTime", start_time},
-      {"fileSize", file_size}
-      };
-
-      const std::string data = param.dump();
-      std::string response;
-      Request::post(url.data(), data.data(), response);
-
-      LOGI("Alarm async HLS-to-MP4 report success: request:{} response:{}", url, response);
-    } else {
-      LOGW("Alarm async reencode: admin_host is empty, skipping reporting");
-    }
+    // Need to create a temporary Alarm object to call the helper function
+    Alarm temp_alarm(upload_dir, admin_host, 0, 0, alarm_id, 0);
+    temp_alarm.PostAlarmVideoToAdmin(video_code, "mp4", mp4_path, start_time, file_size);
   });
 }
 }  // namespace avs_analyzer

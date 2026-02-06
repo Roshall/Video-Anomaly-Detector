@@ -43,6 +43,15 @@ struct Alarm {
                          std::chrono::time_point<std::chrono::system_clock> start_ts,
                          const std::string& video_code) const;
 
+private:
+  // Helper function to post alarm video to admin
+  void PostAlarmVideoToAdmin(const std::string& video_code,
+                             const std::string& video_type,
+                             const std::string& video_path,
+                             const std::string& create_time,
+                             int64_t file_size = 0) const;
+
+public:
   std::string upload_dir;
   std::string admin_host;
   int width, height, fps;
