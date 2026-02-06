@@ -839,9 +839,9 @@ void Worker::DetectEvent() {
 
     if (combined_result.flushed_event) {
       if (auto& event_ptr = combined_result.flushed_event.value()) {
+        auto start_ts = timer_.compute(event_ptr->start_timestamp);
         scheduler->AddAlarm({alarm_finalizer, std::move(event_ptr),
-                             timer_.compute(event_ptr->start_timestamp),
-                             video_code_});
+                             start_ts, video_code_});
       }
     }
 
@@ -870,9 +870,9 @@ void Worker::DetectEvent() {
     if (!event_ptr) {
       continue;
     }
+    auto start_ts = timer_.compute(event_ptr->start_timestamp);
     scheduler->AddAlarm({alarm_finalizer, std::move(event_ptr),
-                         timer_.compute(event_ptr->start_timestamp),
-                         video_code_});
+                         start_ts, video_code_});
   }
 }
 
