@@ -259,6 +259,7 @@ bool Recorder::EncodeAndWrite(AVFrame* frame) {
     reused_pkt_->stream_index = stream_->index;
     av_packet_rescale_ts(reused_pkt_.get(), video_codec_ctx_->time_base,
                          stream_->time_base);
+    reused_pkt_->duration = 1;
     if (ret = av_interleaved_write_frame(output_ctx_.get(), reused_pkt_.get());
         ret < 0) {
       get_frame = false;

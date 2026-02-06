@@ -362,6 +362,7 @@ bool ReencodeHlsToSuggestedMp4(const Recorder::HlsPaths& paths, const ReencodeCo
     while ((ret = avcodec_receive_packet(enc_ctx.get(), out_pkt.get())) >= 0) {
       av_packet_rescale_ts(out_pkt.get(), enc_ctx->time_base, out_stream->time_base);
       out_pkt->stream_index = out_stream->index;
+      out_pkt->duration = 1;
       if ((ret = av_interleaved_write_frame(out_ctx.get(), out_pkt.get())) < 0) {
         LOGE_FFMPEG("ReencodeHlsToSuggestedMp4: error writing packet", ret);
         return false;
