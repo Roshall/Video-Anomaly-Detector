@@ -48,6 +48,39 @@ void Alarm::AddFrameToHls(const Event& event) const {
   LOGD("Alarm::AddFrameToHls: added {} frames to HLS recorder", event.frames.size());
 }
 
+void Alarm::ReportHlsToAdmin(const std::string& playlist_path,
+                             std::chrono::time_point<std::chrono::system_clock> start_ts,
+                             const std::string& video_code) const {
+  if (admin_host.empty()) {
+    LOGW("Alarm::ReportHlsToAdmin: admin_host is empty, skipping.");
+    return;
+  }
+  
+  std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
+  
+  // Make path relative to upload_dir
+  std::string relative_path = playlist_path;
+  if (relative_path.find(upload_dir) == 0) {
+    relative_path.erase(0, upload_dir.length() + 1);
+  }
+  
+  std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
+  
+  nlohmann::json param{
+    {"videoCode", video_code},
+    {"videoType", "hls"},
+    {"videoPath", relative_path},
+    {"alarmId", std::to_string(id)},
+    {"createTime", start_time}
+  };
+  
+  const std::string data = param.dump();
+  std::string response;
+  Request::post(url.data(), data.data(), response);
+  
+  LOGI("Alarm::ReportHlsToAdmin: HLS stream reported - request:{} response:{}", url, response);
+}
+
 void Alarm::Finalize(
     std::unique_ptr<Event> event,
     std::chrono::time_point<std::chrono::system_clock> start_ts,
@@ -57,6 +90,13 @@ void Alarm::Finalize(
     if (event && event->more_segments) {
       // Intermediate slice: buffer frames to HLS
       AddFrameToHls(*event);
+      
+      // Report HLS stream on first intermediate event (for live playback)
+      if (!hls_reported && hls_recorder->last_hls_paths.has_value()) {
+        const auto& playlist_path = hls_recorder->last_hls_paths.value().playlist;
+        ReportHlsToAdmin(playlist_path, start_ts, video_code);
+        hls_reported = true;
+      }
     } else {
       // Final slice: close and reencode
       FinializeHlsEvent(std::move(event), start_ts, video_code);
@@ -97,12 +137,14 @@ void Alarm::Finalize(
     // report saved video
     if (!admin_host.empty()) {
       std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
-      nlohmann::json param;
-      param["videoCode"] = video_code;
-      param["videoPath"] = video_path.substr(upload_dir.length() + 1);
-      param["alarmId"] = std::to_string(id);
-      param["createTime"] = start_time;
-      param["fileSize"] = file_size;
+      nlohmann::json param{
+        {"videoCode", video_code},
+        {"videoType", "mp4"},
+        {"videoPath", video_path.substr(upload_dir.length() + 1)},
+        {"alarmId", std::to_string(id)},
+        {"createTime", start_time},
+        {"fileSize", file_size}
+      };
 
       const std::string data = param.dump();
       std::string response;
@@ -176,6 +218,7 @@ void Alarm::FinializeHlsEvent(
 
       nlohmann::json param {
       {"videoCode", video_code},
+      {"videoType", "mp4"},
       {"videoPath", relative_path},
       {"alarmId", std::to_string(alarm_id)},
       {"createTime", start_time},

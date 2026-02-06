@@ -26,6 +26,11 @@ struct Alarm {
   
   void SetId(int64_t new_id) { id = new_id; }
   
+  // Report HLS stream .m3u8 path to admin for live playback
+  void ReportHlsToAdmin(const std::string& playlist_path,
+                       std::chrono::time_point<std::chrono::system_clock> start_ts,
+                       const std::string& video_code) const;
+  
   void SetHlsRecorder(std::unique_ptr<Recorder> recorder) {
     hls_recorder = std::move(recorder);
   }
@@ -43,6 +48,7 @@ struct Alarm {
   int width, height, fps;
   int64_t id;
   mutable std::unique_ptr<Recorder> hls_recorder;
+  mutable bool hls_reported{false};  // Track if HLS stream has been reported to admin
 };
 
 }  // namespace avs_analyzer
