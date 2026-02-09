@@ -132,7 +132,7 @@ Config::Config(const char* file) {
       }
       if (hls_obj.contains("segment_format")) {
         std::string fmt = hls_obj["segment_format"];
-        if (fmt == "mpegts") {
+        if (fmt.ends_with("ts")) {
           hls_config.segment_format = Recorder::HlsSegmentFormat::kMpegts;
         } else {
           hls_config.segment_format = Recorder::HlsSegmentFormat::kFmp4;
@@ -183,6 +183,10 @@ void Config::Show() {
          "Font Path          : %s\n"
          "Legend Position    : %s\n"
          "BunkOff Overlap    : %.3f\n"
+         "HLS Segment Seconds: %d\n"
+         "HLS Playlist Size  : %d\n"
+         "HLS Delete Segments: %s\n"
+         "HLS Segment Format : %s\n"
          "----------------------\n",
          state ? "true" : "false",
          thread_pool_size,
@@ -200,6 +204,10 @@ void Config::Show() {
          alarm_sound_cooldown_sec,
          font_path.c_str(),
          legend_position.c_str(),
-         bunkoff_overlap_ratio);
+         bunkoff_overlap_ratio,
+         hls_config.segment_seconds,
+         hls_config.playlist_size,
+         hls_config.delete_segments ? "true" : "false",
+         hls_config.segment_format == Recorder::HlsSegmentFormat::kMpegts ? "mpegts" : "fmp4");
 }
 }  // namespace avs_analyzer
