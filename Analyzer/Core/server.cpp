@@ -594,15 +594,16 @@ void ApiStorageUsage(evhttp_request* req, void* arg) {
   }
 
   const uintmax_t total_bytes = space_info.capacity;
-  const uintmax_t used_bytes = space_info.capacity - space_info.available;
+  const uintmax_t available_bytes = space_info.available;
   const uintmax_t alarm_bytes = dir_size_bytes(upload_path / "alarms");
   const uintmax_t clips_bytes = dir_size_bytes(upload_path / "clips");
 
-  nlohmann::json result;
-  result["total_bytes"] = total_bytes;
-  result["used_bytes"] = used_bytes;
-  result["alarm_bytes"] = alarm_bytes;
-  result["clips_bytes"] = clips_bytes;
+  nlohmann::json result{
+    {"total_bytes", total_bytes},
+    {"available_bytes", available_bytes},
+    {"alarm_bytes", alarm_bytes},
+    {"clips_bytes", clips_bytes}
+  };
   send_json(req, HTTP_OK, result.dump());
 }
 void ApiAllMonitors(evhttp_request* req, void* arg) {
