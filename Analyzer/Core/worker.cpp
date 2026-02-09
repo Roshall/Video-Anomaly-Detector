@@ -760,10 +760,10 @@ void Worker::DetectEvent() {
         auto hls_recorder = std::make_unique<Recorder>(
             Recorder::VideoConfig{width, height, in_stream->video_codec_ctx->framerate.num});
         
-        // Create inline HLS paths in alarm directory
+        // Create inline HLS paths in alarms directory
         std::string start_time = FrameWallClock::to_iso8601_utc(std::chrono::system_clock::now());
         std::filesystem::path hls_dir = std::filesystem::path(scheduler->GetConfig().upload_dir) /
-                                         "alarm" / "videos" / video_code_ / start_time ;
+                                         "alarms" / "videos" / video_code_ / start_time ;
         
         if (!std::filesystem::exists(hls_dir)) {
           try {
