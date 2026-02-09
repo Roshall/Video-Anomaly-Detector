@@ -55,10 +55,10 @@ class Recorder {
     int segment_seconds{5};
 
     // Sliding window size. 0 means keep all entries.
-    int playlist_size{6};
+    int playlist_size{0};
 
     // If true and playlist_size > 0, old segments are deleted.
-    bool delete_segments{true};
+    bool delete_segments{false};
   };  
 
   explicit Recorder(VideoConfig config);
