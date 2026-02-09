@@ -42,6 +42,7 @@ using namespace avs_analyzer;
 constexpr int kRecvBufMaxSize = 1024 * 8;
 
 void ApiCleanupFiles(evhttp_request* req, void* arg);
+void ApiStorageUsage(evhttp_request* req, void* arg);
 
 std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
                             FileRouteOptions& file_route_opt) {
@@ -62,6 +63,7 @@ std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
     evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
     evhttp_set_cb(http, "/api/cleanup_files", ApiCleanupFiles, &scheduler);
+    evhttp_set_cb(http, "/api/storage_usage", ApiStorageUsage, &scheduler);
     evhttp_set_cb(http, "/file", file_route_cb, &file_route_opt);
     evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
 
@@ -98,6 +100,33 @@ static bool path_contains_dotdot(const std::filesystem::path& p) {
     if (part == "..") return true;
   }
   return false;
+}
+
+static uintmax_t dir_size_bytes(const std::filesystem::path& root) {
+  std::error_code ec;
+  if (!std::filesystem::exists(root, ec)) {
+    return 0;
+  }
+
+  uintmax_t total = 0;
+  std::filesystem::recursive_directory_iterator it(
+      root, std::filesystem::directory_options::skip_permission_denied, ec);
+  const std::filesystem::recursive_directory_iterator end;
+  for (; it != end; it.increment(ec)) {
+    if (ec) {
+      ec.clear();
+      continue;
+    }
+    if (it->is_regular_file(ec)) {
+      if (!ec) {
+        total += it->file_size(ec);
+      }
+    }
+    if (ec) {
+      ec.clear();
+    }
+  }
+  return total;
 }
 
 static int probe_rtsp_url(const std::string& url, int timeout_ms) {
@@ -331,6 +360,7 @@ void ApiIndex(evhttp_request* req, void*) {
   result_urls["/api/control/cancel"] = "cancel control";
   result_urls["/api/largeModelCalcu"] = "largeModelCalcu";
   result_urls["/api/cleanup_files"] = "remove files under upload_dir";
+  result_urls["/api/storage_usage"] = "storage usage for upload_dir";
 
   nlohmann::json result;
   result["urls"] = result_urls;
@@ -539,6 +569,40 @@ void ApiCleanupFiles(evhttp_request* req, void* arg) {
   }
   result["errors"] = errors;
 
+  send_json(req, HTTP_OK, result.dump());
+}
+
+void ApiStorageUsage(evhttp_request* req, void* arg) {
+  auto* scheduler = static_cast<Scheduler*>(arg);
+  if (!scheduler) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"scheduler not available"})");
+    return;
+  }
+
+  const std::string upload_dir = scheduler->GetConfig().upload_dir;
+  if (upload_dir.empty()) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"upload_dir is empty"})");
+    return;
+  }
+
+  const std::filesystem::path upload_path(upload_dir);
+  std::error_code ec;
+  const auto space_info = std::filesystem::space(upload_path, ec);
+  if (ec) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"failed to read disk space"})");
+    return;
+  }
+
+  const uintmax_t total_bytes = space_info.capacity;
+  const uintmax_t used_bytes = space_info.capacity - space_info.available;
+  const uintmax_t alarm_bytes = dir_size_bytes(upload_path / "alarms");
+  const uintmax_t clips_bytes = dir_size_bytes(upload_path / "clips");
+
+  nlohmann::json result;
+  result["total_bytes"] = total_bytes;
+  result["used_bytes"] = used_bytes;
+  result["alarm_bytes"] = alarm_bytes;
+  result["clips_bytes"] = clips_bytes;
   send_json(req, HTTP_OK, result.dump());
 }
 void ApiAllMonitors(evhttp_request* req, void* arg) {
