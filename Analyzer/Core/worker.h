@@ -68,6 +68,7 @@ class Worker {
   // Notify admin stream start/end state transitions
   void NotifyAdminStreamEvent(std::string_view state);
   std::atomic<bool> admin_stream_active_notified_{false};
+  std::atomic<bool> canceled_all_monitors_{false};
 
   Scheduler* scheduler;
   std::unique_ptr<AvPullStream> in_stream{};

@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -679,6 +680,8 @@ void Worker::DetectEvent() {
   EnsureAnnotatorReady();
   RebuildEventManager();
 
+  int64_t last_combined_start_pts = 0;
+
   while (State()) {
     if (!GrabFrame(frame_yuv420p.get())) {
       continue;
@@ -755,6 +758,7 @@ void Worker::DetectEvent() {
         admin_stream_active_notified_.store(true, std::memory_order_release);
         NotifyAdminStreamEvent("start");
         alarm_finalizer->SetId(combined_event_id);
+        last_combined_start_pts = timestamp;
         
         // Initialize HLS recorder for this event
         auto hls_recorder = std::make_unique<Recorder>(
@@ -854,10 +858,11 @@ void Worker::DetectEvent() {
   }
 
   std::vector<std::unique_ptr<Event>> tail_events;
+  bool had_active = false;
   {
     std::lock_guard lock(event_manager_mutex_);
     if (event_manager_) {
-      bool had_active = event_manager_->HasActiveEvent();
+      had_active = event_manager_->HasActiveEvent();
       tail_events = event_manager_->FlushPending();
       // If we were previously active, ensure admin is notified about stream end on flush.
       if (had_active && admin_stream_active_notified_.load(std::memory_order_acquire)) {
@@ -865,6 +870,13 @@ void Worker::DetectEvent() {
         NotifyAdminStreamEvent("end");
       }
     }
+  }
+  if (had_active && tail_events.empty() &&
+      canceled_all_monitors_.load(std::memory_order_acquire)) {
+    auto start_ts = last_combined_start_pts > 0
+                        ? timer_.compute(last_combined_start_pts)
+                        : std::chrono::system_clock::now();
+    scheduler->AddAlarm({alarm_finalizer, nullptr, start_ts, video_code_});
   }
   for (auto& event_ptr : tail_events) {
     if (!event_ptr) {
@@ -949,6 +961,7 @@ void Worker::RemoveMonitorsBatch(const std::vector<std::string>& codes) {
   }
 
   if (remove_worker) {
+    canceled_all_monitors_.store(true, std::memory_order_release);
     Remove();
   } else if (removed_count > 0) {
     // Rebuild only once after all monitors are removed
