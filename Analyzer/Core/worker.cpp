@@ -280,6 +280,7 @@ void Worker::OfflineAnalyze() {
     LOGE("empty frame.");
     return;
   }
+  const int64_t start_timestamp = example->best_effort_timestamp;
   convertor_ = std::make_unique<FormatConvertor>(width,
                                                 height,
                                                 in.PixelFormat(),
@@ -352,11 +353,12 @@ void Worker::OfflineAnalyze() {
     if (!frame) {
       break;
     }
-    const auto timestamp = frame->best_effort_timestamp;
+    const auto timestamp = frame->best_effort_timestamp - start_timestamp;
+    frame->best_effort_timestamp = timestamp;
     frame->time_base = in_time_base;
     frame->pict_type = AV_PICTURE_TYPE_NONE;
     const auto timestamp_ms =
-        av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
+      av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
     AddTasks(frame, in_time_base);
     
     std::vector<CombinedEventManager::DetectorFrameInfo> info_vec;
