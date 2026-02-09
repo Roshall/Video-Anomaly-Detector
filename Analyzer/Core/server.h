@@ -21,6 +21,7 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg);
 void ApiProbeRtsp(evhttp_request* req, void* arg);
 void ApiCleanupFiles(evhttp_request* req, void* arg);
 void ApiStorageUsage(evhttp_request* req, void* arg);
+void ApiClip(evhttp_request* req, void* arg);
 void ParseGetRequest(const evhttp_request* req, evkeyvalq* params);
 void ParsePostRequest(const evhttp_request* req, char* buff);
 void ApiSnapShot(evhttp_request* req, void*);
