@@ -437,14 +437,14 @@ void ApiClip(evhttp_request* req, void* arg) {
     return false;
   };
 
-  double start_s = 0.0;
-  double end_s = 0.0;
-  if (!root.contains("start_s") || !parse_double(root["start_s"], start_s)) {
-    send_json(req, HTTP_BADREQUEST, R"({"error":"invalid start_s"})");
+  double start_offset = 0.0;
+  double end_offset = 0.0;
+  if (!root.contains("start_offset") || !parse_double(root["start_offset"], start_offset)) {
+    send_json(req, HTTP_BADREQUEST, R"({"error":"invalid start_offset"})");
     return;
   }
-  if (!root.contains("end_s") || !parse_double(root["end_s"], end_s)) {
-    send_json(req, HTTP_BADREQUEST, R"({"error":"invalid end_s"})");
+  if (!root.contains("end_offset") || !parse_double(root["end_offset"], end_offset)) {
+    send_json(req, HTTP_BADREQUEST, R"({"error":"invalid end_offset"})");
     return;
   }
 
@@ -454,7 +454,7 @@ void ApiClip(evhttp_request* req, void* arg) {
       send_json(req, HTTP_BADREQUEST, R"({"error":"invalid max_duration"})");
       return;
     }
-    if ((end_s - start_s) > max_duration) {
+    if ((end_offset - start_offset) > max_duration) {
       send_json(req, HTTP_BADREQUEST, R"({"error":"duration exceeds max_duration"})");
       return;
     }
@@ -490,15 +490,15 @@ void ApiClip(evhttp_request* req, void* arg) {
   const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();
-  const int64_t start_ms = static_cast<int64_t>(start_s * 1000.0);
-  const int64_t end_ms = static_cast<int64_t>(end_s * 1000.0);
+  const int64_t start_ms = static_cast<int64_t>(start_offset * 1000.0);
+  const int64_t end_ms = static_cast<int64_t>(end_offset * 1000.0);
   const std::string stem = input_path.stem().string().empty() ? "clip" : input_path.stem().string();
   const std::string name = std::format("{}_{}_{}_{}.mp4", stem, start_ms, end_ms, ts);
   const std::filesystem::path output_path = clips_dir / name;
 
   std::string err;
   double actual_duration = 0.0;
-  if (!clip_video_segment(input_path, output_path, start_s, end_s, actual_duration, err)) {
+  if (!clip_video_segment(input_path, output_path, start_offset, end_offset, actual_duration, err)) {
     send_json(req, HTTP_BADREQUEST, std::format(R"({{"error":"{}"}})", escape_json(err)));
     return;
   }
