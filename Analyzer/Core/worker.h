@@ -111,6 +111,7 @@ class Worker {
   void AddTasks(AVFrame* frame, AVRational time_base) const;
   std::vector<Task> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
+  CombinedEventConfig ComputeCombinedEventConfig(bool offline_mode) const;
   static int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,

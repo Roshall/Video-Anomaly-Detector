@@ -55,13 +55,14 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
 }
 
 Alarm::Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-             int64_t id, int fps)
+             int64_t id, int fps, OutputMode mode)
     : upload_dir(std::move(upload_dir)),
       admin_host(std::move(admin_host)),
       width(width),
       height(height),
       fps(fps),
       id(id),
+      output_mode(mode),
       hls_recorder(nullptr) {}
 
 void Alarm::AddFrameToHls(const Event& event) const {
@@ -96,6 +97,15 @@ void Alarm::Finalize(
     std::unique_ptr<Event> event,
     std::chrono::time_point<std::chrono::system_clock> start_ts,
     const std::string& video_code) const {
+  if (output_mode == OutputMode::kMp4Only) {
+    if (hls_recorder) {
+      LOGW("Alarm::Finalize: mp4-only mode ignores HLS recorder.");
+      hls_recorder.reset();
+    }
+    FinalizeMp4Event(std::move(event), start_ts, video_code);
+    return;
+  }
+
   if (hls_recorder) {
     // Check if this is an intermediate slice or final event
     if (event && event->more_segments) {
@@ -113,41 +123,48 @@ void Alarm::Finalize(
       FinializeHlsEvent(std::move(event), start_ts, video_code);
     }
   } else {
-    // Direct MP4 recording (legacy mode)
-    if (!event || event->frames.empty()) {
-      LOGW("Alarm::Finalize: empty event or no frames, skipping.");
-      return;
-    }
-
-    Recorder recorder({width, height, fps});
-    std::filesystem::path prefix_dir{upload_dir};
-    std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-    prefix_dir = prefix_dir / "alarms" / "videos" / video_code / start_time;
-
-    if (!std::filesystem::exists(prefix_dir)) {
-      try {
-        std::filesystem::create_directories(prefix_dir);
-      } catch (std::filesystem::filesystem_error& e) {
-        LOGE("Alarm::Finalize create_directories error: {}", e.what());
-      }
-    }
-
-    auto video_path = std::format("{}/{}.mp4", prefix_dir.string(), event->frames[0]->data->best_effort_timestamp);
-
-    if (!recorder.Initialize(video_path, Recorder::OutputType::kFile)) {
-      LOGE("Alarm::Finalize: cannot initialize recorder at {}", video_path);
-      return;
-    }
-
-    for (auto& frame : event->frames) {
-      recorder.AddVideoFrame(frame->data.get());
-    }
-    recorder.CloseOutputSegment();
-    auto file_size = getFileSize(video_path);
-
-    // report saved video
-    PostAlarmVideoToAdmin(video_code, "mp4", video_path, start_time, file_size);
+    FinalizeMp4Event(std::move(event), start_ts, video_code);
   }
+}
+
+void Alarm::FinalizeMp4Event(
+    std::unique_ptr<Event> event,
+    std::chrono::time_point<std::chrono::system_clock> start_ts,
+    const std::string& video_code) const {
+  if (!event || event->frames.empty()) {
+    LOGW("Alarm::FinalizeMp4Event: empty event or no frames, skipping.");
+    return;
+  }
+
+  Recorder recorder({width, height, fps});
+  std::filesystem::path prefix_dir{upload_dir};
+  std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
+  prefix_dir = prefix_dir / "alarms" / "videos" / video_code / start_time;
+
+  if (!std::filesystem::exists(prefix_dir)) {
+    try {
+      std::filesystem::create_directories(prefix_dir);
+    } catch (std::filesystem::filesystem_error& e) {
+      LOGE("Alarm::FinalizeMp4Event create_directories error: {}", e.what());
+    }
+  }
+
+  auto video_path = std::format("{}/{}.mp4", prefix_dir.string(),
+                                event->frames[0]->data->best_effort_timestamp);
+
+  if (!recorder.Initialize(video_path, Recorder::OutputType::kFile)) {
+    LOGE("Alarm::FinalizeMp4Event: cannot initialize recorder at {}", video_path);
+    return;
+  }
+
+  for (auto& frame : event->frames) {
+    recorder.AddVideoFrame(frame->data.get());
+  }
+  recorder.CloseOutputSegment();
+  auto file_size = getFileSize(video_path);
+
+  // report saved video
+  PostAlarmVideoToAdmin(video_code, "mp4", video_path, start_time, file_size);
 }
 
 void Alarm::FinializeHlsEvent(

@@ -11,9 +11,11 @@
 namespace avs_analyzer {
 
 struct Alarm {
+  enum class OutputMode { kAuto, kMp4Only };
+
   Alarm() = delete;
-  Alarm(std::string upload_dir, std::string admin_host, int width, int height, int64_t id = 0,
-        int fps = 25);
+  Alarm(std::string upload_dir, std::string admin_host, int width, int height,
+        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
@@ -25,6 +27,7 @@ struct Alarm {
                 const std::string& video_code) const;
   
   void SetId(int64_t new_id) { id = new_id; }
+  void SetOutputMode(OutputMode mode) { output_mode = mode; }
   
   // Report HLS stream .m3u8 path to admin for live playback
   void ReportHlsToAdmin(const std::string& playlist_path,
@@ -44,6 +47,9 @@ struct Alarm {
                          const std::string& video_code) const;
 
 private:
+  void FinalizeMp4Event(std::unique_ptr<Event> event,
+                        std::chrono::time_point<std::chrono::system_clock> start_ts,
+                        const std::string& video_code) const;
   // Helper function to post alarm video to admin
   void PostAlarmVideoToAdmin(const std::string& video_code,
                              const std::string& video_type,
@@ -56,6 +62,7 @@ public:
   std::string admin_host;
   int width, height, fps;
   int64_t id;
+  OutputMode output_mode{OutputMode::kAuto};
   mutable std::unique_ptr<Recorder> hls_recorder;
   mutable bool hls_reported{false};  // Track if HLS stream has been reported to admin
 };

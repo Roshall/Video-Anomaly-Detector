@@ -337,12 +337,13 @@ void Worker::OfflineAnalyze() {
   if (annotator) {
     event_manager_ = std::make_unique<CombinedEventManager>();
     event_manager_->SetAnnotator(annotator.get());
-    event_manager_->UpdateConfig(ComputeCombinedEventConfig());
+    event_manager_->UpdateConfig(ComputeCombinedEventConfig(true));
   }
 
   auto alarm_finalizer = std::make_shared<Alarm>(
       scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
       width, height);
+  alarm_finalizer->SetOutputMode(Alarm::OutputMode::kMp4Only);
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
@@ -505,6 +506,10 @@ bool Worker::NeedPushStream() const {
 }
 
 CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
+  return ComputeCombinedEventConfig(false);
+}
+
+CombinedEventConfig Worker::ComputeCombinedEventConfig(bool offline_mode) const {
   CombinedEventConfig cfg{};
   std::shared_lock lock(monitors_mutex_);
   for (const auto& ctx : monitors_) {
@@ -523,6 +528,9 @@ CombinedEventConfig Worker::ComputeCombinedEventConfig() const {
   if (scheduler) {
     cfg.slice_ms =
         scheduler->GetConfig().hls_config.segment_seconds * 1000;
+  }
+  if (offline_mode && cfg.max_event_duration_ms > 0) {
+    cfg.slice_ms = cfg.max_event_duration_ms;
   }
   return cfg;
 }
