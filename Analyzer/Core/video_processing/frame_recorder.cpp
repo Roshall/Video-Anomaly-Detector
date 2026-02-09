@@ -89,7 +89,7 @@ bool Recorder::Initialize(std::string_view file_path, OutputType type,
 
   fmt_options.set("hls_segment_filename", paths.segment_pattern.c_str(), 0);
 
-  std::string hls_flags = "independent_segments+program_date_time+temp_file+append_list+omit_endlist";
+  std::string hls_flags = "independent_segments+program_date_time+temp_file+append_list";
   if (hls.delete_segments && playlist_size > 0) {
     hls_flags += "+delete_segments";
   }
