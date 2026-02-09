@@ -1,5 +1,6 @@
 #include "server_apis/api_common.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -150,8 +151,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
   }
   avformat_flush(in_ctx.get());
 
-  std::vector<int64_t> first_pts(in_ctx->nb_streams, AV_NOPTS_VALUE);
-  std::vector<int64_t> first_dts(in_ctx->nb_streams, AV_NOPTS_VALUE);
+  std::vector<int64_t> first_ts(in_ctx->nb_streams, AV_NOPTS_VALUE);
   int64_t first_ref_pts = AV_NOPTS_VALUE;
   int64_t last_ref_pts = AV_NOPTS_VALUE;
   bool wrote_any = false;
@@ -186,11 +186,14 @@ bool clip_video_segment(const std::filesystem::path& input_path,
       continue;
     }
 
-    if (pkt->pts != AV_NOPTS_VALUE && first_pts[idx] == AV_NOPTS_VALUE) {
-      first_pts[idx] = pkt->pts;
-    }
-    if (pkt->dts != AV_NOPTS_VALUE && first_dts[idx] == AV_NOPTS_VALUE) {
-      first_dts[idx] = pkt->dts;
+    if (first_ts[idx] == AV_NOPTS_VALUE) {
+      if (pkt->pts != AV_NOPTS_VALUE && pkt->dts != AV_NOPTS_VALUE) {
+        first_ts[idx] = std::min(pkt->pts, pkt->dts);
+      } else if (pkt->pts != AV_NOPTS_VALUE) {
+        first_ts[idx] = pkt->pts;
+      } else if (pkt->dts != AV_NOPTS_VALUE) {
+        first_ts[idx] = pkt->dts;
+      }
     }
 
     if (idx == ref_index) {
@@ -207,14 +210,14 @@ bool clip_video_segment(const std::filesystem::path& input_path,
       }
     }
 
-    if (pkt->pts != AV_NOPTS_VALUE && first_pts[idx] != AV_NOPTS_VALUE) {
-      pkt->pts -= first_pts[idx];
+    if (pkt->pts != AV_NOPTS_VALUE && first_ts[idx] != AV_NOPTS_VALUE) {
+      pkt->pts -= first_ts[idx];
       if (pkt->pts < 0) {
         pkt->pts = 0;
       }
     }
-    if (pkt->dts != AV_NOPTS_VALUE && first_dts[idx] != AV_NOPTS_VALUE) {
-      pkt->dts -= first_dts[idx];
+    if (pkt->dts != AV_NOPTS_VALUE && first_ts[idx] != AV_NOPTS_VALUE) {
+      pkt->dts -= first_ts[idx];
       if (pkt->dts < 0) {
         pkt->dts = 0;
       }
@@ -230,6 +233,9 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     }
     if (pkt->duration > 0) {
       pkt->duration = av_rescale_q(pkt->duration, in_stream->time_base, out_stream->time_base);
+    }
+    if (pkt->pts != AV_NOPTS_VALUE && pkt->dts != AV_NOPTS_VALUE && pkt->dts > pkt->pts) {
+      pkt->dts = pkt->pts;
     }
     pkt->pos = -1;
 
@@ -500,6 +506,8 @@ void ApiClip(evhttp_request* req, void* arg) {
 
   std::string err;
   double actual_duration = 0.0;
+  LOGD("Clipping video segment: input='{}' output='{}' start={} end={}", 
+       input_path.string(), output_path.string(), start_offset, end_offset);
   if (!clip_video_segment(input_path, output_path, start_offset, end_offset, actual_duration, err)) {
     send_json(req, HTTP_BADREQUEST, std::format(R"({{"error":"{}"}})", escape_json(err)));
     return;
