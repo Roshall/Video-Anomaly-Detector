@@ -140,7 +140,8 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     return false;
   }
 
-  const int64_t seek_ts = static_cast<int64_t>(start_s * AV_TIME_BASE);
+  const int64_t base_ts = (in_ctx->start_time != AV_NOPTS_VALUE) ? in_ctx->start_time : 0;
+  const int64_t seek_ts = base_ts + static_cast<int64_t>(start_s * AV_TIME_BASE);
   ret = av_seek_frame(in_ctx.get(), -1, seek_ts, AVSEEK_FLAG_BACKWARD);
   if (ret < 0) {
     LOGE_FFMPEG("clip: seek failed", ret);
@@ -172,7 +173,8 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     const int64_t pkt_ts = (pkt->pts != AV_NOPTS_VALUE) ? pkt->pts : pkt->dts;
     double pkt_time_s = -1.0;
     if (pkt_ts != AV_NOPTS_VALUE) {
-      pkt_time_s = pkt_ts * av_q2d(in_stream->time_base);
+      const int64_t pkt_ts_av = av_rescale_q(pkt_ts, in_stream->time_base, AV_TIME_BASE_Q);
+      pkt_time_s = (pkt_ts_av - base_ts) / static_cast<double>(AV_TIME_BASE);
     }
 
     if (idx == ref_index && pkt_time_s >= 0.0 && pkt_time_s >= end_s) {
