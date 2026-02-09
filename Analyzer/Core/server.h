@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "Utils/file_server_cb.h"
+#include "server_apis/api_common.h"
 #include "scheduler.h"
 
 struct evhttp_request;
@@ -22,8 +23,6 @@ void ApiProbeRtsp(evhttp_request* req, void* arg);
 void ApiCleanupFiles(evhttp_request* req, void* arg);
 void ApiStorageUsage(evhttp_request* req, void* arg);
 void ApiClip(evhttp_request* req, void* arg);
-void ParseGetRequest(const evhttp_request* req, evkeyvalq* params);
-void ParsePostRequest(const evhttp_request* req, char* buff);
 void ApiSnapShot(evhttp_request* req, void*);
 void alarm_sound_cv(evhttp_request* req, void* arg);
 

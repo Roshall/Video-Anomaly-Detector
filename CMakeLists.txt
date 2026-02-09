@@ -362,6 +362,13 @@ set(source
         Analyzer/Core/general_analyzer.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
+        Analyzer/Core/server_apis/api_alarm.cpp
+        Analyzer/Core/server_apis/api_common.cpp
+        Analyzer/Core/server_apis/api_media.cpp
+        Analyzer/Core/server_apis/api_monitor.cpp
+        Analyzer/Core/server_apis/api_rtsp.cpp
+        Analyzer/Core/server_apis/api_storage.cpp
+        Analyzer/Core/server_apis/api_system.cpp
         Analyzer/Core/streamer.cpp
         Analyzer/Core/task.cpp
         Analyzer/Core/track_algorithm.cpp
@@ -376,6 +383,7 @@ set(source
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         Analyzer/Core/Utils/request.cpp
+        Analyzer/Core/Utils/fast_rm_files.cpp
         Analyzer/Core/Utils/file_server_cb.h
         Analyzer/Core/video_processing/annotator.cpp
         Analyzer/Core/video_processing/annotator.h
