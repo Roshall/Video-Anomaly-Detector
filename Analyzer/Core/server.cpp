@@ -8,6 +8,7 @@
 
 #include <format>
 #include <charconv>
+#include <filesystem>
 #include <numeric>
 #include <sstream>
 #include <thread>
@@ -21,6 +22,7 @@ extern "C" {
 #include "Utils/base64.h"
 #include "Utils/common.h"
 #include "Utils/file_server_cb.h"
+#include "Utils/fast_rm_files.h"
 #include "Utils/log.h"
 #include "alarm_sound.h"
 #include "config.h"
@@ -38,6 +40,8 @@ static int extract_port(const std::string& ip_address) {
 using namespace avs_analyzer;
 
 constexpr int kRecvBufMaxSize = 1024 * 8;
+
+void ApiCleanupFiles(evhttp_request* req, void* arg);
 
 std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
                             FileRouteOptions& file_route_opt) {
@@ -57,6 +61,7 @@ std::thread HTTPServerStart(Scheduler& scheduler, event_base* event_base_p,
     evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
     evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, &scheduler);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
+    evhttp_set_cb(http, "/api/cleanup_files", ApiCleanupFiles, &scheduler);
     evhttp_set_cb(http, "/file", file_route_cb, &file_route_opt);
     evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
 
@@ -86,6 +91,13 @@ static int get_int_any(const nlohmann::json& v, int def = 0) {
 
 static std::string get_string(const nlohmann::json& v, const std::string& def = "") {
   return v.is_string() ? v.get<std::string>() : def;
+}
+
+static bool path_contains_dotdot(const std::filesystem::path& p) {
+  for (const auto& part : p) {
+    if (part == "..") return true;
+  }
+  return false;
 }
 
 static int probe_rtsp_url(const std::string& url, int timeout_ms) {
@@ -318,6 +330,7 @@ void ApiIndex(evhttp_request* req, void*) {
   result_urls["/api/control/add"] = "add control";
   result_urls["/api/control/cancel"] = "cancel control";
   result_urls["/api/largeModelCalcu"] = "largeModelCalcu";
+  result_urls["/api/cleanup_files"] = "remove files under upload_dir";
 
   nlohmann::json result;
   result["urls"] = result_urls;
@@ -436,6 +449,95 @@ void ApiProbeRtsp(evhttp_request* req, void* arg) {
       ++idx;
     }
   }
+
+  send_json(req, HTTP_OK, result.dump());
+}
+
+void ApiCleanupFiles(evhttp_request* req, void* arg) {
+  auto* scheduler = static_cast<Scheduler*>(arg);
+  if (!scheduler) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"scheduler not available"})");
+    return;
+  }
+
+  const std::string upload_dir = scheduler->GetConfig().upload_dir;
+  if (upload_dir.empty()) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"upload_dir is empty"})");
+    return;
+  }
+
+  nlohmann::json root;
+  if (!get_request_json(req, root)) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
+    return;
+  }
+
+  if (!root.is_array()) {
+    send_json(req, HTTP_BADREQUEST, R"({"msg":"request body must be an array"})");
+    return;
+  }
+
+  std::vector<std::string> full_paths;
+  full_paths.reserve(root.size());
+  nlohmann::json validation_errors = nlohmann::json::array();
+
+  const std::filesystem::path upload_root(upload_dir);
+  for (const auto& item : root) {
+    if (!item.is_string()) {
+      validation_errors.push_back({{"path", ""}, {"message", "path must be string"}});
+      continue;
+    }
+
+    const std::string rel = item.get<std::string>();
+    if (rel.empty()) {
+      validation_errors.push_back({{"path", rel}, {"message", "path is empty"}});
+      continue;
+    }
+
+    std::filesystem::path rel_path(rel);
+    if (rel_path.is_absolute()) {
+      validation_errors.push_back({{"path", rel}, {"message", "absolute path rejected"}});
+      continue;
+    }
+
+    rel_path = rel_path.lexically_normal();
+    if (path_contains_dotdot(rel_path)) {
+      validation_errors.push_back({{"path", rel}, {"message", "path contains .."}});
+      continue;
+    }
+
+    const std::filesystem::path full = upload_root / rel_path;
+    full_paths.push_back(full.string());
+  }
+
+  fast_remove_files::Options opt;
+  opt.stop_at = upload_dir;
+  opt.allow_dotdot = false;
+  opt.collect_errors = true;
+
+  const auto rep = fast_remove_files::remove_files_and_empty_parents_pmr(full_paths, opt);
+
+  nlohmann::json result {
+    {"filesRequested", rep.files_requested},
+    {"filesRemoved", rep.files_removed},
+    {"filesMissingOk", rep.files_missing_ok},
+    {"dirsRemoved", rep.dirs_removed},
+    {"unlinkFailed", rep.unlink_failed},
+    {"rmdirFailed", rep.rmdir_failed},
+    {"skippedPaths", rep.skipped_paths}
+
+  };
+
+  nlohmann::json errors = nlohmann::json::array();
+  for (const auto& e : rep.errors) {
+    if (!e.message.empty()) {
+      errors.push_back({{"path", e.path}, {"message", e.message}});
+    }
+  }
+  for (const auto& e : validation_errors) {
+    errors.push_back(e);
+  }
+  result["errors"] = errors;
 
   send_json(req, HTTP_OK, result.dump());
 }
