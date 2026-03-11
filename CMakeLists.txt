@@ -11,8 +11,15 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
 set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_BUILD_TYPE DEBUG)
-SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd -march=native")
-SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=native")
+# -march=native is invalid for a cross-compiler: it probes the host CPU, not the target.
+# For aarch64 the correct flag (-march=armv8.2-a) is added below in the arch block.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd")
+    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=armv8.2-a")
+else()
+    SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd -march=native")
+    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=native")
+endif()
 
 set(ARCH_X86_64 "x86_64")
 set(ARCH_AARCH64 "aarch64")
@@ -25,10 +32,19 @@ endif()
 
 option(BUILD_TESTS "Build unit tests" OFF)
 
-list(APPEND CMAKE_PREFIX_PATH
-        "${CMAKE_SOURCE_DIR}/3rdparty"
-        "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
-)
+# FT2000+ has no NVIDIA GPU; use the CPU-only aarch64 prebuilt.
+# The folder name matches the official GitHub release tarball name.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    list(APPEND CMAKE_PREFIX_PATH
+            "${CMAKE_SOURCE_DIR}/3rdparty"
+            "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-aarch64-1.23.0"
+    )
+else()
+    list(APPEND CMAKE_PREFIX_PATH
+            "${CMAKE_SOURCE_DIR}/3rdparty"
+            "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
+    )
+endif()
 
 find_package(Threads REQUIRED)
 
@@ -443,6 +459,49 @@ target_include_directories(Analyzer PRIVATE
 
 target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
 
+# ---------------------------------------------------------------------------
+# Deployment: library directories and C++ runtime bundling
+# ---------------------------------------------------------------------------
+
+# THIRDPARTY_LIB_DIRS tells the RUNTIME_DEPENDENCIES installer where to find
+# our cross-compiled (or host-compiled) third-party shared libraries.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    # CROSS_INSTALL_PREFIX is defined in the aarch64-toolchain.cmake file.
+    # It points to /opt/aarch64-sysroot where all dependencies were installed.
+    set(THIRDPARTY_LIB_DIRS
+            "${CROSS_INSTALL_PREFIX}/lib"
+    )
+else()
+    set(THIRDPARTY_LIB_DIRS
+            "${CMAKE_SOURCE_DIR}/3rdparty/lib"
+    )
+endif()
+
+# Bundle the GCC C++ runtime so the binary runs on target systems that have
+# an older libstdc++ (e.g., openEuler 22.04 ships with GCC 10/11 runtime
+# while we compile with GCC 13 for full C++20 support: std::format,
+# std::jthread, std::counting_semaphore, ranges::transform, etc.).
+#
+# CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES is populated automatically by CMake
+# from the chosen compiler, so this works regardless of GCC version or
+# the exact toolchain installation prefix.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    foreach(_rtlib libstdc++.so.6 libgcc_s.so.1)
+        foreach(_libdir ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
+            set(_rtlib_path "${_libdir}/${_rtlib}")
+            if(EXISTS "${_rtlib_path}")
+                # Resolve the symlink so cmake --install copies the real file,
+                # but install it under the plain SONAME that the binary expects.
+                file(REAL_PATH "${_rtlib_path}" _rtlib_real)
+                install(PROGRAMS "${_rtlib_real}" DESTINATION lib
+                        RENAME "${_rtlib}")
+                message(STATUS "Will bundle runtime lib: ${_rtlib_real} -> lib/${_rtlib}")
+                break()
+            endif()
+        endforeach()
+    endforeach()
+endif()
+
 
 install(TARGETS Analyzer
         RUNTIME DESTINATION bin
@@ -465,7 +524,9 @@ install(
         ".*libresolv\\.so.*"
         ".*libnsl\\.so.*"
         ".*libgcc_s\\.so.*"
-        # (optional) exclude stdc++; if you want to bundle it, remove this line
+        # libstdc++ and libgcc_s are excluded from the RUNTIME_DEPENDENCIES
+        # scanner because they are bundled explicitly by the install(PROGRAMS)
+        # loop above (aarch64) or left to the system (x86_64).
         ".*libstdc\\+\\+\\.so.*"
         ".*gtest.*" ".*gmock.*"
         POST_EXCLUDE_REGEXES
