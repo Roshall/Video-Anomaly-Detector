@@ -12,10 +12,10 @@ set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_BUILD_TYPE DEBUG)
 # -march=native is invalid for a cross-compiler: it probes the host CPU, not the target.
-# For aarch64 the correct flag (-march=armv8.2-a) is added below in the arch block.
+# For aarch64 the correct flag (-march=armv8-a) is added below in the arch block.
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd")
-    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=armv8.2-a")
+    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=armv8-a")
 else()
     SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd -march=native")
     SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=native")
@@ -36,8 +36,8 @@ option(BUILD_TESTS "Build unit tests" OFF)
 # The folder name matches the official GitHub release tarball name.
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     list(APPEND CMAKE_PREFIX_PATH
-            "${CMAKE_SOURCE_DIR}/3rdparty"
-            "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-aarch64-1.23.0"
+            "${CMAKE_SOURCE_DIR}/3rdparty-aarch64"
+            "${CMAKE_SOURCE_DIR}/3rdparty-aarch64/onnxruntime-linux-aarch64-1.23.0"
     )
 else()
     list(APPEND CMAKE_PREFIX_PATH
