@@ -532,36 +532,82 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     endforeach()
 endif()
 
-
+# 1. Install the main executable
 install(TARGETS Analyzer
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
 )
 
-install(
-        TARGETS Analyzer
-        RUNTIME_DEPENDENCIES
-        PRE_EXCLUDE_REGEXES
-        # exclude core system libs
-        ".*ld-linux.*\\.so.*"
-        ".*linux-vdso.*"
-        ".*libc\\.so.*"
-        ".*libm\\.so.*"
-        ".*libdl\\.so.*"
-        ".*librt\\.so.*"
-        ".*libpthread\\.so.*"
-        ".*libresolv\\.so.*"
-        ".*libnsl\\.so.*"
-        ".*libgcc_s\\.so.*"
-        # libstdc++ and libgcc_s are excluded from the RUNTIME_DEPENDENCIES
-        # scanner because they are bundled explicitly by the install(PROGRAMS)
-        # loop above (aarch64) or left to the system (x86_64).
-        ".*libstdc\\+\\+\\.so.*"
-        ".*gtest.*" ".*gmock.*"
-        POST_EXCLUDE_REGEXES
-        # skip GPU driver bits, if accidentally seen
-        ".*dri/.*"
-        DIRECTORIES
-        ${THIRDPARTY_LIB_DIRS}
-)
+# 2. Dependency Handling: Cross-Compiling vs. Native
+if(CMAKE_CROSSCOMPILING)
+    message(STATUS "Cross-compiling detected: Using manual dependency installation.")
+
+    # --- A. ONNX Runtime ---
+    if(ONNXRUNTIME_LIBRARY)
+        # We use REAL_PATH to ensure we get the actual .so file if it's a symlink
+        file(REAL_PATH "${ONNXRUNTIME_LIBRARY}" ONNX_REAL_PATH)
+        get_filename_component(ONNX_SO_NAME "${ONNXRUNTIME_LIBRARY}" NAME)
+        install(FILES "${ONNX_REAL_PATH}" 
+                DESTINATION lib 
+                RENAME "${ONNX_SO_NAME}")
+    endif()
+
+    # --- B. Miniaudio ---
+    if(MINIAUDIO_LIBRARY)
+        install(FILES "${MINIAUDIO_LIBRARY}" DESTINATION lib)
+    endif()
+
+    # --- C. System & PkgConfig Libraries (FFmpeg, Curl, Freetype, ALSA, etc.) ---
+    # We collect the library names from the PkgConfig modules you found earlier
+    set(CROSS_DEPS 
+        ${FFMPEG_LIBRARIES} 
+        ${CURL_LIBRARIES} 
+        ${FREETYPE_LIBRARIES} 
+        ${ALSA_LIBRARIES}
+        event_core event_pthreads event_extra # Libevent
+    )
+
+    foreach(lib_name ${CROSS_DEPS})
+        # Search for the .so in the sysroot lib folders
+        find_library(LIB_PATH_${lib_name} 
+                     NAMES "lib${lib_name}.so"
+                     PATHS "${THIRDPARTY_LIB_DIRS}" "/usr/lib/aarch64-linux-gnu" "/lib/aarch64-linux-gnu"
+                     NO_DEFAULT_PATH)
+        
+        if(LIB_PATH_${lib_name})
+            file(REAL_PATH "${LIB_PATH_${lib_name}}" LIB_REAL)
+            # Use the generic .so name so the binary can find it
+            install(FILES "${LIB_REAL}" 
+                    DESTINATION lib 
+                    RENAME "lib${lib_name}.so")
+        endif()
+    endforeach()
+
+    # --- D. OpenCV Libraries ---
+    # OpenCV_LIBS usually contains full paths to the .so files
+    foreach(cv_lib ${OpenCV_LIBS})
+        if(EXISTS "${cv_lib}")
+            get_filename_component(cv_name "${cv_lib}" NAME)
+            install(FILES "${cv_lib}" DESTINATION lib)
+        endif()
+    endforeach()
+
+else()
+    # --- Native Build (x86_64) Logic ---
+    # For native builds, RUNTIME_DEPENDENCIES works perfectly
+    message(STATUS "Native build detected: Using RUNTIME_DEPENDENCIES scanner.")
+    
+    install(TARGETS Analyzer
+            RUNTIME_DEPENDENCIES
+            PRE_EXCLUDE_REGEXES
+                ".*ld-linux.*\\.so.*" ".*linux-vdso.*" ".*libc\\.so.*"
+                ".*libm\\.so.*" ".*libdl\\.so.*" ".*librt\\.so.*"
+                ".*libpthread\\.so.*" ".*libresolv\\.so.*" ".*libnsl\\.so.*"
+                ".*libgcc_s\\.so.*" ".*gtest.*" ".*gmock.*"
+            POST_EXCLUDE_REGEXES
+                ".*dri/.*"
+            DIRECTORIES
+                ${THIRDPARTY_LIB_DIRS}
+    )
+endif()
