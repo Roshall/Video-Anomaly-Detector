@@ -32,14 +32,7 @@ endif()
 
 option(BUILD_TESTS "Build unit tests" OFF)
 
-# FT2000+ has no NVIDIA GPU; use the CPU-only aarch64 prebuilt.
-# The folder name matches the official GitHub release tarball name.
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    list(APPEND CMAKE_PREFIX_PATH
-            "${CMAKE_SOURCE_DIR}/3rdparty-aarch64"
-            "${CMAKE_SOURCE_DIR}/3rdparty-aarch64/onnxruntime-linux-aarch64-1.23.0"
-    )
-else()
+if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     list(APPEND CMAKE_PREFIX_PATH
             "${CMAKE_SOURCE_DIR}/3rdparty"
             "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
@@ -82,9 +75,9 @@ endif ()
 
 find_package(concurrentqueue CONFIG REQUIRED)
 if (concurrentqueue_FOUND)
-    message(STATUS "readerwriterqueue found")
+    message(STATUS "concurrentqueue found")
 else ()
-    message(FATAL_ERROR "readerwriterqueue not found")
+    message(FATAL_ERROR "concurrentqueue not found")
 endif ()
 
 # Find spdlog
@@ -102,21 +95,58 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavfilter libavcodec libavfo
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 
-# Find ONNX Runtime (prebuilt, no CMake config)
-find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_c_api.h PATH_SUFFIXES include)
-find_library(ONNXRUNTIME_LIBRARY NAMES onnxruntime PATH_SUFFIXES lib)
-if (ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
-    message(STATUS "ONNX Runtime found: ${ONNXRUNTIME_LIBRARY}")
-else ()
-    message(FATAL_ERROR "ONNX Runtime not found")
-endif ()
-get_filename_component(ONNXRUNTIME_LIBDIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
-# Create a library target for ONNX Runtime to simplify linking
-add_library(onnxruntime UNKNOWN IMPORTED)
-set_target_properties(onnxruntime PROPERTIES
-        IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
-)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+   # Define the path to your local ONNX Runtime
+   set(ONNXRUNTIME_ROOT "${CMAKE_SOURCE_DIR}/3rdparty-aarch64/onnxruntime-linux-aarch64-1.23.0")
+
+   # 1. Find the header file
+   find_path(ONNXRUNTIME_INCLUDE_DIR 
+   NAMES onnxruntime_c_api.h 
+   HINTS "${ONNXRUNTIME_ROOT}"
+   PATH_SUFFIXES include
+   NO_CMAKE_FIND_ROOT_PATH  # Crucial: allows searching outside the CMAKE_SYSROOT
+   )
+
+   # 2. Find the library file
+   find_library(ONNXRUNTIME_LIBRARY 
+   NAMES onnxruntime 
+   HINTS "${ONNXRUNTIME_ROOT}"
+   PATH_SUFFIXES lib
+   NO_CMAKE_FIND_ROOT_PATH  # Crucial: allows searching outside the CMAKE_SYSROOT
+   )
+
+   # 3. Validation and Target Creation
+   if (ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+   message(STATUS "ONNX Runtime found at: ${ONNXRUNTIME_LIBRARY}")
+
+   # Create an IMPORTED target so you can just use 'target_link_libraries(your_app onnxruntime)'
+   if(NOT TARGET onnxruntime)
+           add_library(onnxruntime SHARED IMPORTED)
+           set_target_properties(onnxruntime PROPERTIES
+           IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
+           INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
+           )
+   endif()
+   else ()
+   message(FATAL_ERROR "ONNX Runtime not found! Checked: ${ONNXRUNTIME_ROOT}")
+   endif ()
+else()
+   # Find ONNX Runtime (prebuilt, no CMake config)
+   find_path(ONNXRUNTIME_INCLUDE_DIR NAMES onnxruntime_c_api.h PATH_SUFFIXES include)
+   find_library(ONNXRUNTIME_LIBRARY NAMES onnxruntime PATH_SUFFIXES lib)
+   if (ONNXRUNTIME_INCLUDE_DIR AND ONNXRUNTIME_LIBRARY)
+   message(STATUS "ONNX Runtime found: ${ONNXRUNTIME_LIBRARY}")
+   else ()
+   message(FATAL_ERROR "ONNX Runtime not found")
+   endif ()
+   get_filename_component(ONNXRUNTIME_LIBDIR "${ONNXRUNTIME_LIBRARY}" DIRECTORY)
+   # Create a library target for ONNX Runtime to simplify linking
+   add_library(onnxruntime UNKNOWN IMPORTED)
+   set_target_properties(onnxruntime PROPERTIES
+           IMPORTED_LOCATION "${ONNXRUNTIME_LIBRARY}"
+           INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}"
+   )
+endif()
 
 
 find_path(EIGEN_INCLUDE_DIR NAMES Eigen/Dense PATH_SUFFIXES include/eigen3)
