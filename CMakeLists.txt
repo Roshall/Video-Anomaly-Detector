@@ -419,6 +419,7 @@ set(source
         Analyzer/Core/server_apis/api_rtsp.cpp
         Analyzer/Core/server_apis/api_storage.cpp
         Analyzer/Core/server_apis/api_system.cpp
+        Analyzer/Core/server_apis/api_test.cpp
         Analyzer/Core/streamer.cpp
         Analyzer/Core/task.cpp
         Analyzer/Core/track_algorithm.cpp
@@ -679,3 +680,9 @@ endif()
 
 # 3. Install configuration file
 install(FILES "${CMAKE_SOURCE_DIR}/conf/config.json" DESTINATION conf)
+# Install test helper files
+install(FILES "${CMAKE_SOURCE_DIR}/tests/test_api.py"
+    DESTINATION bin
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ WORLD_READ)
+install(FILES "${CMAKE_SOURCE_DIR}/tests/test_params.json"
+    DESTINATION conf)
