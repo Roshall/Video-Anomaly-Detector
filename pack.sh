@@ -92,8 +92,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Locate installed files ─────────────────────────────────────────────────
-BIN_FILE="${STAGING_DIR}/bin/Analyzer"
-CONFIG_FILE="${STAGING_DIR}/conf/config.json"
+BIN_DIR="${STAGING_DIR}/bin"
+CONF_DIR="${STAGING_DIR}/conf"
+CONFIG_FILE="${CONF_DIR}/config.json"
 TEST_API_PY="${SCRIPT_DIR}/test_api.py"
 TEST_PARAMS_JSON="${SCRIPT_DIR}/test_params.json"
 
@@ -104,10 +105,12 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
     exit 1
 fi
 
-if (( INCLUDE_BIN )) && [[ ! -f "${BIN_FILE}" ]]; then
-    echo "ERROR: Analyzer binary not found: ${BIN_FILE}" >&2
-    echo "       Run: cmake --install <build-dir> --prefix '${STAGING_DIR}'" >&2
-    exit 1
+if (( INCLUDE_BIN )); then
+    if [[ ! -d "${BIN_DIR}" ]] || [[ -z "$(ls -A "${BIN_DIR}" 2>/dev/null)" ]]; then
+        echo "ERROR: bin/ directory not found or empty: ${BIN_DIR}" >&2
+        echo "       Run: cmake --install <build-dir> --prefix '${STAGING_DIR}'" >&2
+        exit 1
+    fi
 fi
 
 if (( INCLUDE_TESTS )); then
@@ -180,11 +183,12 @@ mkdir -p "${PAYLOAD}/conf"
 (( INCLUDE_TESTS ))     && mkdir -p "${PAYLOAD}/tests"
 
 # ── Copy installed files ───────────────────────────────────────────────────
-cp "${CONFIG_FILE}" "${PAYLOAD}/conf/config.json"
+echo "Copying conf files..."
+cp -a "${CONF_DIR}/." "${PAYLOAD}/conf/"
 
 if (( INCLUDE_BIN )); then
-    echo "Copying installed binary..."
-    cp -a "${BIN_FILE}" "${PAYLOAD}/bin/Analyzer"
+    echo "Copying installed binaries..."
+    cp -a "${BIN_DIR}/." "${PAYLOAD}/bin/"
 fi
 
 if (( INCLUDE_LIB )); then
@@ -227,9 +231,11 @@ fi
 # ── Strip binaries ─────────────────────────────────────────────────────────
 if (( DO_STRIP )); then
     if (( INCLUDE_BIN )); then
-        echo "Stripping binary..."
-        "${STRIP_CMD}" --strip-debug "${PAYLOAD}/bin/Analyzer" \
-            && echo "  Stripped: bin/Analyzer"
+        echo "Stripping binaries..."
+        while IFS= read -r -d '' exe; do
+            "${STRIP_CMD}" --strip-debug "${exe}" 2>/dev/null \
+                && echo "  Stripped: bin/$(basename "${exe}")" || true
+        done < <(find "${PAYLOAD}/bin" -maxdepth 1 -type f -print0)
     fi
 
     if (( INCLUDE_LIB )); then
@@ -298,10 +304,12 @@ if [[ -z "${_ARCHIVE_LINE}" ]]; then
 fi
 tail -n +"${_ARCHIVE_LINE}" "$0" | base64 -d | tar -xzf - -C "${_TMP}"
 
-# ── Install binary ─────────────────────────────────────────────────────────
-if [[ -f "${_TMP}/bin/Analyzer" ]]; then
-    echo "Installing binary..."
-    install -m 755 "${_TMP}/bin/Analyzer" "${INSTALL_PREFIX}/bin/Analyzer"
+# ── Install binaries ────────────────────────────────────────────────────────
+if [[ -d "${_TMP}/bin" ]] && [[ -n "$(ls -A "${_TMP}/bin" 2>/dev/null)" ]]; then
+    echo "Installing binaries..."
+    find "${_TMP}/bin" -maxdepth 1 -type f | while read -r exe; do
+        install -m 755 "${exe}" "${INSTALL_PREFIX}/bin/$(basename "${exe}")"
+    done
 fi
 
 # ── Install libraries ──────────────────────────────────────────────────────
@@ -347,12 +355,19 @@ if [[ -f "${_TMP}/tests/test_api.py" ]]; then
                    "${INSTALL_PREFIX}/tests/test_params.json"
 fi
 
+# ── Install conf files ──────────────────────────────────────────────────────
+if [[ -d "${_TMP}/conf" ]] && [[ -n "$(ls -A "${_TMP}/conf" 2>/dev/null)" ]]; then
+    echo "Installing conf files..."
+    cp -a "${_TMP}/conf/." "${INSTALL_PREFIX}/conf/"
+fi
+
 # ── Patch config.json paths to reflect the chosen install prefix ───────────
-echo "Patching config.json..."
-python3 - "${_TMP}/conf/config.json" \
-          "${INSTALL_PREFIX}/conf/config.json" \
-          "${INSTALL_PREFIX}" \
-          "${FONT_BASENAME}" << 'PYEOF'
+if [[ -f "${_TMP}/conf/config.json" ]]; then
+    echo "Patching config.json..."
+    python3 - "${_TMP}/conf/config.json" \
+              "${INSTALL_PREFIX}/conf/config.json" \
+              "${INSTALL_PREFIX}" \
+              "${FONT_BASENAME}" << 'PYEOF'
 import json, os, sys
 
 src, dst, prefix, font_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -373,10 +388,11 @@ with open(dst, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write('\n')
 PYEOF
+fi
 
 # ── Set remaining permissions ──────────────────────────────────────────────
 echo "Setting permissions..."
-chmod 644 "${INSTALL_PREFIX}/conf/config.json"
+find "${INSTALL_PREFIX}/conf" -type f -exec chmod 644 {} \;
 chmod 777 "${INSTALL_PREFIX}/alarm_storage"
 
 # ── Done ───────────────────────────────────────────────────────────────────
@@ -384,7 +400,8 @@ echo ""
 echo "======================================================"
 echo " VideoAnalyzer installed successfully!"
 echo " Prefix   : ${INSTALL_PREFIX}"
-[[ -f "${INSTALL_PREFIX}/bin/Analyzer" ]]     && echo " Binary   : ${INSTALL_PREFIX}/bin/Analyzer"
+[[ -n "$(ls -A "${INSTALL_PREFIX}/bin" 2>/dev/null)" ]] \
+                                               && echo " Binaries : ${INSTALL_PREFIX}/bin/"
 [[ -n "$(ls -A "${INSTALL_PREFIX}/lib" 2>/dev/null)" ]] \
                                                && echo " Libs     : ${INSTALL_PREFIX}/lib/"
 [[ -n "$(ls -A "${INSTALL_PREFIX}/share/alsa" 2>/dev/null)" ]] \
