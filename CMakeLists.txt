@@ -14,8 +14,8 @@ set(CMAKE_BUILD_TYPE DEBUG)
 # -march=native is invalid for a cross-compiler: it probes the host CPU, not the target.
 # For aarch64 the correct flag (-march=armv8-a) is added below in the arch block.
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd")
-    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=armv8-a")
+    SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd -march=armv8-a -mno-outline-atomics")
+    SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=armv8-a -mno-outline-atomics")
 else()
     SET(CMAKE_CXX_FLAGS_DEBUG   "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb -fopenmp-simd -march=native")
     SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall -fopenmp-simd -march=native")
@@ -183,8 +183,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     
     set(AUDIO_LIBS ${ALSA_LIBRARIES})
     
-    # Apply Kunpeng optimizations directly if found
-    add_compile_options(-march=armv8.2-a)
     add_definitions(-DMA_ENABLE_ALSA)
 
 elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
@@ -680,9 +678,32 @@ endif()
 
 # 3. Install configuration file
 install(FILES "${CMAKE_SOURCE_DIR}/conf/config.json" DESTINATION conf)
+
+# 4. Install ALSA configuration directory
+# Find the ALSA share directory and install it entirely
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    find_path(ALSA_SHARE_DIR alsa.conf
+        PATHS "${CROSS_INSTALL_PREFIX}/share/alsa"
+        NO_DEFAULT_PATH
+    )
+else()
+    find_path(ALSA_SHARE_DIR alsa.conf
+        PATH_SUFFIXES ../share/alsa share/alsa
+        PATHS /usr /usr/local
+    )
+endif()
+if(ALSA_SHARE_DIR)
+    get_filename_component(ALSA_PARENT "${ALSA_SHARE_DIR}" DIRECTORY)
+    get_filename_component(ALSA_TOP "${ALSA_PARENT}" DIRECTORY)
+    install(DIRECTORY "${ALSA_TOP}/share/alsa" DESTINATION share)
+    message(STATUS "ALSA share directory found: ${ALSA_TOP}/share/alsa")
+else()
+    message(WARNING "ALSA share directory not found; ALSA audio may not work correctly on target")
+endif()
+
 # Install test helper files
-install(FILES "${CMAKE_SOURCE_DIR}/tests/test_api.py"
+install(FILES "${CMAKE_SOURCE_DIR}/test_api.py"
     DESTINATION bin
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ WORLD_READ)
-install(FILES "${CMAKE_SOURCE_DIR}/tests/test_params.json"
+install(FILES "${CMAKE_SOURCE_DIR}/test_params.json"
     DESTINATION conf)
