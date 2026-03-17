@@ -3,7 +3,7 @@
 #             install.sh
 #
 # Usage:
-#   ./pack.sh [STAGING_DIR]
+#   ./pack.sh [OPTIONS] [STAGING_DIR]
 #
 #   STAGING_DIR  Directory produced by:
 #                    cmake --install <build-dir> --prefix <STAGING_DIR>
@@ -15,8 +15,81 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STAGING_DIR="${1:-${SCRIPT_DIR}/staging}"
+
+# ── Defaults ───────────────────────────────────────────────────────────────
+# Use aarch64 cross-strip by default; --native switches to host strip.
+STRIP_CMD="aarch64-linux-gnu-strip"
+STAGING_DIR="${SCRIPT_DIR}/staging"
+# Output filename for the generated installer script.
 OUTPUT="${SCRIPT_DIR}/install.sh"
+
+# Each component can be toggled independently.
+# Defaults reproduce the original (all-inclusive, strip enabled) behaviour.
+INCLUDE_BIN=1
+INCLUDE_LIB=1
+INCLUDE_RESOURCES=1   # alarm.wav + font
+INCLUDE_ALSA_CONF=1   # ALSA configuration (share/alsa)
+INCLUDE_MODELS=1
+INCLUDE_TESTS=1
+DO_STRIP=1
+
+# ── Usage ──────────────────────────────────────────────────────────────────
+usage() {
+    cat <<'USAGE'
+Usage: ./pack.sh [OPTIONS] [STAGING_DIR]
+
+Options:
+  --native              Use host strip instead of aarch64-linux-gnu-strip
+  --out <file>          Write output installer script to <file>
+  --bin   / --no-bin    Include/exclude Analyzer binary         (default: include)
+  --lib   / --no-lib    Include/exclude shared libraries        (default: include)
+  --resources / --no-resources
+                        Include/exclude alarm.wav + fonts       (default: include)
+  --alsa-conf / --no-alsa-conf
+                        Include/exclude ALSA configuration      (default: include)
+  --models / --no-models
+                        Include/exclude DL model files          (default: include)
+  --tests / --no-tests  Include/exclude test scripts            (default: include)
+  --strip / --no-strip  Strip binaries/libraries                (default: strip)
+  -h, --help            Show this help and exit
+
+  STAGING_DIR           cmake --install prefix  (default: ./staging)
+USAGE
+}
+
+# ── Argument parsing ───────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        --native)       STRIP_CMD="strip"      ;;
+        --out)
+            if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
+                echo "ERROR: --out requires a file path" >&2
+                usage >&2
+                exit 1
+            fi
+            OUTPUT="${2}"
+            shift
+            ;;
+        --bin)          INCLUDE_BIN=1          ;;
+        --no-bin)       INCLUDE_BIN=0          ;;
+        --lib)          INCLUDE_LIB=1          ;;
+        --no-lib)       INCLUDE_LIB=0          ;;
+        --resources)    INCLUDE_RESOURCES=1    ;;
+        --no-resources) INCLUDE_RESOURCES=0    ;;
+        --alsa-conf)    INCLUDE_ALSA_CONF=1    ;;
+        --no-alsa-conf) INCLUDE_ALSA_CONF=0    ;;
+        --models)       INCLUDE_MODELS=1       ;;
+        --no-models)    INCLUDE_MODELS=0       ;;
+        --tests)        INCLUDE_TESTS=1        ;;
+        --no-tests)     INCLUDE_TESTS=0        ;;
+        --strip)        DO_STRIP=1             ;;
+        --no-strip)     DO_STRIP=0             ;;
+        --help|-h)      usage; exit 0          ;;
+        -*)             echo "ERROR: Unknown option '${1}'" >&2; usage >&2; exit 1 ;;
+        *)              STAGING_DIR="${1}"     ;;
+    esac
+    shift
+done
 
 # ── Locate installed files ─────────────────────────────────────────────────
 BIN_FILE="${STAGING_DIR}/bin/Analyzer"
@@ -24,42 +97,71 @@ CONFIG_FILE="${STAGING_DIR}/conf/config.json"
 TEST_API_PY="${SCRIPT_DIR}/test_api.py"
 TEST_PARAMS_JSON="${SCRIPT_DIR}/test_params.json"
 
-if [[ ! -f "${BIN_FILE}" ]]; then
+# config.json is always required (carries asset paths and runtime config).
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "ERROR: config.json not found: ${CONFIG_FILE}" >&2
+    echo "       Run: cmake --install <build-dir> --prefix '${STAGING_DIR}'" >&2
+    exit 1
+fi
+
+if (( INCLUDE_BIN )) && [[ ! -f "${BIN_FILE}" ]]; then
     echo "ERROR: Analyzer binary not found: ${BIN_FILE}" >&2
     echo "       Run: cmake --install <build-dir> --prefix '${STAGING_DIR}'" >&2
     exit 1
 fi
-if [[ ! -f "${CONFIG_FILE}" ]]; then
-    echo "ERROR: config.json not found: ${CONFIG_FILE}" >&2
-    exit 1
-fi
-if [[ ! -f "${TEST_API_PY}" ]]; then
-    echo "ERROR: test_api.py not found: ${TEST_API_PY}" >&2
-    exit 1
-fi
-if [[ ! -f "${TEST_PARAMS_JSON}" ]]; then
-    echo "ERROR: test_params.json not found: ${TEST_PARAMS_JSON}" >&2
-    exit 1
+
+if (( INCLUDE_TESTS )); then
+    if [[ ! -f "${TEST_API_PY}" ]]; then
+        echo "ERROR: test_api.py not found: ${TEST_API_PY}" >&2
+        exit 1
+    fi
+    if [[ ! -f "${TEST_PARAMS_JSON}" ]]; then
+        echo "ERROR: test_params.json not found: ${TEST_PARAMS_JSON}" >&2
+        exit 1
+    fi
 fi
 
 # ── Read asset paths from config.json ─────────────────────────────────────
-echo "Reading asset paths from config.json..."
+MODELS_DIR=""
+ALARM_WAV=""
+FONT_FILE=""
+FONT_BASENAME=""
 
-MODELS_DIR="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['DLModel']['dir'])"           "${CONFIG_FILE}")"
-ALARM_WAV="$(python3  -c "import json,sys; print(json.load(open(sys.argv[1]))['alarm']['soundPath'])"        "${CONFIG_FILE}")"
-FONT_FILE="$(python3  -c "import json,sys; print(json.load(open(sys.argv[1]))['display']['fontPath'])"       "${CONFIG_FILE}")"
+if (( INCLUDE_MODELS || INCLUDE_RESOURCES )); then
+    echo "Reading asset paths from config.json..."
 
-echo "  DLModel.dir      : ${MODELS_DIR}"
-echo "  alarm.soundPath  : ${ALARM_WAV}"
-echo "  display.fontPath : ${FONT_FILE}"
+    if (( INCLUDE_MODELS )); then
+        MODELS_DIR="$(python3 -c \
+            "import json,sys; print(json.load(open(sys.argv[1]))['DLModel']['dir'])" \
+            "${CONFIG_FILE}")"
+        echo "  DLModel.dir      : ${MODELS_DIR}"
+    fi
 
-FONT_BASENAME="$(basename "${FONT_FILE}")"
+    if (( INCLUDE_RESOURCES )); then
+        ALARM_WAV="$(python3 -c \
+            "import json,sys; print(json.load(open(sys.argv[1]))['alarm']['soundPath'])" \
+            "${CONFIG_FILE}")"
+        FONT_FILE="$(python3 -c \
+            "import json,sys; print(json.load(open(sys.argv[1]))['display']['fontPath'])" \
+            "${CONFIG_FILE}")"
+        FONT_BASENAME="$(basename "${FONT_FILE}")"
+        echo "  alarm.soundPath  : ${ALARM_WAV}"
+        echo "  display.fontPath : ${FONT_FILE}"
+    fi
+fi
 
 # ── Validate asset sources ─────────────────────────────────────────────────
 errors=0
-[[ -d "${MODELS_DIR}" ]] || { echo "ERROR: Models dir not found: ${MODELS_DIR}" >&2; errors=$((errors+1)); }
-[[ -f "${ALARM_WAV}"  ]] || { echo "ERROR: Alarm WAV not found : ${ALARM_WAV}"  >&2; errors=$((errors+1)); }
-[[ -f "${FONT_FILE}"  ]] || { echo "ERROR: Font file not found : ${FONT_FILE}"  >&2; errors=$((errors+1)); }
+if (( INCLUDE_MODELS )); then
+    [[ -d "${MODELS_DIR}" ]] \
+        || { echo "ERROR: Models dir not found: ${MODELS_DIR}" >&2; errors=$((errors+1)); }
+fi
+if (( INCLUDE_RESOURCES )); then
+    [[ -f "${ALARM_WAV}" ]] \
+        || { echo "ERROR: Alarm WAV not found : ${ALARM_WAV}"  >&2; errors=$((errors+1)); }
+    [[ -f "${FONT_FILE}" ]] \
+        || { echo "ERROR: Font file not found : ${FONT_FILE}"  >&2; errors=$((errors+1)); }
+fi
 (( errors == 0 )) || exit 1
 
 # ── Assemble payload in a temp workspace ──────────────────────────────────
@@ -67,50 +169,79 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 PAYLOAD="${TMP_DIR}/payload"
-mkdir -p \
-    "${PAYLOAD}/bin" \
-    "${PAYLOAD}/lib" \
-    "${PAYLOAD}/conf" \
-    "${PAYLOAD}/models" \
-    "${PAYLOAD}/resources" \
-    "${PAYLOAD}/fonts" \
-    "${PAYLOAD}/tests"
+
+# conf is always included (config.json drives the runtime).
+mkdir -p "${PAYLOAD}/conf"
+(( INCLUDE_BIN ))       && mkdir -p "${PAYLOAD}/bin"
+(( INCLUDE_LIB ))       && mkdir -p "${PAYLOAD}/lib"
+(( INCLUDE_ALSA_CONF )) && mkdir -p "${PAYLOAD}/share/alsa"
+(( INCLUDE_MODELS ))    && mkdir -p "${PAYLOAD}/models"
+(( INCLUDE_RESOURCES )) && mkdir -p "${PAYLOAD}/resources" "${PAYLOAD}/fonts"
+(( INCLUDE_TESTS ))     && mkdir -p "${PAYLOAD}/tests"
 
 # ── Copy installed files ───────────────────────────────────────────────────
-echo "Copying installed binary..."
-cp -a "${BIN_FILE}" "${PAYLOAD}/bin/Analyzer"
-
-echo "Copying installed libraries..."
-if [[ -d "${STAGING_DIR}/lib" ]]; then
-    cp -a "${STAGING_DIR}/lib/." "${PAYLOAD}/lib/"
-fi
-
 cp "${CONFIG_FILE}" "${PAYLOAD}/conf/config.json"
 
-echo "Copying models..."
-cp -r "${MODELS_DIR}/." "${PAYLOAD}/models/"
+if (( INCLUDE_BIN )); then
+    echo "Copying installed binary..."
+    cp -a "${BIN_FILE}" "${PAYLOAD}/bin/Analyzer"
+fi
 
-echo "Copying resources..."
-cp "${ALARM_WAV}" "${PAYLOAD}/resources/alarm.wav"
+if (( INCLUDE_LIB )); then
+    if [[ -d "${STAGING_DIR}/lib" ]]; then
+        echo "Copying installed libraries..."
+        cp -a "${STAGING_DIR}/lib/." "${PAYLOAD}/lib/"
+    else
+        echo "WARNING: ${STAGING_DIR}/lib not found – lib payload will be empty." >&2
+    fi
+fi
 
-echo "Copying font..."
-cp "${FONT_FILE}" "${PAYLOAD}/fonts/${FONT_BASENAME}"
+if (( INCLUDE_ALSA_CONF )); then
+    if [[ -d "${STAGING_DIR}/share/alsa" ]]; then
+        echo "Copying ALSA configuration..."
+        cp -a "${STAGING_DIR}/share/alsa/." "${PAYLOAD}/share/alsa/"
+    else
+        echo "WARNING: ${STAGING_DIR}/share/alsa not found – ALSA config will not be included." >&2
+    fi
+fi
 
-echo "Copying test scripts..."
-cp "${TEST_API_PY}" "${PAYLOAD}/tests/test_api.py"
-cp "${TEST_PARAMS_JSON}" "${PAYLOAD}/tests/test_params.json"
-chmod +x "${PAYLOAD}/tests/test_api.py"
+if (( INCLUDE_MODELS )); then
+    echo "Copying models..."
+    cp -r "${MODELS_DIR}/." "${PAYLOAD}/models/"
+fi
+
+if (( INCLUDE_RESOURCES )); then
+    echo "Copying resources..."
+    cp "${ALARM_WAV}" "${PAYLOAD}/resources/alarm.wav"
+    echo "Copying font..."
+    cp "${FONT_FILE}" "${PAYLOAD}/fonts/${FONT_BASENAME}"
+fi
+
+if (( INCLUDE_TESTS )); then
+    echo "Copying test scripts..."
+    cp "${TEST_API_PY}"       "${PAYLOAD}/tests/test_api.py"
+    cp "${TEST_PARAMS_JSON}"  "${PAYLOAD}/tests/test_params.json"
+    chmod +x "${PAYLOAD}/tests/test_api.py"
+fi
 
 # ── Strip binaries ─────────────────────────────────────────────────────────
-echo "Stripping binary..."
-strip --strip-debug "${PAYLOAD}/bin/Analyzer" \
-    && echo "  Stripped: bin/Analyzer"
+if (( DO_STRIP )); then
+    if (( INCLUDE_BIN )); then
+        echo "Stripping binary..."
+        "${STRIP_CMD}" --strip-debug "${PAYLOAD}/bin/Analyzer" \
+            && echo "  Stripped: bin/Analyzer"
+    fi
 
-echo "Stripping shared libraries..."
-while IFS= read -r -d '' lib; do
-    strip --strip-debug "${lib}" 2>/dev/null \
-        && echo "  Stripped: lib/$(basename "${lib}")" || true
-done < <(find "${PAYLOAD}/lib" -maxdepth 2 -type f -name "*.so*" -print0)
+    if (( INCLUDE_LIB )); then
+        echo "Stripping shared libraries..."
+        while IFS= read -r -d '' lib; do
+            "${STRIP_CMD}" --strip-debug "${lib}" 2>/dev/null \
+                && echo "  Stripped: lib/$(basename "${lib}")" || true
+        done < <(find "${PAYLOAD}/lib" -maxdepth 2 -type f -name "*.so*" -print0)
+    fi
+else
+    echo "Stripping skipped (--no-strip)."
+fi
 
 # ── Create compressed archive ──────────────────────────────────────────────
 echo "Creating archive..."
@@ -118,8 +249,11 @@ ARCHIVE="${TMP_DIR}/payload.tar.gz"
 tar -czf "${ARCHIVE}" -C "${PAYLOAD}" .
 echo "  Archive size: $(du -sh "${ARCHIVE}" | cut -f1)"
 
-# ── Generate install.sh header (single-quoted heredoc: no $-expansion) ────
-# __FONT_BASENAME__ is a placeholder replaced by sed after the heredoc.
+# ── Generate install.sh ────────────────────────────────────────────────────
+# The embedded installer detects what is present in the payload at runtime, so
+# no pack-time conditionals are needed inside the installer body.  The only
+# pack-time value wired in is FONT_BASENAME (needed to resolve the font path
+# because the basename cannot be inferred from the payload structure alone).
 echo "Generating install.sh..."
 
 cat > "${OUTPUT}" << 'INSTALLER_HEADER'
@@ -134,18 +268,22 @@ set -euo pipefail
 INSTALL_PREFIX="${1:-/opt/VideoAnalyzer}"
 FONT_BASENAME="__FONT_BASENAME__"
 
+# Normalize to an absolute path so config.json always contains absolute paths.
+INSTALL_PREFIX="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${INSTALL_PREFIX}")"
+
 echo "Installing VideoAnalyzer to: ${INSTALL_PREFIX}"
 
 # ── Create directory layout ────────────────────────────────────────────────
 echo "Creating directories..."
 mkdir -p \
-    "${INSTALL_PREFIX}/bin" \
-    "${INSTALL_PREFIX}/lib" \
-    "${INSTALL_PREFIX}/conf" \
-    "${INSTALL_PREFIX}/models" \
-    "${INSTALL_PREFIX}/resources" \
-    "${INSTALL_PREFIX}/fonts" \
-    "${INSTALL_PREFIX}/tests" \
+    "${INSTALL_PREFIX}/bin"           \
+    "${INSTALL_PREFIX}/lib"           \
+    "${INSTALL_PREFIX}/conf"          \
+    "${INSTALL_PREFIX}/share/alsa"    \
+    "${INSTALL_PREFIX}/models"        \
+    "${INSTALL_PREFIX}/resources"     \
+    "${INSTALL_PREFIX}/fonts"         \
+    "${INSTALL_PREFIX}/tests"         \
     "${INSTALL_PREFIX}/alarm_storage"
 
 # ── Extract embedded payload ───────────────────────────────────────────────
@@ -161,38 +299,53 @@ fi
 tail -n +"${_ARCHIVE_LINE}" "$0" | base64 -d | tar -xzf - -C "${_TMP}"
 
 # ── Install binary ─────────────────────────────────────────────────────────
-echo "Installing binary..."
-install -m 755 "${_TMP}/bin/Analyzer" "${INSTALL_PREFIX}/bin/Analyzer"
+if [[ -f "${_TMP}/bin/Analyzer" ]]; then
+    echo "Installing binary..."
+    install -m 755 "${_TMP}/bin/Analyzer" "${INSTALL_PREFIX}/bin/Analyzer"
+fi
 
 # ── Install libraries ──────────────────────────────────────────────────────
-echo "Installing libraries..."
-if [[ -d "${_TMP}/lib" ]]; then
+if [[ -d "${_TMP}/lib" ]] && [[ -n "$(ls -A "${_TMP}/lib" 2>/dev/null)" ]]; then
+    echo "Installing libraries..."
     cp -a "${_TMP}/lib/." "${INSTALL_PREFIX}/lib/"
     find "${INSTALL_PREFIX}/lib" -maxdepth 2 -type f -name "*.so*" \
         -exec chmod 755 {} \;
 fi
 
 # ── Install models ─────────────────────────────────────────────────────────
-echo "Installing models..."
-cp -r "${_TMP}/models/." "${INSTALL_PREFIX}/models/"
-find "${INSTALL_PREFIX}/models" -type f -exec chmod 644 {} \;
+if [[ -d "${_TMP}/models" ]] && [[ -n "$(ls -A "${_TMP}/models" 2>/dev/null)" ]]; then
+    echo "Installing models..."
+    cp -r "${_TMP}/models/." "${INSTALL_PREFIX}/models/"
+    find "${INSTALL_PREFIX}/models" -type f -exec chmod 644 {} \;
+fi
 
 # ── Install resources ──────────────────────────────────────────────────────
-echo "Installing audio resource..."
-install -m 644 "${_TMP}/resources/alarm.wav" \
-               "${INSTALL_PREFIX}/resources/alarm.wav"
+if [[ -f "${_TMP}/resources/alarm.wav" ]]; then
+    echo "Installing audio resource..."
+    install -m 644 "${_TMP}/resources/alarm.wav" \
+                   "${INSTALL_PREFIX}/resources/alarm.wav"
+fi
 
-# ── Install font ───────────────────────────────────────────────────────────
-echo "Installing font..."
-install -m 644 "${_TMP}/fonts/${FONT_BASENAME}" \
-               "${INSTALL_PREFIX}/fonts/${FONT_BASENAME}"
+if [[ -n "${FONT_BASENAME}" ]] && [[ -f "${_TMP}/fonts/${FONT_BASENAME}" ]]; then
+    echo "Installing font..."
+    install -m 644 "${_TMP}/fonts/${FONT_BASENAME}" \
+                   "${INSTALL_PREFIX}/fonts/${FONT_BASENAME}"
+fi
+
+# ── Install ALSA configuration ──────────────────────────────────────────────
+if [[ -d "${_TMP}/share/alsa" ]] && [[ -n "$(ls -A "${_TMP}/share/alsa" 2>/dev/null)" ]]; then
+    echo "Installing ALSA configuration..."
+    cp -a "${_TMP}/share/alsa/." "${INSTALL_PREFIX}/share/alsa/"
+fi
 
 # ── Install test scripts ────────────────────────────────────────────────────
-echo "Installing test scripts..."
-install -m 755 "${_TMP}/tests/test_api.py" \
-               "${INSTALL_PREFIX}/tests/test_api.py"
-install -m 644 "${_TMP}/tests/test_params.json" \
-               "${INSTALL_PREFIX}/tests/test_params.json"
+if [[ -f "${_TMP}/tests/test_api.py" ]]; then
+    echo "Installing test scripts..."
+    install -m 755 "${_TMP}/tests/test_api.py" \
+                   "${INSTALL_PREFIX}/tests/test_api.py"
+    install -m 644 "${_TMP}/tests/test_params.json" \
+                   "${INSTALL_PREFIX}/tests/test_params.json"
+fi
 
 # ── Patch config.json paths to reflect the chosen install prefix ───────────
 echo "Patching config.json..."
@@ -200,16 +353,21 @@ python3 - "${_TMP}/conf/config.json" \
           "${INSTALL_PREFIX}/conf/config.json" \
           "${INSTALL_PREFIX}" \
           "${FONT_BASENAME}" << 'PYEOF'
-import json, sys
+import json, os, sys
 
 src, dst, prefix, font_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 with open(src) as f:
     cfg = json.load(f)
 
-cfg['DLModel']['dir']      = f"{prefix}/models"
-cfg['uploadDir']           = f"{prefix}/alarm_storage"
-cfg['alarm']['soundPath']  = f"{prefix}/resources/alarm.wav"
-cfg['display']['fontPath'] = f"{prefix}/fonts/{font_name}"
+# Only patch each path when the corresponding component was actually installed.
+if os.path.isdir(f"{prefix}/models") and os.listdir(f"{prefix}/models"):
+    cfg['DLModel']['dir'] = f"{prefix}/models"
+if os.path.isdir(f"{prefix}/alarm_storage"):
+    cfg['uploadDir'] = f"{prefix}/alarm_storage"
+if os.path.isfile(f"{prefix}/resources/alarm.wav"):
+    cfg['alarm']['soundPath'] = f"{prefix}/resources/alarm.wav"
+if font_name and os.path.isfile(f"{prefix}/fonts/{font_name}"):
+    cfg['display']['fontPath'] = f"{prefix}/fonts/{font_name}"
 
 with open(dst, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -226,10 +384,17 @@ echo ""
 echo "======================================================"
 echo " VideoAnalyzer installed successfully!"
 echo " Prefix   : ${INSTALL_PREFIX}"
-echo " Binary   : ${INSTALL_PREFIX}/bin/Analyzer"
+[[ -f "${INSTALL_PREFIX}/bin/Analyzer" ]]     && echo " Binary   : ${INSTALL_PREFIX}/bin/Analyzer"
+[[ -n "$(ls -A "${INSTALL_PREFIX}/lib" 2>/dev/null)" ]] \
+                                               && echo " Libs     : ${INSTALL_PREFIX}/lib/"
+[[ -n "$(ls -A "${INSTALL_PREFIX}/share/alsa" 2>/dev/null)" ]] \
+                                               && echo " ALSA     : ${INSTALL_PREFIX}/share/alsa/"
+[[ -n "$(ls -A "${INSTALL_PREFIX}/models" 2>/dev/null)" ]] \
+                                               && echo " Models   : ${INSTALL_PREFIX}/models/"
+[[ -f "${INSTALL_PREFIX}/resources/alarm.wav" ]] \
+                                               && echo " Resources: ${INSTALL_PREFIX}/resources/"
+[[ -f "${INSTALL_PREFIX}/tests/test_api.py" ]] && echo " Tests    : ${INSTALL_PREFIX}/tests/"
 echo " Config   : ${INSTALL_PREFIX}/conf/config.json"
-echo " Models   : ${INSTALL_PREFIX}/models/"
-echo " Tests    : ${INSTALL_PREFIX}/tests/"
 echo " Storage  : ${INSTALL_PREFIX}/alarm_storage/"
 echo "======================================================"
 
