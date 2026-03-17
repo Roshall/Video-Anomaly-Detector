@@ -32,12 +32,16 @@ endif()
 
 option(BUILD_TESTS "Build unit tests" OFF)
 
-if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    set(THIRDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty-aarch64")
+else()
+    set(THIRDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty")
     list(APPEND CMAKE_PREFIX_PATH
-            "${CMAKE_SOURCE_DIR}/3rdparty"
             "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime-linux-x64-gpu-1.23.0"
     )
 endif()
+
+list(APPEND CMAKE_PREFIX_PATH "${THIRDPARTY_DIR}")
 
 find_package(Threads REQUIRED)
 
@@ -480,6 +484,7 @@ target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
 
 # Include directories (if needed beyond what find_package provides)
 target_include_directories(Analyzer PRIVATE
+        ${THIRDPARTY_DIR}/include
         ${OpenCV_INCLUDE_DIRS}
         ${FFMPEG_INCLUDE_DIRS}
         ${CURL_INCLUDE_DIRS}
@@ -507,30 +512,6 @@ else()
     )
 endif()
 
-# Bundle the GCC C++ runtime so the binary runs on target systems that have
-# an older libstdc++ (e.g., openEuler 22.04 ships with GCC 10/11 runtime
-# while we compile with GCC 13 for full C++20 support: std::format,
-# std::jthread, std::counting_semaphore, ranges::transform, etc.).
-#
-# CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES is populated automatically by CMake
-# from the chosen compiler, so this works regardless of GCC version or
-# the exact toolchain installation prefix.
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    foreach(_rtlib libstdc++.so.6 libgcc_s.so.1)
-        foreach(_libdir ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
-            set(_rtlib_path "${_libdir}/${_rtlib}")
-            if(EXISTS "${_rtlib_path}")
-                # Resolve the symlink so cmake --install copies the real file,
-                # but install it under the plain SONAME that the binary expects.
-                file(REAL_PATH "${_rtlib_path}" _rtlib_real)
-                install(PROGRAMS "${_rtlib_real}" DESTINATION lib
-                        RENAME "${_rtlib}")
-                message(STATUS "Will bundle runtime lib: ${_rtlib_real} -> lib/${_rtlib}")
-                break()
-            endif()
-        endforeach()
-    endforeach()
-endif()
 
 # 1. Install the main executable
 install(TARGETS Analyzer
@@ -539,65 +520,149 @@ install(TARGETS Analyzer
         ARCHIVE DESTINATION lib
 )
 
+# ---------------------------------------------------------------------------
+# Helper: resolve a shared library to its real on-disk file and install it
+# under the SONAME recorded in the ELF dynamic section.  The runtime linker
+# resolves DT_NEEDED entries by SONAME (e.g. libfoo.so.1), not by the plain
+# link-time symlink (libfoo.so), so using plain .so names causes "not found".
+# ---------------------------------------------------------------------------
+find_program(READELF_EXECUTABLE NAMES readelf)
+
+function(install_lib_with_soname LIB_PATH DEST_DIR)
+    if(NOT LIB_PATH OR NOT EXISTS "${LIB_PATH}")
+        return()
+    endif()
+    # Dereference all symlinks to get the real file bytes
+    file(REAL_PATH "${LIB_PATH}" _real)
+    # Extract SONAME from ELF dynamic section
+    execute_process(
+        COMMAND "${READELF_EXECUTABLE}" -d "${_real}"
+        OUTPUT_VARIABLE _elf_out
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    string(REGEX MATCH "\\(SONAME\\)[^\n]*\\[([^\n]+)\\]" _m "${_elf_out}")
+    if(CMAKE_MATCH_1)
+        install(FILES "${_real}" DESTINATION "${DEST_DIR}" RENAME "${CMAKE_MATCH_1}")
+    else()
+        get_filename_component(_name "${_real}" NAME)
+        message(WARNING "No SONAME found in ${_real}; installing as ${_name}")
+        install(FILES "${_real}" DESTINATION "${DEST_DIR}")
+    endif()
+endfunction()
+
 # 2. Dependency Handling: Cross-Compiling vs. Native
 if(CMAKE_CROSSCOMPILING)
     message(STATUS "Cross-compiling detected: Using manual dependency installation.")
 
     # --- A. ONNX Runtime ---
     if(ONNXRUNTIME_LIBRARY)
-        # We use REAL_PATH to ensure we get the actual .so file if it's a symlink
-        file(REAL_PATH "${ONNXRUNTIME_LIBRARY}" ONNX_REAL_PATH)
-        get_filename_component(ONNX_SO_NAME "${ONNXRUNTIME_LIBRARY}" NAME)
-        install(FILES "${ONNX_REAL_PATH}" 
-                DESTINATION lib 
-                RENAME "${ONNX_SO_NAME}")
+        install_lib_with_soname("${ONNXRUNTIME_LIBRARY}" lib)
     endif()
 
-    # --- B. Miniaudio ---
+    # --- B. Miniaudio (static archive — no SONAME) ---
     if(MINIAUDIO_LIBRARY)
-        install(FILES "${MINIAUDIO_LIBRARY}" DESTINATION lib)
+        if(MINIAUDIO_LIBRARY MATCHES "\\.a$")
+            install(FILES "${MINIAUDIO_LIBRARY}" DESTINATION lib)
+        else()
+            install_lib_with_soname("${MINIAUDIO_LIBRARY}" lib)
+        endif()
     endif()
 
-    # --- C. System & PkgConfig Libraries (FFmpeg, Curl, Freetype, ALSA, etc.) ---
-    # We collect the library names from the PkgConfig modules you found earlier
-    set(CROSS_DEPS 
-        ${FFMPEG_LIBRARIES} 
-        ${CURL_LIBRARIES} 
-        ${FREETYPE_LIBRARIES} 
-        ${ALSA_LIBRARIES}
-        event_core event_pthreads event_extra # Libevent
-    )
+    # --- C. spdlog ---
+    # spdlog::spdlog may be header-only (INTERFACE) or a shared/static lib.
+    get_target_property(_spdlog_loc spdlog::spdlog IMPORTED_LOCATION_RELEASE)
+    if(NOT _spdlog_loc)
+        get_target_property(_spdlog_loc spdlog::spdlog IMPORTED_LOCATION)
+    endif()
+    if(NOT _spdlog_loc OR NOT EXISTS "${_spdlog_loc}")
+        find_library(_spdlog_loc spdlog
+                     PATHS "${THIRDPARTY_LIB_DIRS}"
+                     NO_DEFAULT_PATH)
+    endif()
+    if(_spdlog_loc AND EXISTS "${_spdlog_loc}")
+        install_lib_with_soname("${_spdlog_loc}" lib)
+    else()
+        message(WARNING "spdlog shared library not found for bundling; skipping.")
+    endif()
+    unset(_spdlog_loc CACHE)
 
+    # --- D. System & PkgConfig Libraries (FFmpeg, Curl, Freetype, ALSA, Libevent) ---
+    set(CROSS_DEPS
+        ${FFMPEG_LIBRARIES}
+        postproc swresample  # transitive FFmpeg deps not in pkg_check_modules list
+        x264                 # libavcodec encoder dependency
+        ${CURL_LIBRARIES}
+        ${FREETYPE_LIBRARIES}
+        ${ALSA_LIBRARIES}
+        event_core event_pthreads event_extra
+    )
     foreach(lib_name ${CROSS_DEPS})
-        # Search for the .so in the sysroot lib folders
-        find_library(LIB_PATH_${lib_name} 
-                     NAMES "lib${lib_name}.so"
+        find_library(_lib_path_${lib_name}
+                     NAMES ${lib_name}
                      PATHS "${THIRDPARTY_LIB_DIRS}" "/usr/lib/aarch64-linux-gnu" "/lib/aarch64-linux-gnu"
                      NO_DEFAULT_PATH)
-        
-        if(LIB_PATH_${lib_name})
-            file(REAL_PATH "${LIB_PATH_${lib_name}}" LIB_REAL)
-            # Use the generic .so name so the binary can find it
-            install(FILES "${LIB_REAL}" 
-                    DESTINATION lib 
-                    RENAME "lib${lib_name}.so")
+        if(_lib_path_${lib_name})
+            install_lib_with_soname("${_lib_path_${lib_name}}" lib)
+        else()
+            message(WARNING "Library '${lib_name}' not found for bundling; skipping.")
         endif()
+        unset(_lib_path_${lib_name} CACHE)
     endforeach()
 
-    # --- D. OpenCV Libraries ---
-    # OpenCV_LIBS usually contains full paths to the .so files
-    foreach(cv_lib ${OpenCV_LIBS})
-        if(EXISTS "${cv_lib}")
-            get_filename_component(cv_name "${cv_lib}" NAME)
-            install(FILES "${cv_lib}" DESTINATION lib)
+    # --- E. OpenCV Libraries ---
+    # OpenCV_LIBS contains imported target names, not file paths, so we must
+    # query each target's location or fall back to find_library.
+    set(_opencv_modules opencv_core opencv_imgproc opencv_dnn opencv_imgcodecs opencv_videoio)
+    foreach(_cv_target ${_opencv_modules})
+        unset(_cv_loc)
+        unset(_cv_loc CACHE)
+        if(TARGET ${_cv_target})
+            get_target_property(_cv_loc ${_cv_target} IMPORTED_LOCATION_RELEASE)
+            if(NOT _cv_loc)
+                get_target_property(_cv_loc ${_cv_target} IMPORTED_LOCATION)
+            endif()
         endif()
+        if(NOT _cv_loc OR NOT EXISTS "${_cv_loc}")
+            find_library(_cv_loc ${_cv_target}
+                         PATHS "${THIRDPARTY_LIB_DIRS}"
+                         NO_DEFAULT_PATH)
+        endif()
+        if(_cv_loc AND EXISTS "${_cv_loc}")
+            install_lib_with_soname("${_cv_loc}" lib)
+        else()
+            message(WARNING "OpenCV library '${_cv_target}' not found for bundling; skipping.")
+        endif()
+        unset(_cv_loc CACHE)
+    endforeach()
+
+    # --- F. GCC C++ runtime ---
+    # The deployment machine ships an older GCC runtime (openEuler 22.04 has
+    # GCC 10/11) which is missing GLIBCXX_3.4.31+ symbols needed by C++20
+    # features (std::format, std::jthread, etc.) compiled with GCC 13.
+    # CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES is populated by CMake from the
+    # active cross-compiler, so this finds the right versioned files regardless
+    # of the exact GCC 13 installation prefix.
+    # DT_RPATH=$ORIGIN/../lib (already set via --disable-new-dtags) ensures
+    # these bundled copies take precedence over the system versions for the
+    # Analyzer process and all libraries it loads transitively.
+    foreach(_rtlib libstdc++.so.6 libgcc_s.so.1)
+        foreach(_rtlibdir ${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES})
+            set(_rtlib_path "${_rtlibdir}/${_rtlib}")
+            if(EXISTS "${_rtlib_path}")
+                file(REAL_PATH "${_rtlib_path}" _rtlib_real)
+                install(PROGRAMS "${_rtlib_real}" DESTINATION lib RENAME "${_rtlib}")
+                message(STATUS "Bundling runtime lib: ${_rtlib_real} -> lib/${_rtlib}")
+                break()
+            endif()
+        endforeach()
     endforeach()
 
 else()
     # --- Native Build (x86_64) Logic ---
     # For native builds, RUNTIME_DEPENDENCIES works perfectly
     message(STATUS "Native build detected: Using RUNTIME_DEPENDENCIES scanner.")
-    
+
     install(TARGETS Analyzer
             RUNTIME_DEPENDENCIES
             PRE_EXCLUDE_REGEXES
@@ -611,3 +676,6 @@ else()
                 ${THIRDPARTY_LIB_DIRS}
     )
 endif()
+
+# 3. Install configuration file
+install(FILES "${CMAKE_SOURCE_DIR}/conf/config.json" DESTINATION conf)
