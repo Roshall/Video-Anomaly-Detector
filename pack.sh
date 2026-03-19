@@ -290,7 +290,8 @@ mkdir -p \
     "${INSTALL_PREFIX}/resources"     \
     "${INSTALL_PREFIX}/fonts"         \
     "${INSTALL_PREFIX}/tests"         \
-    "${INSTALL_PREFIX}/alarm_storage"
+    "${INSTALL_PREFIX}/alarm_storage" \
+    "${INSTALL_PREFIX}/offline_videos"
 
 # ── Extract embedded payload ───────────────────────────────────────────────
 echo "Extracting files..."
@@ -379,6 +380,8 @@ if os.path.isdir(f"{prefix}/models") and os.listdir(f"{prefix}/models"):
     cfg['DLModel']['dir'] = f"{prefix}/models"
 if os.path.isdir(f"{prefix}/alarm_storage"):
     cfg['uploadDir'] = f"{prefix}/alarm_storage"
+if os.path.isdir(f"{prefix}/offline_videos"):
+    cfg['offlineVideoDir'] = f"{prefix}/offline_videos"
 if os.path.isfile(f"{prefix}/resources/alarm.wav"):
     cfg['alarm']['soundPath'] = f"{prefix}/resources/alarm.wav"
 if font_name and os.path.isfile(f"{prefix}/fonts/{font_name}"):
@@ -394,7 +397,7 @@ fi
 echo "Setting permissions..."
 find "${INSTALL_PREFIX}/conf" -type f -exec chmod 644 {} \;
 chmod 777 "${INSTALL_PREFIX}/alarm_storage"
-
+chmod 777 "${INSTALL_PREFIX}/offline_videos"
 # ── Done ───────────────────────────────────────────────────────────────────
 echo ""
 echo "======================================================"
@@ -413,6 +416,7 @@ echo " Prefix   : ${INSTALL_PREFIX}"
 [[ -f "${INSTALL_PREFIX}/tests/test_api.py" ]] && echo " Tests    : ${INSTALL_PREFIX}/tests/"
 echo " Config   : ${INSTALL_PREFIX}/conf/config.json"
 echo " Storage  : ${INSTALL_PREFIX}/alarm_storage/"
+echo " Offline Videos  : ${INSTALL_PREFIX}/offline_videos/"
 echo "======================================================"
 
 exit 0
