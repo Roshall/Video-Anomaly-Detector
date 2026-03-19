@@ -300,6 +300,12 @@ STORAGE_ROOT=""
 FONT_BASENAME="__FONT_BASENAME__"
 CONFIG_INI_INCLUDED=__CONFIG_INI_INCLUDED__
 
+# exit if not run as root (required for writing to /opt and installing systemd services)
+if [[ $EUID -ne 0 ]]; then
+    echo "ERROR: This installer must be run as root (e.g. sudo ./install.sh [INSTALL_PREFIX] [OPTIONS])" >&2
+    exit 1
+fi
+
 # ── Parse optional arguments ───────────────────────────────────────────────
 while [[ $# -gt 1 ]]; do
     shift
@@ -463,8 +469,11 @@ chmod 777 "${STORAGE_ROOT}/offline_videos"
 # ── Generate systemd service files ─────────────────────────────────────────
 echo "Creating systemd service files..."
 
+# Create service files under the chosen install prefix, then copy to systemd
+mkdir -p "${INSTALL_PREFIX}/service"
+
 # Analyzer service
-cat > /etc/systemd/system/analyzer.service << 'ANALYZER_SERVICE'
+cat > "${INSTALL_PREFIX}/service/analyzer.service" << 'ANALYZER_SERVICE'
 [Unit]
 Description=Video Analyzer Service
 After=network.target
@@ -483,7 +492,7 @@ WantedBy=multi-user.target
 ANALYZER_SERVICE
 
 # MediaServer service
-cat > /etc/systemd/system/mediaserver.service << 'MEDIASERVER_SERVICE'
+cat > "${INSTALL_PREFIX}/service/mediaserver.service" << 'MEDIASERVER_SERVICE'
 [Unit]
 Description=Media Server Service
 After=network.target
@@ -499,9 +508,17 @@ RestartSec=10s
 WantedBy=multi-user.target
 MEDIASERVER_SERVICE
 
-# Substitute install prefix in service files
-sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" /etc/systemd/system/analyzer.service
-sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" /etc/systemd/system/mediaserver.service
+# Substitute install prefix in service files in the prefix dir
+sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" "${INSTALL_PREFIX}/service/analyzer.service"
+sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" "${INSTALL_PREFIX}/service/mediaserver.service"
+
+# Copy service files into systemd unit dir so admin can enable/start them
+cp "${INSTALL_PREFIX}/service/analyzer.service" /etc/systemd/system/
+cp "${INSTALL_PREFIX}/service/mediaserver.service" /etc/systemd/system/
+
+# Label the binary as an executable type
+chcon -t bin_t "${INSTALL_PREFIX}/bin/Analyzer"
+chcon -t bin_t "${INSTALL_PREFIX}/bin/MediaServer"
 
 # ── Done ───────────────────────────────────────────────────────────────────
 echo ""
