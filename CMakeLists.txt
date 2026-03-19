@@ -412,6 +412,7 @@ set(source
         Analyzer/Core/server.cpp
         Analyzer/Core/server_apis/api_alarm.cpp
         Analyzer/Core/server_apis/api_common.cpp
+        Analyzer/Core/server_apis/api_file.cpp
         Analyzer/Core/server_apis/api_media.cpp
         Analyzer/Core/server_apis/api_monitor.cpp
         Analyzer/Core/server_apis/api_rtsp.cpp
