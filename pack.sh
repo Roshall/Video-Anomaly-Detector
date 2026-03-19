@@ -31,6 +31,7 @@ INCLUDE_RESOURCES=1   # alarm.wav + font
 INCLUDE_ALSA_CONF=1   # ALSA configuration (share/alsa)
 INCLUDE_MODELS=1
 INCLUDE_TESTS=1
+INCLUDE_CONFIG_INI=1  # MediaServer config file
 DO_STRIP=1
 
 # ── Usage ──────────────────────────────────────────────────────────────────
@@ -50,6 +51,8 @@ Options:
   --models / --no-models
                         Include/exclude DL model files          (default: include)
   --tests / --no-tests  Include/exclude test scripts            (default: include)
+  --config-ini / --no-config-ini
+                        Include/exclude MediaServer config.ini  (default: include)
   --strip / --no-strip  Strip binaries/libraries                (default: strip)
   -h, --help            Show this help and exit
 
@@ -82,6 +85,8 @@ while [[ $# -gt 0 ]]; do
         --no-models)    INCLUDE_MODELS=0       ;;
         --tests)        INCLUDE_TESTS=1        ;;
         --no-tests)     INCLUDE_TESTS=0        ;;
+        --config-ini)   INCLUDE_CONFIG_INI=1   ;;
+        --no-config-ini) INCLUDE_CONFIG_INI=0  ;;
         --strip)        DO_STRIP=1             ;;
         --no-strip)     DO_STRIP=0             ;;
         --help|-h)      usage; exit 0          ;;
@@ -95,6 +100,7 @@ done
 BIN_DIR="${STAGING_DIR}/bin"
 CONF_DIR="${STAGING_DIR}/conf"
 CONFIG_FILE="${CONF_DIR}/config.json"
+CONFIG_INI_FILE="${CONF_DIR}/config.ini"
 TEST_API_PY="${SCRIPT_DIR}/test_api.py"
 TEST_PARAMS_JSON="${SCRIPT_DIR}/test_params.json"
 
@@ -121,6 +127,14 @@ if (( INCLUDE_TESTS )); then
     if [[ ! -f "${TEST_PARAMS_JSON}" ]]; then
         echo "ERROR: test_params.json not found: ${TEST_PARAMS_JSON}" >&2
         exit 1
+    fi
+fi
+
+if (( INCLUDE_CONFIG_INI )); then
+    if [[ ! -f "${CONFIG_INI_FILE}" ]]; then
+        echo "WARNING: config.ini not found: ${CONFIG_INI_FILE}" >&2
+        echo "         MediaServer will not include config file." >&2
+        INCLUDE_CONFIG_INI=0
     fi
 fi
 
@@ -181,6 +195,7 @@ mkdir -p "${PAYLOAD}/conf"
 (( INCLUDE_MODELS ))    && mkdir -p "${PAYLOAD}/models"
 (( INCLUDE_RESOURCES )) && mkdir -p "${PAYLOAD}/resources" "${PAYLOAD}/fonts"
 (( INCLUDE_TESTS ))     && mkdir -p "${PAYLOAD}/tests"
+(( INCLUDE_CONFIG_INI )) && mkdir -p "${PAYLOAD}/conf"
 
 # ── Copy installed files ───────────────────────────────────────────────────
 echo "Copying conf files..."
@@ -228,6 +243,11 @@ if (( INCLUDE_TESTS )); then
     chmod +x "${PAYLOAD}/tests/test_api.py"
 fi
 
+if (( INCLUDE_CONFIG_INI )); then
+    echo "Copying MediaServer config..."
+    cp "${CONFIG_INI_FILE}" "${PAYLOAD}/conf/config.ini"
+fi
+
 # ── Strip binaries ─────────────────────────────────────────────────────────
 if (( DO_STRIP )); then
     if (( INCLUDE_BIN )); then
@@ -266,18 +286,49 @@ cat > "${OUTPUT}" << 'INSTALLER_HEADER'
 #!/usr/bin/env bash
 # install.sh  – Self-extracting installer for VideoAnalyzer
 #
-# Usage:  sudo ./install.sh [INSTALL_PREFIX]
+# Usage:  sudo ./install.sh [INSTALL_PREFIX] [OPTIONS]
 #         Default INSTALL_PREFIX: /opt/VideoAnalyzer
+#
+# Options:
+#   --storage-root <PATH>  Use alternate root for alarm_storage and offline_videos
+#                          (default: under INSTALL_PREFIX)
 
 set -euo pipefail
 
 INSTALL_PREFIX="${1:-/opt/VideoAnalyzer}"
+STORAGE_ROOT=""
 FONT_BASENAME="__FONT_BASENAME__"
+CONFIG_INI_INCLUDED=__CONFIG_INI_INCLUDED__
+
+# ── Parse optional arguments ───────────────────────────────────────────────
+while [[ $# -gt 1 ]]; do
+    shift
+    case "${1:-}" in
+        --storage-root)
+            if [[ -z "${2:-}" ]]; then
+                echo "ERROR: --storage-root requires a path" >&2
+                exit 1
+            fi
+            STORAGE_ROOT="${2}"
+            shift
+            ;;
+        *)
+            echo "ERROR: Unknown option '${1}'" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Default storage root to INSTALL_PREFIX if not specified
+if [[ -z "${STORAGE_ROOT}" ]]; then
+    STORAGE_ROOT="${INSTALL_PREFIX}"
+fi
 
 # Normalize to an absolute path so config.json always contains absolute paths.
 INSTALL_PREFIX="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${INSTALL_PREFIX}")"
 
 echo "Installing VideoAnalyzer to: ${INSTALL_PREFIX}"
+[[ "${STORAGE_ROOT}" != "${INSTALL_PREFIX}" ]] && echo "Storage root: ${STORAGE_ROOT}"
 
 # ── Create directory layout ────────────────────────────────────────────────
 echo "Creating directories..."
@@ -290,8 +341,8 @@ mkdir -p \
     "${INSTALL_PREFIX}/resources"     \
     "${INSTALL_PREFIX}/fonts"         \
     "${INSTALL_PREFIX}/tests"         \
-    "${INSTALL_PREFIX}/alarm_storage" \
-    "${INSTALL_PREFIX}/offline_videos"
+    "${STORAGE_ROOT}/alarm_storage"   \
+    "${STORAGE_ROOT}/offline_videos"
 
 # ── Extract embedded payload ───────────────────────────────────────────────
 echo "Extracting files..."
@@ -356,6 +407,15 @@ if [[ -f "${_TMP}/tests/test_api.py" ]]; then
                    "${INSTALL_PREFIX}/tests/test_params.json"
 fi
 
+# ── Install config.ini (if available) ──────────────────────────────────────
+if (( CONFIG_INI_INCLUDED )); then
+    if [[ -f "${_TMP}/conf/config.ini" ]]; then
+        echo "Installing MediaServer config..."
+        install -m 644 "${_TMP}/conf/config.ini" \
+                       "${INSTALL_PREFIX}/conf/config.ini"
+    fi
+fi
+
 # ── Install conf files ──────────────────────────────────────────────────────
 if [[ -d "${_TMP}/conf" ]] && [[ -n "$(ls -A "${_TMP}/conf" 2>/dev/null)" ]]; then
     echo "Installing conf files..."
@@ -368,20 +428,21 @@ if [[ -f "${_TMP}/conf/config.json" ]]; then
     python3 - "${_TMP}/conf/config.json" \
               "${INSTALL_PREFIX}/conf/config.json" \
               "${INSTALL_PREFIX}" \
+              "${STORAGE_ROOT}" \
               "${FONT_BASENAME}" << 'PYEOF'
 import json, os, sys
 
-src, dst, prefix, font_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+src, dst, prefix, storage_root, font_name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 with open(src) as f:
     cfg = json.load(f)
 
 # Only patch each path when the corresponding component was actually installed.
 if os.path.isdir(f"{prefix}/models") and os.listdir(f"{prefix}/models"):
     cfg['DLModel']['dir'] = f"{prefix}/models"
-if os.path.isdir(f"{prefix}/alarm_storage"):
-    cfg['uploadDir'] = f"{prefix}/alarm_storage"
-if os.path.isdir(f"{prefix}/offline_videos"):
-    cfg['offlineVideoDir'] = f"{prefix}/offline_videos"
+if os.path.isdir(f"{storage_root}/alarm_storage"):
+    cfg['uploadDir'] = f"{storage_root}/alarm_storage"
+if os.path.isdir(f"{storage_root}/offline_videos"):
+    cfg['offlineVideoDir'] = f"{storage_root}/offline_videos"
 if os.path.isfile(f"{prefix}/resources/alarm.wav"):
     cfg['alarm']['soundPath'] = f"{prefix}/resources/alarm.wav"
 if font_name and os.path.isfile(f"{prefix}/fonts/{font_name}"):
@@ -396,8 +457,52 @@ fi
 # ── Set remaining permissions ──────────────────────────────────────────────
 echo "Setting permissions..."
 find "${INSTALL_PREFIX}/conf" -type f -exec chmod 644 {} \;
-chmod 777 "${INSTALL_PREFIX}/alarm_storage"
-chmod 777 "${INSTALL_PREFIX}/offline_videos"
+chmod 777 "${STORAGE_ROOT}/alarm_storage"
+chmod 777 "${STORAGE_ROOT}/offline_videos"
+
+# ── Generate systemd service files ─────────────────────────────────────────
+echo "Creating systemd service files..."
+
+# Analyzer service
+cat > /etc/systemd/system/analyzer.service << 'ANALYZER_SERVICE'
+[Unit]
+Description=Video Analyzer Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__INSTALL_PREFIX__
+Environment="ALSA_CONFIG_DIR=__INSTALL_PREFIX__/share/alsa"
+Environment="ALSA_CONFIG_PATH=__INSTALL_PREFIX__/share/alsa/alsa.conf"
+ExecStart=__INSTALL_PREFIX__/bin/Analyzer -f __INSTALL_PREFIX__/conf/config.json
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+ANALYZER_SERVICE
+
+# MediaServer service
+cat > /etc/systemd/system/mediaserver.service << 'MEDIASERVER_SERVICE'
+[Unit]
+Description=Media Server Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__INSTALL_PREFIX__
+ExecStart=__INSTALL_PREFIX__/bin/MediaServer -c __INSTALL_PREFIX__/conf/config.ini
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+MEDIASERVER_SERVICE
+
+# Substitute install prefix in service files
+sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" /etc/systemd/system/analyzer.service
+sed -i "s|__INSTALL_PREFIX__|${INSTALL_PREFIX}|g" /etc/systemd/system/mediaserver.service
+
 # ── Done ───────────────────────────────────────────────────────────────────
 echo ""
 echo "======================================================"
@@ -415,8 +520,24 @@ echo " Prefix   : ${INSTALL_PREFIX}"
                                                && echo " Resources: ${INSTALL_PREFIX}/resources/"
 [[ -f "${INSTALL_PREFIX}/tests/test_api.py" ]] && echo " Tests    : ${INSTALL_PREFIX}/tests/"
 echo " Config   : ${INSTALL_PREFIX}/conf/config.json"
-echo " Storage  : ${INSTALL_PREFIX}/alarm_storage/"
-echo " Offline Videos  : ${INSTALL_PREFIX}/offline_videos/"
+echo " Storage  : ${STORAGE_ROOT}/alarm_storage/"
+echo " Offline Videos  : ${STORAGE_ROOT}/offline_videos/"
+echo ""
+
+echo "Registering systemd services following installation..."
+echo "systemctl daemon-reload"
+echo "systemctl enable analyzer.service"
+echo "systemctl enable mediaserver.service"
+
+echo "Starting services following installation..."
+echo "systemctl start analyzer.service"
+echo "systemctl start mediaserver.service"
+echo ""
+
+echo " Systemd Services:"
+echo "   - analyzer.service (Analyzer -f conf/config.json)"
+echo "   - mediaserver.service (MediaServer -c conf/config.ini)"
+echo ""
 echo "======================================================"
 
 exit 0
@@ -426,6 +547,9 @@ INSTALLER_HEADER
 # ── Substitute the font basename placeholder ───────────────────────────────
 sed -i "s|__FONT_BASENAME__|${FONT_BASENAME}|g" "${OUTPUT}"
 
+# ── Substitute config.ini inclusion flag ───────────────────────────────────
+sed -i "s|__CONFIG_INI_INCLUDED__|${INCLUDE_CONFIG_INI}|g" "${OUTPUT}"
+
 # ── Append base64-encoded payload archive ─────────────────────────────────
 base64 "${ARCHIVE}" >> "${OUTPUT}"
 chmod +x "${OUTPUT}"
@@ -434,3 +558,4 @@ echo ""
 echo "Done!"
 echo "  Output : ${OUTPUT}"
 echo "  Size   : $(du -sh "${OUTPUT}" | cut -f1)"
+
