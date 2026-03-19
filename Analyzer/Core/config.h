@@ -21,6 +21,7 @@ struct Config {
   std::string media_rtsp_host;       // 554
 
   std::string upload_dir{};
+  std::string offline_video_dir{};
   std::string model_dir{};
   bool use_accelerator{false};
   std::string log_level{"info"};

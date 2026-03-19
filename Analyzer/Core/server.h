@@ -24,6 +24,7 @@ void ApiCleanupFiles(evhttp_request* req, void* arg);
 void ApiStorageUsage(evhttp_request* req, void* arg);
 void ApiClip(evhttp_request* req, void* arg);
 void ApiSnapShot(evhttp_request* req, void*);
+void ApiFileUpload(evhttp_request* req, void* arg);
 void alarm_sound_cv(evhttp_request* req, void* arg);
 
 #endif  // ANALYZER_SERVER_H

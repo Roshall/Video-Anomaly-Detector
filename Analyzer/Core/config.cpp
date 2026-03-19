@@ -83,6 +83,7 @@ Config::Config(const char* file) {
     }
 
     upload_dir = json_get_or_string(root, {"uploadDir"}, upload_dir);
+    offline_video_dir = json_get_or_string(root, {"offlineVideoDir"}, offline_video_dir);
     model_dir = json_get_or_string(root, {"DLModel", "dir"},
                                    json_get_or_string(root, {"modelDir"}, model_dir));
 

@@ -39,9 +39,10 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* even
     evhttp_set_cb(http, "/api/cleanup_files", ApiCleanupFiles, &scheduler);
     evhttp_set_cb(http, "/api/storage_usage", ApiStorageUsage, &scheduler);
     evhttp_set_cb(http, "/api/clip", ApiClip, &scheduler);
+    evhttp_set_cb(http, "/file/upload", ApiFileUpload, &scheduler);
     evhttp_set_cb(http, "/file", file_route_cb, &file_route_opt);
     evhttp_set_cb(http, "/alarm-sound", alarm_sound_cv, scheduler.GetAlarmController());
-    evhttp_set_cb(http, "/api/test/load_models", ApiTestLoadModels, &scheduler);
+    evhttp_set_cb(http, "/test/load_models", ApiTestLoadModels, &scheduler);
 
     evhttp_bind_socket(http, "0.0.0.0", port);
     event_base_dispatch(event_base_p);
