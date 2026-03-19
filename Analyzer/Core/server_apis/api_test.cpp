@@ -52,7 +52,11 @@ void ApiTestLoadModels(evhttp_request* req, void* arg) {
       model_results.push_back(entry);
     }
   }  // pool destructs here — stops and joins all detector threads
-
+  if (all_ok) {
+    LOGD("All models loaded successfully");
+  } else {
+    LOGD("Some models failed to load");
+  }
   nlohmann::json resp;
   resp["code"] = all_ok ? 1000 : 0;
   resp["msg"] = all_ok ? "all models loaded successfully" : "some models failed to load";

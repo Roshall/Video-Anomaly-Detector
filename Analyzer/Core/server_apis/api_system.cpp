@@ -16,7 +16,6 @@ void ApiIndex(evhttp_request* req, void*) {
       {"/api/cleanup_files", "remove files under upload_dir"},
       {"/api/storage_usage", "storage usage for upload_dir"},
       {"/api/clip", "clip a video under upload_dir"},
-      {"/api/test/load_models", "load test models"},
       {"/file/upload", "upload files"},
       {"/file", "serve static files"},
       {"/alarm-sound", "alarm sound control"},

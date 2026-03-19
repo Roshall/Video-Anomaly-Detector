@@ -21,7 +21,7 @@ Flags (combine freely after a single dash):
   u  storageusage   GET /api/storage_usage
   v  clip           POST /api/clip
   l  alarmsound     GET /alarm-sound
-  t  loadmodels     GET /api/test/load_models
+  t  loadmodels     GET /test/load_models
 
 Options:
   -U <url>  Override server base URL (default: from test_params.json)
@@ -40,7 +40,7 @@ from pathlib import Path
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
-DEFAULT_PARAMS = SCRIPT_DIR / "test_params.json"
+DEFAULT_PARAMS = SCRIPT_DIR / "../conf/test_params.json"
 
 # ── ANSI ──────────────────────────────────────────────────────────────────────
 GREEN = "\033[92m"
@@ -285,7 +285,7 @@ def test_alarmsound(base: str, p: dict) -> bool:
 
 
 def test_loadmodels(base: str, p: dict) -> bool:
-    status, body = _http(f"{base}/api/test/load_models")
+    status, body = _http(f"{base}/test/load_models")
     if status is None:
         _fail("loadmodels", body)
         return False
@@ -358,7 +358,7 @@ def _parse_cli(argv: list[str]) -> tuple[str | None, str | None, bool, bool, str
         elif arg.startswith("-") and not arg.startswith("--"):
             # e.g. -ihp  or  -dih  (collect the chars after the dash, excluding 'd')
             for c in arg[1:]:
-                if c == 'd':
+                if c == "d":
                     create_dirs = True
                 else:
                     flags += c
