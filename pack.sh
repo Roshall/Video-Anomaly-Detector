@@ -517,8 +517,10 @@ cp "${INSTALL_PREFIX}/service/analyzer.service" /etc/systemd/system/
 cp "${INSTALL_PREFIX}/service/mediaserver.service" /etc/systemd/system/
 
 # Label the binary as an executable type
-chcon -t bin_t "${INSTALL_PREFIX}/bin/Analyzer"
-chcon -t bin_t "${INSTALL_PREFIX}/bin/MediaServer"
+if [[ "${INSTALL_PREFIX}" == /home/* ]]; then
+    chcon -t bin_t "${INSTALL_PREFIX}/bin/Analyzer"
+    chcon -t bin_t "${INSTALL_PREFIX}/bin/MediaServer"
+fi
 
 # ── Done ───────────────────────────────────────────────────────────────────
 echo ""
