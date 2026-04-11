@@ -45,6 +45,10 @@ std::string get_string(const nlohmann::json& v, const std::string& def = "") {
   return v.is_string() ? v.get<std::string>() : def;
 }
 
+std::u8string to_u8string(const std::string& s) {
+  return std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size());
+}
+
 std::pair<std::vector<int>, std::vector<std::string>> parse_levels(
     const nlohmann::json& levelsNode,
     avs_analyzer::LevelMode& mode) {
@@ -240,6 +244,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
         }
 
         const std::string ctrl_code = ctrl.value("code", "");
+        const std::string behavior = ctrl.value("behavior", "");
         control_codes.push_back(ctrl_code);
 
         avs_analyzer::LevelMode mode{};
@@ -252,6 +257,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
             .push_stream_url = ctrl.value("pushStreamUrl", ""),
             .task = static_cast<avs_analyzer::Task>(task),
             .conf_threshold = ctrl.value("modelConfidenceThreshold", 0.5f),
+            .behavior = to_u8string(behavior),
             .roi_str = ctrl.value("recognitionRegion", ""),
             .levels = parse_levels(ctrl.contains("levels") ? ctrl["levels"] : nlohmann::json{}, mode),
             .level_mode = mode,

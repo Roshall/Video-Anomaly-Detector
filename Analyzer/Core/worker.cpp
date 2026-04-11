@@ -40,16 +40,23 @@ extern "C" {
 
 namespace avs_analyzer {
 
-// Utility: collect the Task list from the current worker's monitors.
-std::vector<Task> Worker::GetMonitorTasks() const {
-  std::vector<Task> tasks;
+// Utility: collect unique task-label pairs from the current worker's monitors.
+std::vector<std::pair<Task, std::u8string>> Worker::GetMonitorTasks() const {
+  std::vector<std::pair<Task, std::u8string>> tasks;
   std::shared_lock lock(monitors_mutex_);
   tasks.reserve(monitors_.size());
   for (const auto& ctx : monitors_) {
     if (!ctx || !ctx->monitor) continue;
     const auto t = ctx->monitor->task;
-    if (std::find(tasks.begin(), tasks.end(), t) == tasks.end()) {
-      tasks.push_back(t);
+    const auto it = std::find_if(tasks.begin(), tasks.end(),
+                                 [t](const auto& entry) {
+                                   return entry.first == t;
+                                 });
+    if (it == tasks.end()) {
+      const auto label = ctx->monitor->behavior.empty()
+                             ? toChinese(t)
+                             : ctx->monitor->behavior;
+      tasks.emplace_back(t, label);
     }
   }
   return tasks;
@@ -320,13 +327,20 @@ void Worker::OfflineAnalyze() {
     if (ret < 0) {
       LOGE("offline analyze: failed to init annotator: {}", ret);
     } else {
-      std::vector<Task> tasks;
+      std::vector<std::pair<Task, std::u8string>> tasks;
       tasks.reserve(monitors_.size());
       for (const auto& rt : monitors_) {
         if (!rt->monitor) continue;
         const auto t = rt->monitor->task;
-        if (std::find(tasks.begin(), tasks.end(), t) == tasks.end()) {
-          tasks.push_back(t);
+        const auto it = std::find_if(tasks.begin(), tasks.end(),
+                                     [t](const auto& entry) {
+                                       return entry.first == t;
+                                     });
+        if (it == tasks.end()) {
+          const auto label = rt->monitor->behavior.empty()
+                                 ? toChinese(t)
+                                 : rt->monitor->behavior;
+          tasks.emplace_back(t, label);
         }
       }
       candidate->update_legend(tasks);

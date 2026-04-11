@@ -90,7 +90,7 @@ public:
      * provided legend text does not fit inside the pre-allocated buffer, the
      * content will be clipped and a warning will be logged.
      */
-    void update_legend(const std::vector<Task>& tasks);
+    void update_legend(const std::vector<std::pair<Task, std::u8string>>& tasks);
     
     /**
      * @brief Draw quadrilaterals, bounding boxes, and overlay legend on frame

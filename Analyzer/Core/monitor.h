@@ -30,6 +30,7 @@ struct Monitor {
   std::string push_stream_url;  // 推流地址
   Task task;
   float conf_threshold = 0.5f; // 置信度阈值
+  std::u8string behavior;
 
   std::string roi_str;
 

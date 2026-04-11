@@ -172,7 +172,12 @@ int main(int argc, char** argv) {
 
     // Frame 1: first 4 tasks -> update legend
     std::vector<Task> tasks4{all_tasks.begin(), all_tasks.begin() + 4};
-    annotator.update_legend(tasks4);
+    std::vector<std::pair<Task, std::u8string>> legend4;
+    legend4.reserve(tasks4.size());
+    for (const auto task : tasks4) {
+        legend4.emplace_back(task, toChinese(task));
+    }
+    annotator.update_legend(legend4);
 
     // Generate ROIs & bboxes
     const int fw = vctx.width;
@@ -238,7 +243,12 @@ int main(int argc, char** argv) {
     // Frame 3: update legend to have all 6 tasks, draw 6 rois and 6 bboxes
     {
         std::vector<Task> tasks6{all_tasks.begin(), all_tasks.begin() + 6};
-        annotator.update_legend(tasks6);
+        std::vector<std::pair<Task, std::u8string>> legend6;
+        legend6.reserve(tasks6.size());
+        for (const auto task : tasks6) {
+            legend6.emplace_back(task, toChinese(task));
+        }
+        annotator.update_legend(legend6);
         std::vector<DynamicAnnotator::ROIEntry> rois;
         std::vector<DynamicAnnotator::BBoxEntry> bboxes;
         for (int i = 0; i < 6; ++i) {
@@ -265,7 +275,9 @@ int main(int argc, char** argv) {
     // Frame 4: reduce legend to 1 task
     {
         std::vector<Task> tasks1{all_tasks[0]};
-        annotator.update_legend(tasks1);
+        std::vector<std::pair<Task, std::u8string>> legend1;
+        legend1.emplace_back(tasks1[0], toChinese(tasks1[0]));
+        annotator.update_legend(legend1);
         std::vector<DynamicAnnotator::ROIEntry> rois;
         std::vector<DynamicAnnotator::BBoxEntry> bboxes;
         rois.emplace_back(tasks1[0], random_quad(fw, fh));

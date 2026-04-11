@@ -109,7 +109,7 @@ class Worker {
   void EnsureAnnotatorReady();
   void AddTasks(AVFrame* frame) const;
   void AddTasks(AVFrame* frame, AVRational time_base) const;
-  std::vector<Task> GetMonitorTasks() const;
+  std::vector<std::pair<Task, std::u8string>> GetMonitorTasks() const;
   CombinedEventConfig ComputeCombinedEventConfig() const;
   CombinedEventConfig ComputeCombinedEventConfig(bool offline_mode) const;
   static int ComputeLevelIndex(

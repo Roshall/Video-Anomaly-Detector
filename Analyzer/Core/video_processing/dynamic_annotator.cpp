@@ -144,7 +144,7 @@ bool DynamicAnnotator::ensure_legend_initialized() {
   }
 }
 
-void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
+void DynamicAnnotator::update_legend(const std::vector<std::pair<Task, std::u8string>>& tasks) {
   // If ensure_legend_initialized failed, we cannot draw
   if (!ensure_legend_initialized()) {
     LOGW("Legend overlay not initialized; cannot update legend");
@@ -157,9 +157,9 @@ void DynamicAnnotator::update_legend(const std::vector<Task>& tasks) {
   std::vector<YUVAColor> colors;
   colors.reserve(tasks.size());
 
-  for (const auto& t : tasks) {
-    labels_u8.emplace_back(toChinese(t));
-    colors.push_back(Task2ColorAlpha(t));
+  for (const auto& [task, label] : tasks) {
+    labels_u8.push_back(label);
+    colors.push_back(Task2ColorAlpha(task));
   }
 
   // Get accurate legend size
