@@ -237,7 +237,6 @@ void ApiFileUpload(evhttp_request* req, void* arg) {
   nlohmann::json result;
   nlohmann::json uploaded_files = nlohmann::json::array();
   std::string error_msg;
-  size_t size{0};
 
   for (const auto& part : parts) {
     if (!part.filename.empty() && !part.data.empty()) {
