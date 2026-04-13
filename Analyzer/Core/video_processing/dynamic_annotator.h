@@ -37,6 +37,11 @@ public:
     using BBoxEntry = std::pair<Task, cv::Rect>;              // (task, bbox)
     
     struct LegendConfig {
+        static constexpr int kMinPreallocLabels = 1;
+        static constexpr int kMaxPreallocLabels = 6;
+        static constexpr int kMinPreallocLabelLen = 1;
+        static constexpr int kMaxPreallocLabelLen = 10;
+
         std::string font_path{"/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"};
         int font_size = 24;
         std::pair<int, int> handle_size = {20, 16};
@@ -45,6 +50,8 @@ public:
         LegendPosition position = LegendPosition::kTopRight;
         int margin_x = 40;
         int margin_y = 40;
+        int prealloc_max_labels = kMaxPreallocLabels;
+        int prealloc_max_label_len = kMaxPreallocLabelLen;
         
         void SetLocation(const std::string& pos) {
             if (pos == "top-left") {
@@ -69,9 +76,9 @@ public:
     /**
      * @brief Initialize the annotator with video context and legend configuration.
      *
-     * IMPORTANT: This will pre-allocate a single legend overlay (YUVA420P) and
-     * create an FFmpeg overlay filter graph once using the full Task enum set
-     * (get_enum_range<Task>()). The overlay and filter graph will not be
+    * IMPORTANT: This will pre-allocate a single legend overlay (YUVA420P) and
+    * create an FFmpeg overlay filter graph once using configured preallocation
+    * bounds. The overlay and filter graph will not be
      * re-created during the lifetime of this annotator instance. If you call
      * init() with a different VideoContext after the overlay/filter graph is
      * already initialized the call will return an error instead of
@@ -127,7 +134,7 @@ private:
     // Helper functions
     void clear_legend_overlay();
     int init_filter_graph();
-    // allocate legend overlay and init filter graph once using full Task enum set
+    // allocate legend overlay and init filter graph once using configured bounds
     bool ensure_legend_initialized();
 };
 

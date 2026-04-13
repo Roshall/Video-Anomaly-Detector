@@ -599,6 +599,8 @@ void Worker::EnsureAnnotatorReady() {
       if (!conf.legend_position.empty()) {
         legend_cfg.SetLocation(conf.legend_position);
       }
+      legend_cfg.prealloc_max_labels = conf.legend_prealloc_max_labels;
+      legend_cfg.prealloc_max_label_len = conf.legend_prealloc_max_label_len;
     }
 
     if (const int ret = candidate->init(video_ctx_copy, legend_cfg); ret < 0) {

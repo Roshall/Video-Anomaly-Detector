@@ -114,6 +114,14 @@ Config::Config(const char* file) {
     legend_position = json_get_or_string(
         root, {"display", "legendPosition"},
         json_get_or_string(root, {"legendPosition"}, legend_position));
+    legend_prealloc_max_labels = json_get_or<int>(
+      root, {"display", "legendPreallocMaxLabels"},
+      json_get_or<int>(root, {"legendPreallocMaxLabels"},
+               legend_prealloc_max_labels));
+    legend_prealloc_max_label_len = json_get_or<int>(
+      root, {"display", "legendPreallocMaxLabelLen"},
+      json_get_or<int>(root, {"legendPreallocMaxLabelLen"},
+               legend_prealloc_max_label_len));
 
     bunkoff_overlap_ratio = json_get_or<double>(
         root, {"analyzer", "bunkOffOverlapRatio"},
@@ -150,6 +158,16 @@ Config::Config(const char* file) {
     rtsp_probe_timeout_ms = std::clamp(rtsp_probe_timeout_ms, 1000, 30000);
     alarm_sound_cooldown_sec = std::max(0, alarm_sound_cooldown_sec);
     bunkoff_overlap_ratio = std::clamp(bunkoff_overlap_ratio, 0.0, 1.0);
+    if (legend_prealloc_max_labels < 1 || legend_prealloc_max_labels > 6) {
+      LOGE("display.legendPreallocMaxLabels={} is invalid; allowed range is [1, 6]",
+           legend_prealloc_max_labels);
+      return;
+    }
+    if (legend_prealloc_max_label_len < 1 || legend_prealloc_max_label_len > 10) {
+      LOGE("display.legendPreallocMaxLabelLen={} is invalid; allowed range is [1, 10]",
+           legend_prealloc_max_label_len);
+      return;
+    }
 
     std::filesystem::path path(upload_dir);
     try {
@@ -183,6 +201,8 @@ void Config::Show() {
          "Alarm Cooldown Sec : %d\n"
          "Font Path          : %s\n"
          "Legend Position    : %s\n"
+         "Legend Max Labels  : %d\n"
+         "Legend Max Length  : %d\n"
          "BunkOff Overlap    : %.3f\n"
          "HLS Segment Seconds: %d\n"
          "HLS Playlist Size  : %d\n"
@@ -205,6 +225,8 @@ void Config::Show() {
          alarm_sound_cooldown_sec,
          font_path.c_str(),
          legend_position.c_str(),
+         legend_prealloc_max_labels,
+         legend_prealloc_max_label_len,
          bunkoff_overlap_ratio,
          hls_config.segment_seconds,
          hls_config.playlist_size,

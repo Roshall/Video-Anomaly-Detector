@@ -8,7 +8,6 @@
 
 #include "painter_text.h"
 #include "task.h"
-#include "Utils/enum_utils.h"
 #include <Utils/log.h>
 #include <cstring>
 
@@ -71,10 +70,12 @@ int DynamicAnnotator::init(const VideoContext& video_ctx,
     LOGW("DynamicAnnotator::init - failed to load legend font: {}", legend_config_.font_path);
   }
 
-  // Ensure the legend overlay and filter graph are initialized once using the
-  // entire Task enumeration. This will pre-allocate a YUVA frame and build a
-  // single overlay filter graph that will be reused and never recreated.
-  ensure_legend_initialized();
+  // Ensure the legend overlay and filter graph are initialized once using
+  // configurable preallocation bounds for legend rows and label length.
+  if (!ensure_legend_initialized()) {
+    LOGE("DynamicAnnotator::init failed to initialize legend overlay/filter graph");
+    return -1;
+  }
 
   return 0;
 }
@@ -83,20 +84,31 @@ bool DynamicAnnotator::ensure_legend_initialized() {
   // If already initialized, just return success
   if (filter_graph_initialized_ && legend_overlay_frame_) return true;
 
-  // Build labels and colors using the full Task enum set
-  std::vector<Task> all_tasks;
-  for (const auto t : get_enum_range<Task>()) {
-    all_tasks.push_back(t);
+  const int max_labels = legend_config_.prealloc_max_labels;
+  const int max_label_len = legend_config_.prealloc_max_label_len;
+  if (max_labels < LegendConfig::kMinPreallocLabels ||
+      max_labels > LegendConfig::kMaxPreallocLabels ||
+      max_label_len < LegendConfig::kMinPreallocLabelLen ||
+      max_label_len > LegendConfig::kMaxPreallocLabelLen) {
+        LOGE("DynamicAnnotator::ensure_legend_initialized invalid prealloc bounds: labels={}, label_len={} (allowed labels:{}..{}, label_len:{}..{})",
+          max_labels, max_label_len,
+          LegendConfig::kMinPreallocLabels,
+          LegendConfig::kMaxPreallocLabels,
+          LegendConfig::kMinPreallocLabelLen,
+          LegendConfig::kMaxPreallocLabelLen);
+    return false;
   }
-  if (all_tasks.empty()) return false;
 
+  // Build synthetic labels for worst-case size estimation using repeated
+  // Chinese character "测".
+  std::u8string estimate_label;
+  for (int i = 0; i < max_label_len; ++i) {
+    estimate_label += u8"测";
+  }
   std::vector<std::u8string> labels_u8;
-  labels_u8.reserve(all_tasks.size());
-  std::vector<YUVAColor> colors;
-  colors.reserve(all_tasks.size());
-  for (const auto& t : all_tasks) {
-    labels_u8.emplace_back(toChinese(t));
-    colors.push_back(Task2ColorAlpha(t));
+  labels_u8.reserve(max_labels);
+  for (int i = 0; i < max_labels; ++i) {
+    labels_u8.push_back(estimate_label);
   }
 
   // Determine required legend size using accurate measurement
@@ -179,7 +191,7 @@ void DynamicAnnotator::update_legend(const std::vector<std::pair<Task, std::u8st
   // without reconfiguring the filter graph, and that violates the single
   // allocation requirement. Only redraw the legend content in-place.
 
-  // We pre-allocated the legend overlay using the full Task enum at init.
+  // We pre-allocated the legend overlay using configured estimation bounds.
   // Here, we will only redraw into the existing overlay buffer; do not
   // reallocate or reinitialize filter graph under any circumstance.
   try {

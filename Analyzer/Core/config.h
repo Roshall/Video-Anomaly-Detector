@@ -29,6 +29,8 @@ struct Config {
   int alarm_sound_cooldown_sec{10};
   std::string font_path{"/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"};
   std::string legend_position{"top-right"};
+  int legend_prealloc_max_labels{6};
+  int legend_prealloc_max_label_len{10};
   double bunkoff_overlap_ratio{0.3};
   // std::string video_file_name_format{};//%Y%m%d%H%M%S
   
