@@ -47,7 +47,7 @@ public:
         std::pair<int, int> handle_size = {20, 16};
         int row_spacing = 4;
         LegendStyle legend_style{};
-        LegendPosition position = LegendPosition::kTopRight;
+        LegendPosition position = LegendPosition::kTopLeft;
         int margin_x = 40;
         int margin_y = 40;
         int prealloc_max_labels = kMaxPreallocLabels;
@@ -63,8 +63,8 @@ public:
             } else if (pos == "bottom-right") {
                 position = LegendPosition::kBottomRight;
             } else {
-                LOGW("position [{}] undefined. fall back to top right", pos);
-                position = LegendPosition::kTopRight; // default
+                LOGW("position [{}] undefined. fall back to top left", pos);
+                position = LegendPosition::kTopLeft; // default
             }
         }
     };

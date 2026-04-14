@@ -122,19 +122,30 @@ bool DynamicAnnotator::ensure_legend_initialized() {
       legend_config_.legend_style.text_padding,
       legend_config_.legend_style.frame_padding);
 
-  // Calculate legend position
-  legend_layout_ = estimate_legend_layout(
-      legend_config_.font_size,
-      legend_config_.handle_size,
-      legend_config_.row_spacing,
-      labels_u8,
-      legend_config_.legend_style.text_padding,
-      legend_config_.legend_style.frame_padding,
-      video_ctx_.width,
-      video_ctx_.height,
-      legend_config_.position,
-      legend_config_.margin_x,
-      legend_config_.margin_y);
+  // Calculate legend position using accurate size to avoid horizontal drift
+  // from rough UTF-8 byte-length estimation when labels are CJK.
+  int pos_x = legend_config_.margin_x;
+  int pos_y = legend_config_.margin_y;
+  switch (legend_config_.position) {
+    case LegendPosition::kTopRight:
+      pos_x = std::max(0, video_ctx_.width - legend_width - legend_config_.margin_x);
+      pos_y = legend_config_.margin_y;
+      break;
+    case LegendPosition::kBottomRight:
+      pos_x = std::max(0, video_ctx_.width - legend_width - legend_config_.margin_x);
+      pos_y = std::max(0, video_ctx_.height - legend_height - legend_config_.margin_y);
+      break;
+    case LegendPosition::kBottomLeft:
+      pos_x = legend_config_.margin_x;
+      pos_y = std::max(0, video_ctx_.height - legend_height - legend_config_.margin_y);
+      break;
+    case LegendPosition::kTopLeft:
+    default:
+      pos_x = legend_config_.margin_x;
+      pos_y = legend_config_.margin_y;
+      break;
+  }
+  legend_layout_ = {legend_width, legend_height, pos_x, pos_y};
 
   // Pre-allocate overlay frame once using this legend size
   try {
@@ -213,11 +224,32 @@ void DynamicAnnotator::update_legend(const std::vector<std::pair<Task, std::u8st
         return;
       }
     }
+    // Align the legend content inside the pre-allocated overlay according to
+    // configured corner so right/bottom modes stay visually anchored.
+    int legend_left = 0;
+    int legend_top = 0;
+    switch (legend_config_.position) {
+      case LegendPosition::kTopRight:
+        legend_left = std::max(0, cached_overlay_w_ - legend_width);
+        break;
+      case LegendPosition::kBottomRight:
+        legend_left = std::max(0, cached_overlay_w_ - legend_width);
+        legend_top = std::max(0, cached_overlay_h_ - legend_height);
+        break;
+      case LegendPosition::kBottomLeft:
+        legend_top = std::max(0, cached_overlay_h_ - legend_height);
+        break;
+      case LegendPosition::kTopLeft:
+      default:
+        break;
+    }
+
     // Draw legend in the buffer
     draw_legend_yuva420p(
         legend_overlay_frame_.get(),
         font_manager_,
-        {legend_config_.legend_style.frame_padding, legend_config_.legend_style.frame_padding + legend_config_.font_size},
+        {legend_left + legend_config_.legend_style.frame_padding,
+         legend_top + legend_config_.legend_style.frame_padding + legend_config_.font_size},
         legend_config_.font_size,
         legend_config_.handle_size,
         legend_config_.row_spacing,
