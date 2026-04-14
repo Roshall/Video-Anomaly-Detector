@@ -58,6 +58,26 @@ static std::vector<cv::Point> random_quad(int frame_w, int frame_h) {
     return q;
 }
 
+static std::u8string repeated_measure_label(int count) {
+    const std::u8string unit = u8"测";
+    std::u8string out;
+    out.reserve(static_cast<size_t>(std::max(0, count)) * unit.size());
+    for (int i = 0; i < count; ++i) {
+        out += unit;
+    }
+    return out;
+}
+
+static void write_yuv420p_frame(std::ofstream& out, const AVFrame* frame) {
+    for (int i = 0; i < 3; ++i) {
+        const int h = (i == 0) ? frame->height : (frame->height + 1) / 2;
+        const int w = (i == 0) ? frame->width : (frame->width + 1) / 2;
+        for (int y = 0; y < h; ++y) {
+            out.write(reinterpret_cast<const char*>(frame->data[i]) + y * frame->linesize[i], w);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 4) {
         std::cout << "Usage: " << argv[0] << " input.mp4 font.ttf out.yuv\n";
@@ -98,8 +118,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Prepare dynamic annotator
-    DynamicAnnotator annotator;
+    // Prepare shared video context for all configuration cases
     VideoContext vctx{};
     vctx.width = vs->codecpar->width;
     vctx.height = vs->codecpar->height;
@@ -108,16 +127,7 @@ int main(int argc, char** argv) {
     vctx.time_base = vs->time_base;
     vctx.sample_aspect_ratio = vs->sample_aspect_ratio;
 
-    DynamicAnnotator::LegendConfig lconf;
-    lconf.font_path = font_path;
-    lconf.font_size = 24;
-    // init with legend config; this will pre-allocate legend overlay using full Task enum
-    if (annotator.init(vctx, lconf) < 0) {
-        std::cerr << "Annotator init failed\n";
-        return 1;
-    }
-
-    // Prepare to decode frames: we'll collect first 4 decoded frames
+    // Prepare to decode frames: we'll collect first 3 decoded frames
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
     AVFrame* yuv420 = av_frame_alloc();
@@ -125,7 +135,7 @@ int main(int argc, char** argv) {
 
     std::vector<AVFrame*> decoded_frames;
 
-    while (decoded_count < 4 && av_read_frame(fmt_ctx, pkt) >= 0) {
+    while (decoded_count < 3 && av_read_frame(fmt_ctx, pkt) >= 0) {
         if (pkt->stream_index != vid_idx) { av_packet_unref(pkt); continue; }
         if (avcodec_send_packet(dec_ctx, pkt) == 0) {
             while (avcodec_receive_frame(dec_ctx, frame) == 0) {
@@ -144,17 +154,17 @@ int main(int argc, char** argv) {
                 decoded_frames.push_back(copy);
                 decoded_count++;
                 av_frame_unref(yuv420);
-                if (decoded_count >= 4) break;
+                if (decoded_count >= 3) break;
             }
         }
         av_packet_unref(pkt);
     }
-    if (decoded_frames.size() < 4) {
+    if (decoded_frames.size() < 3) {
         std::cerr << "Insufficient frames decoded: got " << decoded_frames.size() << "\n";
         return 1;
     }
 
-    // Open output file to save 4 YUV frames
+    // Open output file to save 3 YUV frames (one per configuration case)
     std::ofstream out(out_path, std::ios::binary);
     if (!out) {
         std::cerr << "Cannot open output file" << out_path << "\n";
@@ -170,133 +180,75 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Frame 1: first 4 tasks -> update legend
-    std::vector<Task> tasks4{all_tasks.begin(), all_tasks.begin() + 4};
-    std::vector<std::pair<Task, std::u8string>> legend4;
-    legend4.reserve(tasks4.size());
-    for (const auto task : tasks4) {
-        legend4.emplace_back(task, toChinese(task));
-    }
-    annotator.update_legend(legend4);
+    struct CaseConfig {
+        const char* name;
+        int labels;
+        int label_len;
+    };
 
-    // Generate ROIs & bboxes
+    const std::vector<CaseConfig> cases = {
+        {"max", DynamicAnnotator::LegendConfig::kMaxPreallocLabels,
+                DynamicAnnotator::LegendConfig::kMaxPreallocLabelLen},
+        {"min", DynamicAnnotator::LegendConfig::kMinPreallocLabels,
+                DynamicAnnotator::LegendConfig::kMinPreallocLabelLen},
+        {"half", DynamicAnnotator::LegendConfig::kMaxPreallocLabels / 2,
+                 DynamicAnnotator::LegendConfig::kMaxPreallocLabelLen / 2}
+    };
+
     const int fw = vctx.width;
     const int fh = vctx.height;
 
-    // Frame 1: 4 ROIs (one per task), and 8 bboxes (2 per task)
-    {
-        std::vector<DynamicAnnotator::ROIEntry> rois;
-        std::vector<DynamicAnnotator::BBoxEntry> bboxes;
-        for (int i = 0; i < 4; ++i) {
-            rois.emplace_back(tasks4[i], random_quad(fw, fh));
-            // 2 bboxes per task
-            for (int j = 0; j < 2; ++j) {
-                bboxes.emplace_back(tasks4[i], random_bbox(fw, fh));
-            }
-        }
-        AVFramePtr result = annotator.draw_elements(decoded_frames[0], rois, bboxes);
-        if (!result) {
-            std::cerr << "draw_elements failed for frame 1\n";
-            return 1;
-        }
-        // write out result YUV420P frames
-        // ensure we have YUV420P
-        if (result->format != AV_PIX_FMT_YUV420P) {
-            std::cerr << "Unexpected output pixel format for frame 1" << std::endl;
-            return 1;
-        }
-        // Write planes Y U V
-        for (int i = 0; i < 3; ++i) {
-            int h = (i == 0) ? result->height : (result->height + 1) / 2;
-            int w = (i == 0) ? result->width : (result->width + 1) / 2;
-            for (int y = 0; y < h; ++y)
-                out.write((char*)result->data[i] + y * result->linesize[i], w);
-        }
-    }
+    for (size_t idx = 0; idx < cases.size(); ++idx) {
+        const auto& c = cases[idx];
+        DynamicAnnotator annotator;
+        DynamicAnnotator::LegendConfig lconf;
+        lconf.font_path = font_path;
+        lconf.font_size = 24;
+        lconf.prealloc_max_labels = c.labels;
+        lconf.prealloc_max_label_len = c.label_len;
+        lconf.SetLocation("top-right");
 
-    // Frame 2: 3 ROIs (take first 3 of tasks4) and 3 bboxes (one per task)
-    {
-        std::vector<Task> tasks3{tasks4.begin(), tasks4.begin() + 3};
-        std::vector<DynamicAnnotator::ROIEntry> rois;
-        std::vector<DynamicAnnotator::BBoxEntry> bboxes;
-        for (int i = 0; i < 3; ++i) {
-            rois.emplace_back(tasks3[i], random_quad(fw, fh));
-            bboxes.emplace_back(tasks3[i], random_bbox(fw, fh));
-        }
-        AVFramePtr result = annotator.draw_elements(decoded_frames[1], rois, bboxes);
-        if (!result) {
-            std::cerr << "draw_elements failed for frame 2\n";
+        if (annotator.init(vctx, lconf) < 0) {
+            std::cerr << "Annotator init failed for case: " << c.name << "\n";
             return 1;
         }
-        if (result->format != AV_PIX_FMT_YUV420P) {
-            std::cerr << "Unexpected output pixel format for frame 2" << std::endl;
-            return 1;
-        }
-        for (int i = 0; i < 3; ++i) {
-            int h = (i == 0) ? result->height : (result->height + 1) / 2;
-            int w = (i == 0) ? result->width : (result->width + 1) / 2;
-            for (int y = 0; y < h; ++y)
-                out.write((char*)result->data[i] + y * result->linesize[i], w);
-        }
-    }
 
-    // Frame 3: update legend to have all 6 tasks, draw 6 rois and 6 bboxes
-    {
-        std::vector<Task> tasks6{all_tasks.begin(), all_tasks.begin() + 6};
-        std::vector<std::pair<Task, std::u8string>> legend6;
-        legend6.reserve(tasks6.size());
-        for (const auto task : tasks6) {
-            legend6.emplace_back(task, toChinese(task));
+        std::vector<std::pair<Task, std::u8string>> legend;
+        legend.reserve(static_cast<size_t>(c.labels));
+        for (int i = 0; i < c.labels; ++i) {
+            legend.emplace_back(all_tasks[static_cast<size_t>(i % all_tasks.size())],
+                                repeated_measure_label(c.label_len));
         }
-        annotator.update_legend(legend6);
-        std::vector<DynamicAnnotator::ROIEntry> rois;
-        std::vector<DynamicAnnotator::BBoxEntry> bboxes;
-        for (int i = 0; i < 6; ++i) {
-            rois.emplace_back(tasks6[i], random_quad(fw, fh));
-            bboxes.emplace_back(tasks6[i], random_bbox(fw, fh));
-        }
-        AVFramePtr result = annotator.draw_elements(decoded_frames[2], rois, bboxes);
-        if (!result) {
-            std::cerr << "draw_elements failed for frame 3\n";
-            return 1;
-        }
-        if (result->format != AV_PIX_FMT_YUV420P) {
-            std::cerr << "Unexpected output pixel format for frame 3" << std::endl;
-            return 1;
-        }
-        for (int i = 0; i < 3; ++i) {
-            int h = (i == 0) ? result->height : (result->height + 1) / 2;
-            int w = (i == 0) ? result->width : (result->width + 1) / 2;
-            for (int y = 0; y < h; ++y)
-                out.write((char*)result->data[i] + y * result->linesize[i], w);
-        }
-    }
+        annotator.update_legend(legend);
 
-    // Frame 4: reduce legend to 1 task
-    {
-        std::vector<Task> tasks1{all_tasks[0]};
-        std::vector<std::pair<Task, std::u8string>> legend1;
-        legend1.emplace_back(tasks1[0], toChinese(tasks1[0]));
-        annotator.update_legend(legend1);
         std::vector<DynamicAnnotator::ROIEntry> rois;
         std::vector<DynamicAnnotator::BBoxEntry> bboxes;
-        rois.emplace_back(tasks1[0], random_quad(fw, fh));
-        bboxes.emplace_back(tasks1[0], random_bbox(fw, fh));
-        AVFramePtr result = annotator.draw_elements(decoded_frames[3], rois, bboxes);
+        rois.reserve(static_cast<size_t>(c.labels));
+        bboxes.reserve(static_cast<size_t>(c.labels));
+        for (int i = 0; i < c.labels; ++i) {
+            const Task task = all_tasks[static_cast<size_t>(i % all_tasks.size())];
+            rois.emplace_back(task, random_quad(fw, fh));
+            bboxes.emplace_back(task, random_bbox(fw, fh));
+        }
+
+        AVFrame* input_clone = av_frame_clone(decoded_frames[idx]);
+        if (!input_clone) {
+            std::cerr << "Failed to clone input frame for case: " << c.name << "\n";
+            return 1;
+        }
+
+        AVFramePtr result = annotator.draw_elements(input_clone, rois, bboxes);
+        av_frame_free(&input_clone);
         if (!result) {
-            std::cerr << "draw_elements failed for frame 4\n";
+            std::cerr << "draw_elements failed for case: " << c.name << "\n";
             return 1;
         }
         if (result->format != AV_PIX_FMT_YUV420P) {
-            std::cerr << "Unexpected output pixel format for frame 4" << std::endl;
+            std::cerr << "Unexpected output pixel format for case: " << c.name << std::endl;
             return 1;
         }
-        for (int i = 0; i < 3; ++i) {
-            int h = (i == 0) ? result->height : (result->height + 1) / 2;
-            int w = (i == 0) ? result->width : (result->width + 1) / 2;
-            for (int y = 0; y < h; ++y)
-                out.write((char*)result->data[i] + y * result->linesize[i], w);
-        }
+
+        write_yuv420p_frame(out, result.get());
     }
 
     // cleanup
@@ -308,6 +260,6 @@ int main(int argc, char** argv) {
     avformat_close_input(&fmt_ctx);
     out.close();
 
-    std::cout << "✅ Wrote 4 annotated frames to " << out_path << "\n";
+    std::cout << "✅ Wrote 3 annotated frames (max/min/half prealloc config) to " << out_path << "\n";
     return 0;
 }
