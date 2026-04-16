@@ -87,45 +87,29 @@ Config::Config(const char* file) {
     model_dir = json_get_or_string(root, {"DLModel", "dir"},
                                    json_get_or_string(root, {"modelDir"}, model_dir));
 
-    use_accelerator = json_get_or<bool>(
-        root, {"DLModel", "acceleratorInference"},
-        json_get_or<bool>(root, {"application", "acceleratorInference"},
-                          json_get_or<bool>(root, {"acceleratorInference"}, use_accelerator)));
-    log_level = json_get_or_string(root, {"application", "logLevel"},
-                                   json_get_or_string(root, {"logLevel"}, log_level));
-    thread_pool_size = json_get_or<int>(root, {"application", "threadPoolSize"},
-                                        json_get_or<int>(root, {"threadPoolSize"}, thread_pool_size));
+    use_accelerator = json_get_or<bool>(root, {"acceleratorInference"}, use_accelerator);
+    log_level = json_get_or_string(root, {"application", "logLevel"}, log_level);
+    thread_pool_size = json_get_or<int>(root, {"application", "threadPoolSize"}, thread_pool_size);
     file_cache_timeout = json_get_or<u_int32_t>(
-        root, {"application", "fileCacheTimeout"},
-        json_get_or<u_int32_t>(root, {"fileCacheTimeout"}, file_cache_timeout));
+        root, {"application", "fileCacheTimeout"}, file_cache_timeout);
     rtsp_probe_timeout_ms = json_get_or<int>(
-      root, {"application", "rtspProbeTimeoutMs"},
-      json_get_or<int>(root, {"rtspProbeTimeoutMs"}, rtsp_probe_timeout_ms));
+      root, {"application", "rtspProbeTimeoutMs"}, rtsp_probe_timeout_ms);
 
     alarm_sound_path = json_get_or_string(
-        root, {"alarm", "soundPath"},
-        json_get_or_string(root, {"alarmSoundPath"}, alarm_sound_path));
+        root, {"alarm", "soundPath"}, alarm_sound_path);
     alarm_sound_cooldown_sec = json_get_or<int>(
-        root, {"alarm", "soundCooldownSec"},
-        json_get_or<int>(root, {"alarmSoundCooldownSec"}, alarm_sound_cooldown_sec));
+        root, {"alarm", "soundCooldownSec"}, alarm_sound_cooldown_sec);
 
-    font_path = json_get_or_string(root, {"display", "fontPath"},
-                                   json_get_or_string(root, {"fontPath"}, font_path));
+    font_path = json_get_or_string(root, {"display", "fontPath"}, font_path);
     legend_position = json_get_or_string(
-        root, {"display", "legendPosition"},
-        json_get_or_string(root, {"legendPosition"}, legend_position));
+        root, {"display", "legendPosition"}, legend_position);
     legend_prealloc_max_labels = json_get_or<int>(
-      root, {"display", "legendPreallocMaxLabels"},
-      json_get_or<int>(root, {"legendPreallocMaxLabels"},
-               legend_prealloc_max_labels));
+      root, {"display", "legendPreallocMaxLabels"}, legend_prealloc_max_labels);
     legend_prealloc_max_label_len = json_get_or<int>(
-      root, {"display", "legendPreallocMaxLabelLen"},
-      json_get_or<int>(root, {"legendPreallocMaxLabelLen"},
-               legend_prealloc_max_label_len));
+      root, {"display", "legendPreallocMaxLabelLen"}, legend_prealloc_max_label_len);
 
     bunkoff_overlap_ratio = json_get_or<double>(
-        root, {"analyzer", "bunkOffOverlapRatio"},
-        json_get_or<double>(root, {"bunkOffOverlapRatio"}, bunkoff_overlap_ratio));
+        root, {"analyzer", "bunkOffOverlapRatio"}, bunkoff_overlap_ratio);
     
     // Load HLS configuration
     if (root.contains("hls_config")) {

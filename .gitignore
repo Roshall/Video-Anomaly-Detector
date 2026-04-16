@@ -9,3 +9,4 @@ models/*
 *.txt
 resources/*
 .serena/*
+!conf/config.json

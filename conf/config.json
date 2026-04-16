@@ -1,0 +1,50 @@
+{
+  "server": {
+    "admin": {
+      "host": "127.0.0.1:8089"
+    },
+    "media": {
+      "http": "127.0.0.1:8090",
+      "rtsp": "127.0.0.1:9554",
+      "secret": "72Mapqsia0kfNQNQyv3YNNq9oTDn6A66"
+    },
+    "analyzer": {
+      "host": "127.0.0.1:9003"
+    }
+  },
+
+  "application": {
+    "threadPoolSize": 3,
+    "rtspProbeTimeoutMs": 5000,
+    "fileCacheTimeout": 3600,
+    "logLevel": "debug"
+  },
+  "DLModel": {
+    "dir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models",
+    "acceleratorInference": false
+  },
+
+  "uploadDir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/alarm_storage",
+  "offlineVideoDir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/offline_videos",
+
+  "alarm": {
+    "soundPath": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/resources/alarm.wav",
+    "soundCooldownSec": 10
+  },
+
+  "display": {
+    "fontPath": "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    "legendPosition": "top-left",
+    "legendPreallocMaxLabels": 6,
+    "legendPreallocMaxLabelLen": 8
+  },
+  "analyzer": {
+    "bunkOffOverlapRatio": 0.3
+  },
+  "hls_config": {
+    "segment_seconds": 5,
+    "playlist_size": 0,
+    "segment_format": "ts",
+    "delete_segments": false
+  }
+}
