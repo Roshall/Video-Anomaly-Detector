@@ -454,6 +454,10 @@ if os.path.isfile(f"{prefix}/resources/alarm.wav"):
 if font_name and os.path.isfile(f"{prefix}/fonts/{font_name}"):
     cfg['display']['fontPath'] = f"{prefix}/fonts/{font_name}"
 
+# Force runtime defaults for installed deployments.
+cfg['acceleratorInference'] = False
+cfg['logLevel'] = 'info'
+
 with open(dst, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write('\n')
