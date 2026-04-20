@@ -59,25 +59,38 @@ std::pair<std::vector<int>, std::vector<std::string>> parse_levels(
     return {thresholds, levels};
   }
 
-  if (levelsNode.contains("values") && levelsNode["values"].is_array()) {
+  if (levelsNode.contains("values")) {
     const auto mode_str = get_string(levelsNode.value("mode", nlohmann::json{}), "");
-    mode = (mode_str == "seconds" || mode_str == "duration")
-               ? avs_analyzer::LevelMode::kDuration
+    mode =  mode_str == "duration" ? avs_analyzer::LevelMode::kDuration
                : avs_analyzer::LevelMode::kNumPeople;
 
     const auto& values = levelsNode["values"];
-    thresholds.reserve(values.size());
-    levels.reserve(values.size());
+    if (values.is_array()) {
+      thresholds.reserve(values.size());
+      levels.reserve(values.size());
 
-    for (const auto& v : values) {
-      int threshold = get_int_any(v, 0);
-      if (mode == avs_analyzer::LevelMode::kDuration) {
-        threshold *= 1000;
+      for (const auto& v : values) {
+        int threshold = get_int_any(v, 0);
+        if (mode == avs_analyzer::LevelMode::kDuration) {
+          threshold *= 1000;
+          thresholds.push_back(threshold);
+          levels.push_back(std::to_string(get_int_any(v, 0)));
+        } else {
+          thresholds.push_back(threshold);
+          levels.push_back(std::to_string(threshold));
+        }
+      }
+    } else if (values.is_object()) {
+      thresholds.reserve(values.size());
+      levels.reserve(values.size());
+
+      for (auto it = values.begin(); it != values.end(); ++it) {
+        int threshold = get_int_any(it.value(), 0);
+        if (mode == avs_analyzer::LevelMode::kDuration) {
+          threshold *= 1000;
+        }
         thresholds.push_back(threshold);
-        levels.push_back(std::to_string(get_int_any(v, 0)) + "s");
-      } else {
-        thresholds.push_back(threshold);
-        levels.push_back(std::to_string(threshold));
+        levels.push_back(it.key());
       }
     }
 
@@ -95,32 +108,6 @@ std::pair<std::vector<int>, std::vector<std::string>> parse_levels(
       l_sorted.push_back(levels[i]);
     }
     return {t_sorted, l_sorted};
-  }
-
-  std::vector<std::pair<int, std::string>> combined;
-  for (auto it = levelsNode.begin(); it != levelsNode.end(); ++it) {
-    const auto& name = it.key();
-    const auto& lv = it.value();
-    if (!lv.is_object()) {
-      continue;
-    }
-
-    int threshold = get_int_any(lv.value("threshold", nlohmann::json{}), 0);
-    if (get_string(lv.value("unit", nlohmann::json{}), "") == "seconds") {
-      mode = avs_analyzer::LevelMode::kDuration;
-      threshold *= 1000;
-    } else {
-      mode = avs_analyzer::LevelMode::kNumPeople;
-    }
-    combined.emplace_back(threshold, name);
-  }
-
-  std::sort(combined.begin(), combined.end(), [](const auto& a, const auto& b) {
-    return a.first < b.first;
-  });
-  for (const auto& [threshold, unit] : combined) {
-    thresholds.push_back(threshold);
-    levels.push_back(unit);
   }
 
   return {thresholds, levels};
@@ -214,6 +201,7 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       send_json(req, HTTP_BADREQUEST, R"({"msg":"invalid request parameter"})");
       return;
     }
+    LOGD("Received AddMonitor request: {}", root.dump());
 
     const std::string camera_id = root.value("cameraId", "");
     const std::string source_type = root.value("sourceType", "");
@@ -276,6 +264,10 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
             .latest_duration_ms = duration,
             .minimum_num = (mode == avs_analyzer::LevelMode::kNumPeople) ? std::max(first_threshold, 1) : 1,
         };
+        LOGD("Parsed monitor config: code={}, task={}, thresholds={}, levels={}, event_cfg={{major_stride_ms: {}, minor_stride_ms: {}, window_size: {}, min_vote: {}, max_event_duration_ms: {}, latest_duration_ms: {}, minimum_num: {}}}",
+             monitor.code, toString(monitor.task), monitor.levels.first[0], monitor.levels.second[0],
+             event_cfg.major_stride_ms, event_cfg.minor_stride_ms, event_cfg.window_size, event_cfg.min_vote,
+             event_cfg.max_event_duration_ms, event_cfg.latest_duration_ms, event_cfg.minimum_num);
 
         std::string validate_msg;
         if (!monitor.ValidateAdd(validate_msg)) {
