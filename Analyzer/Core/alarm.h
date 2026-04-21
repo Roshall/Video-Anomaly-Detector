@@ -36,10 +36,13 @@ struct Alarm {
   
   void SetHlsRecorder(std::unique_ptr<Recorder> recorder) {
     hls_recorder = std::move(recorder);
+    MarkNoReport();  // Reset report status when setting a new recorder
   }
   
   // Add frames from an intermediate event slice to the active HLS recorder
   void AddFrameToHls(const Event& event) const;
+
+  void MarkNoReport() const { hls_reported = false; }
   
   // Finalize HLS recording: close, reencode to MP4, and report (async)
   void FinializeHlsEvent(std::unique_ptr<Event> event,

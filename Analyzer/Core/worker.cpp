@@ -812,8 +812,7 @@ void Worker::DetectEvent() {
           LOGW("Failed to initialize HLS recorder for event {}", combined_event_id);
         }
       }
-    }
-    if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
+    } else if (combined_result.transition == CombinedEventManager::Result::Transition::kBecameIdle) {
       if (admin_stream_active_notified_.load(std::memory_order_acquire)) {
         admin_stream_active_notified_.store(false, std::memory_order_release);
         NotifyAdminStreamEvent("end");
