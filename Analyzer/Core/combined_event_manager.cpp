@@ -136,7 +136,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
           }
           max_duration_state_ = MaxDuration::kExceeded;
         } else if (max_duration_state_ == MaxDuration::kExceeded) {
-          result.transition = Result::Transition::kMaxDurationReached;
+          // Do nothing, already exceeded and reported
         } else if (auto event = FlushEvent(true)) {
           result.flushed_event = std::move(event);
         }
@@ -317,7 +317,7 @@ std::vector<std::unique_ptr<Event>> CombinedEventManager::FlushPending() {
   segment_start_ts_ = 0;
   segment_start_pts_ = 0;
   event_end_candidate_ts_ = 0;
-  max_duration_exceeded_ = false;
+  max_duration_state_ = MaxDuration::kNotExceeded;
 
   return events;
 }
