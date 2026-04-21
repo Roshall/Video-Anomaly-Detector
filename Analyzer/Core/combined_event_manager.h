@@ -98,6 +98,7 @@ class CombinedEventManager {
   };
 
   enum class CombinedState { kIdle, kActive, kEnding };
+  enum class MaxDuration { kNotExceeded, kHit, kExceeded };
 
   std::unique_ptr<Event> FlushEvent(bool more_segments);
   void TrimFrameBuffer(int64_t current_timestamp_ms);
@@ -113,7 +114,7 @@ class CombinedEventManager {
   CombinedState state_{CombinedState::kIdle};
   std::deque<std::shared_ptr<const Frame>> frame_buffer_{};
   std::unordered_map<std::string, MonitorState> monitor_state_{};
-  bool max_duration_exceeded_{false};
+  MaxDuration max_duration_state_{MaxDuration::kNotExceeded};
 
   int64_t combined_event_start_ts_{0};
   int64_t combined_event_start_pts_{0};

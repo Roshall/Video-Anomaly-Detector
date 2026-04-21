@@ -104,11 +104,10 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
   }
 
   // Check if we've exceeded the max event duration - if so, flag it
-  if (!max_duration_exceeded_ && config_.max_event_duration_ms > 0 &&
+  if (max_duration_state_ == MaxDuration::kNotExceeded && config_.max_event_duration_ms > 0 &&
       state_ == CombinedState::kActive &&
       timestamp_ms - combined_event_start_ts_ >= config_.max_event_duration_ms) {
-    max_duration_exceeded_ = true;
-    result.transition = Result::Transition::kMaxDurationReached;
+    max_duration_state_ = MaxDuration::kHit;
     LOGI("Max event duration reached: {}ms for event starting at {}",
          timestamp_ms - combined_event_start_ts_, combined_event_start_ts_);
   }
@@ -130,7 +129,15 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
         event_end_candidate_ts_ = timestamp_ms;
       } else if (config_.slice_ms > 0 &&
                  timestamp_ms - segment_start_ts_ >= config_.slice_ms) {
-        if (auto event = FlushEvent(true)) {
+        if (max_duration_state_ == MaxDuration::kHit) {
+          result.transition = Result::Transition::kMaxDurationReached;
+          if (auto event = FlushEvent(false)) {
+            result.flushed_event = std::move(event);
+          }
+          max_duration_state_ = MaxDuration::kExceeded;
+        } else if (max_duration_state_ == MaxDuration::kExceeded) {
+          result.transition = Result::Transition::kMaxDurationReached;
+        } else if (auto event = FlushEvent(true)) {
           result.flushed_event = std::move(event);
         }
         segment_start_ts_ = timestamp_ms;
@@ -145,8 +152,10 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
         event_end_candidate_ts_ = 0;
       } else if (timestamp_ms - event_end_candidate_ts_ >=
                  config_.post_event_buffer_ms) {
-        if (auto event = FlushEvent(false)) {
-          result.flushed_event = std::move(event);
+        if (max_duration_state_!= MaxDuration::kExceeded) {
+          if (auto event = FlushEvent(false)) {
+            result.flushed_event = std::move(event);
+          }
         }
         state_ = CombinedState::kIdle;
         combined_event_start_ts_ = 0;
@@ -154,7 +163,7 @@ CombinedEventManager::Result CombinedEventManager::ProcessFrame(
         segment_start_ts_ = 0;
         segment_start_pts_ = 0;
         event_end_candidate_ts_ = 0;
-        max_duration_exceeded_ = false;
+        max_duration_state_ = MaxDuration::kNotExceeded;
       }
       break;
     }
