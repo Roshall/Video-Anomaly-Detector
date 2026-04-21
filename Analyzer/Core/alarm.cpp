@@ -121,6 +121,9 @@ void Alarm::Finalize(
       }
     } else {
       // Final slice: close and reencode
+      if (alarm_start_time != std::chrono::system_clock::time_point{}) {
+        start_ts = alarm_start_time;  // Use the original alarm trigger time for reporting
+      }
       FinializeHlsEvent(std::move(event), start_ts, video_code);
     }
   } else {
