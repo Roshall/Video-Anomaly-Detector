@@ -116,6 +116,7 @@ void Alarm::Finalize(
       if (!hls_reported && hls_recorder->last_hls_paths.has_value()) {
         const auto& playlist_path = hls_recorder->last_hls_paths.value().playlist;
         ReportHlsToAdmin(playlist_path, start_ts, video_code);
+        alarm_start_time = start_ts;  // Track when the alarm was triggered for reporting purposes
         hls_reported = true;
       }
     } else {
@@ -123,6 +124,9 @@ void Alarm::Finalize(
       FinializeHlsEvent(std::move(event), start_ts, video_code);
     }
   } else {
+    if (alarm_start_time != std::chrono::system_clock::time_point{}) {
+      start_ts = alarm_start_time;  // Use the original alarm trigger time for reporting
+    }
     FinalizeMp4Event(std::move(event), start_ts, video_code);
   }
 }

@@ -37,6 +37,8 @@ struct Alarm {
   void SetHlsRecorder(std::unique_ptr<Recorder> recorder) {
     hls_recorder = std::move(recorder);
     MarkNoReport();  // Reset report status when setting a new recorder
+    // clear alarm start time when initializing a new recorder, will be set on first frame
+    alarm_start_time = std::chrono::time_point<std::chrono::system_clock>{};
   }
   
   // Add frames from an intermediate event slice to the active HLS recorder
@@ -68,6 +70,7 @@ public:
   OutputMode output_mode{OutputMode::kAuto};
   mutable std::unique_ptr<Recorder> hls_recorder;
   mutable bool hls_reported{false};  // Track if HLS stream has been reported to admin
+  mutable std::chrono::time_point<std::chrono::system_clock> alarm_start_time; // Track when the alarm was triggered for reporting purposes
 };
 
 }  // namespace avs_analyzer
