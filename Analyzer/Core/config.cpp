@@ -177,6 +177,7 @@ void Config::Show() {
          "Media HTTP Host    : %s\n"
          "Media RTSP Host    : %s\n"
          "Upload Directory   : %s\n"
+         "offline Video Dir   : %s\n"
          "Model Directory    : %s\n"
          "Use Accelerator    : %s\n"
          "Log Level          : %s\n"
@@ -202,6 +203,7 @@ void Config::Show() {
          media_rtsp_host.c_str(),
          upload_dir.data(),
          model_dir.data(),
+         offline_video_dir.data(),
          use_accelerator ? "true" : "false",
          log_level.c_str(),
          rtsp_probe_timeout_ms,
