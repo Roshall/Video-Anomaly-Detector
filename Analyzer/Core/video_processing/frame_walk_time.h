@@ -20,10 +20,20 @@ class FrameWallClock {
   using sys_time = std::chrono::time_point<std::chrono::system_clock>;
 
 
-  void init(const AVFormatContext* fmt, const AVStream* stream) {
+  void init(const AVFormatContext* fmt, const AVStream* stream, bool file = false) {
     if (!fmt) throw std::invalid_argument("fmt == nullptr");
 
     time_base = stream->time_base;
+    if (file) {
+      // File mode: anchor to epoch 0 so computed timestamps are PTS-based
+      // offsets from 1970-01-01 00:00:00.
+      m_epoch_anchor = sys_time{};
+      m_pts_anchor =
+          stream->start_time != AV_NOPTS_VALUE ? stream->start_time : int64_t{0};
+      m_mode = Mode::RealtimeEpochProvided;
+      return;
+    }
+
     // Prefer real epoch start if provided (microseconds since Unix epoch).
     if (fmt->start_time_realtime != AV_NOPTS_VALUE) {
       m_epoch_anchor = std::chrono::system_clock::time_point{

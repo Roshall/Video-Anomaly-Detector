@@ -295,7 +295,7 @@ void Worker::OfflineAnalyze() {
                                                 height);
 
   auto in_stream_ = in.stream();
-  timer_.init(in.format_context(), in_stream_);
+  timer_.init(in.format_context(), in_stream_, true);
 
   for (auto& rt : monitors_) {
         if (!rt->monitor->ParseRecognitionRegion(width, height)) {
