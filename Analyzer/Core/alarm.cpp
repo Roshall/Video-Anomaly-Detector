@@ -227,6 +227,10 @@ void Alarm::FinializeHlsEvent(
     // Need to create a temporary Alarm object to call the helper function
     Alarm temp_alarm(upload_dir, admin_host, 0, 0, alarm_id, 0);
     temp_alarm.PostAlarmVideoToAdmin(video_code, "mp4", mp4_path, start_time, file_size);
+    // Remove HLS playlist/segments but preserve generated MP4 (use helper)
+    if (!RemoveHlsFiles(hls_paths)) {
+      LOGW("Alarm async cleanup: RemoveHlsFiles reported failures for {}", hls_paths.playlist);
+    }
   });
 }
 }  // namespace avs_analyzer
