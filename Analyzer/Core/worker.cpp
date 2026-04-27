@@ -418,7 +418,7 @@ void Worker::OfflineAnalyze() {
               rt->current_highest_level = level_idx;;
               AlarmImage(rt->monitor->code, rt->detector->start_ts(),
                         rt->detector->timestamp(), annotated_frame, pict_writer,
-                        rt->monitor->levels.second[level_idx], combined_event_id, false);
+                        rt->monitor->levels.second[level_idx], combined_event_id, true);
             }
             break;
           case EventDetector::kEventActive:
