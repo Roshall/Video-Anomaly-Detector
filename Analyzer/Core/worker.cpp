@@ -418,7 +418,7 @@ void Worker::OfflineAnalyze() {
               rt->current_highest_level = level_idx;;
               AlarmImage(rt->monitor->code, rt->detector->start_ts(),
                         rt->detector->timestamp(), annotated_frame, pict_writer,
-                        rt->monitor->levels.second[level_idx], combined_event_id, true);
+                        rt->monitor->levels.second[level_idx], combined_event_id, false);
             }
             break;
           case EventDetector::kEventActive:
@@ -466,10 +466,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
                         std::shared_ptr<JPEGEncoder> pict_writer,
                         std::string_view level,
                         int64_t alarm_id,
-                        bool push) noexcept {
-  if (!push) {
-    return;
-  }
+                        bool stream) noexcept {
   if (!frame || !frame->data) {
     LOGW("AlarmImage received empty frame for monitor {}", monitor_code);
     return;
@@ -481,7 +478,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
 
   g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
         code = monitor_code, start_timestamp, event_timestamp,
-        level = std::string(level), push, alarm_id, video_code = video_code_,
+        level = std::string(level), stream, alarm_id, video_code = video_code_,
         frame = std::move(frame)]() mutable {
         auto img_path =
             std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
@@ -496,22 +493,21 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         }
         LOGI("Saved alarm image {} ({} bytes)", img_path_str, save_size);
 
-        if (push) {
-          const std::string url =
-              std::format("{}/api/postAddAlarm", conf.admin_host);
-          nlohmann::json param {
-          {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
-          {"controlCode", code},
-          {"videoCode", video_code},
-          {"alarmId", alarm_id},
-          {"createTime", FrameWallClock::to_iso8601_utc(event_timestamp)},
-          {"level", level}
-          };
-          const std::string data = param.dump();
-          std::string response;
-          Request::post(url.data(), data.data(), response);
-          LOGI("sent alarm image to {}", conf.admin_host);
-        }
+        const std::string url =
+            std::format("{}/api/postAddAlarm", conf.admin_host);
+        nlohmann::json param {
+        {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
+        {"controlCode", code},
+        {"videoCode", video_code},
+        {"alarmId", alarm_id},
+        {"createTime", FrameWallClock::to_iso8601_utc(event_timestamp)},
+        {"level", level},
+        {"file", !stream}
+        };
+        const std::string data = param.dump();
+        std::string response;
+        Request::post(url.data(), data.data(), response);
+        LOGI("sent alarm image to {}", conf.admin_host);
       });
 }
 

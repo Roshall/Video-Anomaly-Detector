@@ -125,7 +125,7 @@ class Worker {
                   int64_t event_pts, std::shared_ptr<const Frame> frame,
                   std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
                   int64_t alarm_id,
-                  bool push) noexcept;
+                  bool stream) noexcept;
   bool NeedPushStream() const;
   
   std::string video_code_;
