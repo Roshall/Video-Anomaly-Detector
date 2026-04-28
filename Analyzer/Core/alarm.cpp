@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <format>
 #include <chrono>
+#include <string>
 
 #include "Utils/log.h"
 #include "Utils/common.h"
@@ -39,8 +40,9 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
     {"videoCode", video_code},
     {"videoType", video_type},
     {"videoPath", relative_path},
-    {"alarmId", std::to_string(id)},
-    {"createTime", create_time}
+    {"alarmId", id},
+    {"createTime", create_time},
+    {"file", report_delta}
   };
   
   if (file_size > 0) {
@@ -55,13 +57,14 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
 }
 
 Alarm::Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-             int64_t id, int fps, OutputMode mode)
+             int64_t id, int fps, OutputMode mode, bool report_delta)
     : upload_dir(std::move(upload_dir)),
       admin_host(std::move(admin_host)),
       width(width),
       height(height),
       fps(fps),
       id(id),
+      report_delta(report_delta),
       output_mode(mode),
       hls_recorder(nullptr) {}
 
@@ -145,7 +148,7 @@ void Alarm::FinalizeMp4Event(
 
   Recorder recorder({width, height, fps});
   std::filesystem::path prefix_dir{upload_dir};
-  std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
+  std::string start_time = report_delta ? std::to_string(getCurTimestamp()) : FrameWallClock::to_iso8601_utc(start_ts);
   prefix_dir = prefix_dir / "alarms" / "videos" / video_code / start_time;
 
   if (!std::filesystem::exists(prefix_dir)) {
@@ -171,7 +174,9 @@ void Alarm::FinalizeMp4Event(
   auto file_size = getFileSize(video_path);
 
   // report saved video
-  PostAlarmVideoToAdmin(video_code, "mp4", video_path, start_time, file_size);
+  PostAlarmVideoToAdmin(video_code, "mp4", video_path, 
+    report_delta ? std::format("{:.3f}", std::chrono::duration<double>(start_ts.time_since_epoch()).count()) : start_time,
+    file_size);
 }
 
 void Alarm::FinializeHlsEvent(

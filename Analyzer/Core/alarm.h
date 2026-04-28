@@ -15,7 +15,7 @@ struct Alarm {
 
   Alarm() = delete;
   Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto);
+        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto, bool report_delta = false);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
@@ -67,6 +67,7 @@ public:
   std::string admin_host;
   int width, height, fps;
   int64_t id;
+  bool report_delta{false};
   OutputMode output_mode{OutputMode::kAuto};
   mutable std::unique_ptr<Recorder> hls_recorder;
   mutable bool hls_reported{false};  // Track if HLS stream has been reported to admin

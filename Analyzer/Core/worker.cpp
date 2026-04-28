@@ -357,8 +357,7 @@ void Worker::OfflineAnalyze() {
 
   auto alarm_finalizer = std::make_shared<Alarm>(
       scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
-      width, height);
-  alarm_finalizer->SetOutputMode(Alarm::OutputMode::kMp4Only);
+      width, height, 0, 25, Alarm::OutputMode::kMp4Only, file_);
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
 
@@ -399,6 +398,7 @@ void Worker::OfflineAnalyze() {
     if (event_manager_) {
       auto result = event_manager_->ProcessFrame(
           frame, timestamp_ms, timestamp, info_vec);
+      // FIXME: this event_id maybe collision with online stream
       auto combined_event_id = event_manager_->CurrentEventId();
       std::shared_ptr<const Frame> annotated_frame = result.annotated_frame;
       size_t idx = 0;
@@ -432,15 +432,17 @@ void Worker::OfflineAnalyze() {
           default:
             break;
         }
-
-        if (result.flushed_event) {
+      }
+      if (result.transition == CombinedEventManager::Result::Transition::kBecameActive) {
+        alarm_finalizer->SetId(combined_event_id);
+      }
+      if (result.flushed_event) {
           if (auto& event = result.flushed_event.value()) {
             const auto start_ts = timer_.compute(event->start_timestamp);
             scheduler->AddAlarm({alarm_finalizer, std::move(event), start_ts,
                                  video_code_});
           }
         }
-      }
     }
   }
 
@@ -493,7 +495,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         frame = std::move(frame), is_file = file_]() mutable {
         auto img_path =
             std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
-                        FrameWallClock::to_iso8601_utc(start_timestamp));
+                        is_file ? std::to_string(getCurTimestamp()) : FrameWallClock::to_iso8601_utc(start_timestamp));
         std::filesystem::create_directories(std::filesystem::path(img_path));
         auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
         auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
