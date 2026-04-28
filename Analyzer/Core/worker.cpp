@@ -444,6 +444,18 @@ void Worker::OfflineAnalyze() {
     }
   }
 
+  // Flush any remaining pending events at EOF
+  if (event_manager_) {
+    auto tail_events = event_manager_->FlushPending();
+    for (auto& event : tail_events) {
+      if (event) {
+        const auto start_ts = timer_.compute(event->start_timestamp);
+        scheduler->AddAlarm({alarm_finalizer, std::move(event), start_ts,
+                             video_code_});
+      }
+    }
+  }
+
   // Notify admin service for all processed monitors.
   for (auto& rt : monitors_) {
     if (!rt->monitor) continue;
