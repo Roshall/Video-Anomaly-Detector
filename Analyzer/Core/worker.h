@@ -123,9 +123,9 @@ class Worker {
   bool GrabFrame(AVFrame* frame) const;
   void AlarmImage(const std::string& monitor_code, int64_t start_pts,
                   int64_t event_pts, std::shared_ptr<const Frame> frame,
-                  std::shared_ptr<JPEGEncoder> pict_writer, std::string_view level,
-                  int64_t alarm_id,
-                  bool stream) noexcept;
+                  std::shared_ptr<JPEGEncoder> pict_writer,
+                  std::string_view level,
+                  int64_t alarm_id) noexcept;
   bool NeedPushStream() const;
   
   std::string video_code_;

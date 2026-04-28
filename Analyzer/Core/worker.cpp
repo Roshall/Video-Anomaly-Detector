@@ -418,7 +418,7 @@ void Worker::OfflineAnalyze() {
               rt->current_highest_level = level_idx;;
               AlarmImage(rt->monitor->code, rt->detector->start_ts(),
                         rt->detector->timestamp(), annotated_frame, pict_writer,
-                        rt->monitor->levels.second[level_idx], combined_event_id, false);
+                        rt->monitor->levels.second[level_idx], combined_event_id);
             }
             break;
           case EventDetector::kEventActive:
@@ -465,8 +465,7 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
                         int64_t event_pts, std::shared_ptr<const Frame> frame,
                         std::shared_ptr<JPEGEncoder> pict_writer,
                         std::string_view level,
-                        int64_t alarm_id,
-                        bool stream) noexcept {
+                        int64_t alarm_id) noexcept {
   if (!frame || !frame->data) {
     LOGW("AlarmImage received empty frame for monitor {}", monitor_code);
     return;
@@ -478,8 +477,8 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
 
   g_th_pool.detach_task([pict_writer, conf = scheduler->GetConfig(),
         code = monitor_code, start_timestamp, event_timestamp,
-        level = std::string(level), stream, alarm_id, video_code = video_code_,
-        frame = std::move(frame)]() mutable {
+        level = std::string(level), alarm_id, video_code = video_code_,
+        frame = std::move(frame), is_file = file_]() mutable {
         auto img_path =
             std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
                         FrameWallClock::to_iso8601_utc(start_timestamp));
@@ -500,9 +499,9 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         {"controlCode", code},
         {"videoCode", video_code},
         {"alarmId", alarm_id},
-        {"createTime", FrameWallClock::to_iso8601_utc(event_timestamp)},
+        {"createTime", is_file ? std::format("{:.3f}", std::chrono::duration<double>(event_timestamp.time_since_epoch()).count()) : FrameWallClock::to_iso8601_utc(event_timestamp)},
         {"level", level},
-        {"file", !stream}
+        {"file", is_file}
         };
         const std::string data = param.dump();
         std::string response;
@@ -840,7 +839,7 @@ void Worker::DetectEvent() {
             }
             AlarmImage(snapshot.monitor_code, snapshot.start_pts,
                        snapshot.timestamp, annotated_frame, pict_writer,
-                       snapshot.levels.second[level_idx], combined_event_id, true);
+                       snapshot.levels.second[level_idx], combined_event_id);
           }
           break;
         }
