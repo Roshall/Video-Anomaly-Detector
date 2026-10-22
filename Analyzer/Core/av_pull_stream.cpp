@@ -123,6 +123,7 @@ void AvPullStream::PublishResources(StreamResourcesPtr resources) {
 }
 
 bool AvPullStream::Connect(bool file) {
+  file_ = file;
   StreamResourcesPtr resources;
   std::string error;
   if (!OpenResources(file, resources, error)) {
@@ -161,7 +162,7 @@ bool AvPullStream::Reconnect() {
 
     StreamResourcesPtr resources;
     std::string error;
-    if (OpenResources(false, resources, error)) {
+    if (OpenResources(file_, resources, error)) {
       PublishResources(resources);
       worker_->OnStreamOpened(resources->ctx);
       LOGI("reconnect success: attempt={}/{} connectCount={}", attempt, attempts,

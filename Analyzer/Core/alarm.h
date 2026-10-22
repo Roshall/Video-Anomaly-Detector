@@ -40,7 +40,7 @@ struct Alarm {
 
   Alarm() = delete;
   Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto,
+        int fps = 25, OutputMode mode = OutputMode::kAuto,
         bool report_delta = false);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
@@ -53,19 +53,20 @@ struct Alarm {
   // Report HLS stream .m3u8 path to admin for live playback
   void ReportHlsToAdmin(const std::string& playlist_path,
                         std::chrono::time_point<std::chrono::system_clock> start_ts,
-                        const std::string& video_code) const;
+                        const std::string& video_code, int64_t alarm_id) const;
 
  private:
   void FinalizeMp4Event(
       const Event* event,
       std::chrono::time_point<std::chrono::system_clock> start_ts,
-      const std::string& video_code) const;
-  // Helper function to post alarm video to admin
+      const std::string& video_code, int64_t alarm_id) const;
+  // Helper function to post alarm video to admin. The alarm id belongs to the
+  // job, not to the immutable settings, so it is passed explicitly.
   void PostAlarmVideoToAdmin(const std::string& video_code,
                              const std::string& video_type,
                              const std::string& video_path,
                              const std::string& create_time,
-                             int64_t file_size = 0) const;
+                             int64_t alarm_id, int64_t file_size = 0) const;
 
  public:
   const std::string upload_dir;
@@ -73,7 +74,6 @@ struct Alarm {
   const int width;
   const int height;
   const int fps;
-  const int64_t id;
   const bool report_delta;
   const OutputMode output_mode;
 };

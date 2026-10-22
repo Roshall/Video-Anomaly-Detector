@@ -1,6 +1,6 @@
 #ifndef ANALYZER_AVPULLSTREAM_H
 #define ANALYZER_AVPULLSTREAM_H
-#include <readerwriterqueue/readerwriterqueue.h>
+#include <concurrentqueue/moodycamel/concurrentqueue.h>
 
 #include <atomic>
 #include <cstdint>
@@ -72,11 +72,15 @@ class AvPullStream {
 
   Worker* worker_;
   std::shared_ptr<StreamResources> current_{};
-  ReaderWriterQueue<StreamPacket> video_pkt_queue_;
+  // MPMC: the detect thread consumes, while the read thread flushes stale
+  // packets on reconnect (and CloseConnect may flush during shutdown).
+  ConcurrentQueue<StreamPacket> video_pkt_queue_;
   std::counting_semaphore<> pkt_cs_{0};
   std::atomic<bool> shutdown_{false};
   std::atomic<bool> eof_{false};
   uint64_t generation_{0};
+  // File inputs are reopened as files, never with RTSP options.
+  bool file_{false};
   // Protects OpenResources so Connect() and Read() cannot interleave.
   std::mutex open_mutex_;
 };

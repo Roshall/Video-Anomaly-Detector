@@ -53,7 +53,7 @@ TEST(AlarmJobTest, ConcurrentFinalizeIsIndependent) {
       std::filesystem::temp_directory_path() / "avs_alarm_job_test";
   auto settings = std::make_shared<const Alarm>(
       upload_dir.string(), /*admin_host=*/"", /*width=*/64, /*height=*/64,
-      /*id=*/0, /*fps=*/25, Alarm::OutputMode::kMp4Only, /*report_delta=*/false);
+      /*fps=*/25, Alarm::OutputMode::kMp4Only, /*report_delta=*/false);
 
   constexpr int kThreads = 8;
   constexpr int kIterations = 50;

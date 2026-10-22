@@ -80,7 +80,11 @@ class Scheduler {
                           std::vector<std::pair<int, std::string>>& results);
   // void StartAlarmThread();
   // ApiServer 对应的函数 end
-  void RemoveWorker(const std::string& code);  // 加入到待实际删除队列
+  // Removes the worker registered for `code`. When `expected` is non-null the
+  // entry is only removed if it still belongs to that worker, so a dying
+  // worker can never evict a replacement created for the same video code.
+  void RemoveWorker(const std::string& code,
+                    const Worker* expected = nullptr);  // 加入到待实际删除队列
   void NotifyCleanUp();
   void ClearWorker();
   bool ContainsMonitor(const std::string& video_code, const std::string& code);
@@ -111,6 +115,9 @@ class Scheduler {
   std::unordered_map<std::string, std::shared_ptr<Worker>>
       worker_map_;  // <video.code,Worker>
   std::mutex worker_map_mutex_;
+  // Serializes worker construction (which loads models and fonts) so it can
+  // happen outside worker_map_mutex_ without creating duplicates.
+  std::mutex worker_creation_mutex_;
   ConcurrentQueue<std::shared_ptr<Worker>> to_be_deleted_workers_queue_;
 
   ConcurrentQueue<AlarmJob> alarm_queue_;

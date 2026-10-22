@@ -20,7 +20,7 @@ struct Config;
 class Scheduler;
 struct Detection;
 
-class Analyzer {
+class Analyzer : public std::enable_shared_from_this<Analyzer> {
  public:
   Analyzer(Monitor* monitor, const Config& config);
   virtual ~Analyzer();
@@ -35,12 +35,23 @@ class Analyzer {
   }
   [[nodiscard]] unsigned long id() const { return id_; }
   [[nodiscard]] Task task() const { return task_; }
-  [[nodiscard]] DetectorPool::Callback detector_callback() const {
-    return {[algorithm = algorithm_.get()](const YOLODetector::ResultType& input,
-                                           uint64_t frame_ts) {
-              algorithm->PushResult(input, frame_ts);
+  [[nodiscard]] DetectorPool::Callback detector_callback() {
+    // Inference sessions can outlive the analyzer for a moment during
+    // shutdown. Hold the analyzer weakly so an in-flight result can never
+    // touch an algorithm that is already being destroyed.
+    std::weak_ptr<Analyzer> weak = weak_from_this();
+    return {[weak](const YOLODetector::ResultType& input, uint64_t frame_ts) {
+              if (auto self = weak.lock()) {
+                self->algorithm_->PushResult(input, frame_ts);
+              }
             },
-            [this]() { return WantsFrame(); }};
+            [weak]() -> uint64_t {
+              if (auto self = weak.lock()) {
+                return self->WantsFrame();
+              }
+              // Everything is stale once the analyzer is gone.
+              return std::numeric_limits<uint64_t>::max();
+            }};
   }
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);

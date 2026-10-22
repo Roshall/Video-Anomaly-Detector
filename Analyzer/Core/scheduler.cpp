@@ -35,6 +35,9 @@ Scheduler::Scheduler(Config& config)
 
 Scheduler::~Scheduler() {
   state_.store(false, std::memory_order_release);
+  // Workers hold analyzers that reference the detector pool, so they must be
+  // destroyed before any member of the scheduler is torn down.
+  ClearWorker();
   DrainQueues();
 }
 
@@ -256,22 +259,30 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
     
     if (batch.empty()) continue;
 
-    // Find or create the worker under the map lock; start() and monitor
-    // registration run outside it. Concurrent adders that find a worker still
-    // starting wait for its start result instead of creating a second one.
+    // Find or create the worker without holding the map lock while the
+    // (expensive) Worker constructor registers analyzers and loads models.
+    // Concurrent adders that find a worker still starting wait for its start
+    // result instead of creating a second one.
     bool handled = false;
     for (int attempt = 0; attempt < 2 && !handled; ++attempt) {
       std::shared_ptr<Worker> worker;
       bool created = false;
       {
-        std::lock_guard lock(worker_map_mutex_);
-        if (const auto it = worker_map_.find(video_code);
-            it != worker_map_.end()) {
-          worker = it->second;
-        } else {
+        std::lock_guard create_lock(worker_creation_mutex_);
+        {
+          std::lock_guard lock(worker_map_mutex_);
+          if (const auto it = worker_map_.find(video_code);
+              it != worker_map_.end()) {
+            worker = it->second;
+          }
+        }
+        if (!worker) {
           worker = std::make_shared<Worker>(this, std::move(batch.front().first),
                                             batch.front().second, false);
-          worker_map_.emplace(video_code, worker);
+          {
+            std::lock_guard lock(worker_map_mutex_);
+            worker_map_.emplace(video_code, worker);
+          }
           created = true;
         }
       }
@@ -384,11 +395,7 @@ size_t Scheduler::GetWorkerSize() {
 bool Scheduler::ContainsMonitor(const Monitor* monitor) {
   return ContainsMonitor(monitor->video_code, monitor->code);
 }
-void Scheduler::RemoveWorker(const std::string& code) {
-  RemoveWorkerIf(code, nullptr);
-}
-void Scheduler::RemoveWorkerIf(const std::string& code,
-                               const std::shared_ptr<Worker>& expected) {
+void Scheduler::RemoveWorker(const std::string& code, const Worker* expected) {
   std::shared_ptr<Worker> worker_to_delete;
   {
     std::lock_guard lock(worker_map_mutex_);
@@ -396,7 +403,7 @@ void Scheduler::RemoveWorkerIf(const std::string& code,
     if (it == worker_map_.end()) {
       return;
     }
-    if (expected && it->second != expected) {
+    if (expected && it->second.get() != expected) {
       return;
     }
     worker_to_delete = std::move(it->second);
@@ -404,6 +411,10 @@ void Scheduler::RemoveWorkerIf(const std::string& code,
   }
   to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
   NotifyCleanUp();
+}
+void Scheduler::RemoveWorkerIf(const std::string& code,
+                               const std::shared_ptr<Worker>& expected) {
+  RemoveWorker(code, expected.get());
 }
 void Scheduler::NotifyCleanUp() {
   clean_up_cs_.release();

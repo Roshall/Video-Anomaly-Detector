@@ -308,7 +308,9 @@ void Worker::Remove() {
   if (out) {
     out->SignalShutdown();
   }
-  scheduler->RemoveWorker(video_code_);
+  // Only evict ourselves: a replacement worker may already hold this video
+  // code if a new add raced with this one being stopped.
+  scheduler->RemoveWorker(video_code_, this);
 }
 
 void Worker::Stop() { state_.store(false, std::memory_order_release); }
@@ -434,7 +436,7 @@ void Worker::OfflineAnalyze() {
 
   auto alarm_settings = std::make_shared<const Alarm>(
       scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
-      width, height, 0, 25, Alarm::OutputMode::kMp4Only, file_);
+      width, height, 25, Alarm::OutputMode::kMp4Only, file_);
 
   auto enqueue_offline_alarm = [&](std::unique_ptr<Event> event,
                                    int64_t alarm_id) {
@@ -976,7 +978,7 @@ void Worker::DetectEvent() {
   // Immutable output settings; alarm jobs only carry per-event values.
   auto alarm_settings = std::make_shared<const Alarm>(
       scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
-      out_width, out_height, 0, fps,
+      out_width, out_height, fps,
       file_ ? Alarm::OutputMode::kMp4Only : Alarm::OutputMode::kAuto, file_);
 
   auto pict_writer = std::make_shared<JPEGEncoder>(width, height);
@@ -1141,7 +1143,7 @@ void Worker::DetectEvent() {
       out_height = out_now ? out_now->height() : height;
       alarm_settings = std::make_shared<const Alarm>(
           scheduler->GetConfig().upload_dir, scheduler->GetConfig().admin_host,
-          out_width, out_height, 0, fps,
+          out_width, out_height, fps,
           file_ ? Alarm::OutputMode::kMp4Only : Alarm::OutputMode::kAuto,
           file_);
       LOGI("worker {} stream geometry changed to {}x{}", video_code_, width,

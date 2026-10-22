@@ -145,7 +145,8 @@ class CombinedEventManager {
   CombinedState state_{CombinedState::kIdle};
   std::deque<std::shared_ptr<const Frame>> frame_buffer_{};
   size_t buffer_bytes_{0};
-  size_t memory_budget_bytes_{0};  // 0 = unlimited
+  // Written by the control thread, read by the detect thread. 0 = unlimited.
+  std::atomic<size_t> memory_budget_bytes_{0};
   uint64_t buffer_evictions_{0};
   // Encodes idle frames and decodes them again at flush time. Owned by the
   // event manager, so only the detect thread touches it.

@@ -41,7 +41,7 @@ CombinedEventManager::CombinedEventManager() = default;
 CombinedEventManager::~CombinedEventManager() = default;
 
 void CombinedEventManager::UpdateMemoryBudget(size_t bytes) {
-  memory_budget_bytes_ = bytes;
+  memory_budget_bytes_.store(bytes, std::memory_order_release);
 }
 
 bool CombinedEventManager::has_raw_buffered_frames() const noexcept {
@@ -304,6 +304,8 @@ void CombinedEventManager::DropOldestFrame() {
 
 void CombinedEventManager::TrimFrameBuffer(int64_t current_timestamp_ms) {
   const auto config = config_.load(std::memory_order_acquire);
+  const size_t budget_bytes =
+      memory_budget_bytes_.load(std::memory_order_acquire);
   int64_t window = CurrentBufferWindowMs(config, current_timestamp_ms);
   const int64_t hard_cap = max_buffer_time_ms_.load(std::memory_order_acquire);
   if (hard_cap > 0) {
@@ -314,8 +316,7 @@ void CombinedEventManager::TrimFrameBuffer(int64_t current_timestamp_ms) {
     const bool over_time =
         window > 0 &&
         current_timestamp_ms - frame_buffer_.front()->timestamp > window;
-    const bool over_budget = memory_budget_bytes_ > 0 &&
-                             buffer_bytes_ > memory_budget_bytes_;
+    const bool over_budget = budget_bytes > 0 && buffer_bytes_ > budget_bytes;
     if (!over_time && !over_budget) {
       break;
     }
@@ -323,7 +324,7 @@ void CombinedEventManager::TrimFrameBuffer(int64_t current_timestamp_ms) {
       ++buffer_evictions_;
       if (buffer_evictions_ == 1 || buffer_evictions_ % 200 == 0) {
         LOGW("Event buffer budget exceeded ({} MB): evicted {} frames",
-             memory_budget_bytes_ / (1024 * 1024), buffer_evictions_);
+             budget_bytes / (1024 * 1024), buffer_evictions_);
       }
     }
     DropOldestFrame();

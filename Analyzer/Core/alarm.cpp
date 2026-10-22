@@ -66,7 +66,7 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
                                    const std::string& video_type,
                                    const std::string& video_path,
                                    const std::string& create_time,
-                                   int64_t file_size) const {
+                                   int64_t alarm_id, int64_t file_size) const {
   if (admin_host.empty()) {
     LOGW("Alarm::PostAlarmVideoToAdmin: admin_host is empty, skipping.");
     return;
@@ -84,7 +84,7 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
     {"videoCode", video_code},
     {"videoType", video_type},
     {"videoPath", relative_path},
-    {"alarmId", id},
+    {"alarmId", alarm_id},
     {"createTime", create_time},
     {"file", report_delta}
   };
@@ -104,29 +104,29 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
 }
 
 Alarm::Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-             int64_t id, int fps, OutputMode mode, bool report_delta)
+             int fps, OutputMode mode, bool report_delta)
     : upload_dir(std::move(upload_dir)),
       admin_host(std::move(admin_host)),
       width(width),
       height(height),
       fps(fps),
-      id(id),
       report_delta(report_delta),
       output_mode(mode) {}
 
 void Alarm::ReportHlsToAdmin(const std::string& playlist_path,
                              std::chrono::time_point<std::chrono::system_clock> start_ts,
-                             const std::string& video_code) const {
+                             const std::string& video_code, int64_t alarm_id) const {
   if (admin_host.empty()) {
     return;
   }
   std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-  PostAlarmVideoToAdmin(video_code, "hls", playlist_path, start_time);
+  PostAlarmVideoToAdmin(video_code, "hls", playlist_path, start_time, alarm_id);
 }
 
 void Alarm::Finalize(AlarmJob&& job) const {
   if (job.hls_playlist) {
-    ReportHlsToAdmin(job.hls_playlist->playlist, job.start_ts, job.video_code);
+    ReportHlsToAdmin(job.hls_playlist->playlist, job.start_ts, job.video_code,
+                     job.id);
   }
 
   if (job.hls_paths) {
@@ -154,10 +154,10 @@ void Alarm::Finalize(AlarmJob&& job) const {
 
       const std::string& mp4_path = hls_paths.mp4_output;
       auto file_size = getFileSize(mp4_path);
-      Alarm temp_alarm(upload_dir, admin_host, 0, 0, alarm_id, 0,
-                       OutputMode::kAuto, is_file);
+      Alarm temp_alarm(upload_dir, admin_host, 0, 0, 0, OutputMode::kAuto,
+                       is_file);
       temp_alarm.PostAlarmVideoToAdmin(video_code, "mp4", mp4_path, start_time,
-                                       file_size);
+                                       alarm_id, file_size);
       if (!RemoveHlsFiles(hls_paths)) {
         LOGW("Alarm async cleanup: RemoveHlsFiles reported failures for {}",
              hls_paths.playlist);
@@ -170,13 +170,13 @@ void Alarm::Finalize(AlarmJob&& job) const {
     return;
   }
 
-  FinalizeMp4Event(job.event.get(), job.start_ts, job.video_code);
+  FinalizeMp4Event(job.event.get(), job.start_ts, job.video_code, job.id);
 }
 
 void Alarm::FinalizeMp4Event(
     const Event* event,
     std::chrono::time_point<std::chrono::system_clock> start_ts,
-    const std::string& video_code) const {
+    const std::string& video_code, int64_t alarm_id) const {
   if (!event || event->frames.empty()) {
     LOGW("Alarm::FinalizeMp4Event: empty event or no frames, skipping.");
     return;
@@ -215,8 +215,13 @@ void Alarm::FinalizeMp4Event(
   auto file_size = getFileSize(video_path);
 
   // report saved video
-  PostAlarmVideoToAdmin(video_code, "mp4", video_path, 
-    report_delta ? std::format("{:.3f}", std::chrono::duration<double>(start_ts.time_since_epoch()).count()) : start_time,
-    file_size);
+  PostAlarmVideoToAdmin(video_code, "mp4", video_path,
+                        report_delta
+                            ? std::format("{:.3f}",
+                                          std::chrono::duration<double>(
+                                              start_ts.time_since_epoch())
+                                              .count())
+                            : start_time,
+                        alarm_id, file_size);
 }
 }  // namespace avs_analyzer
