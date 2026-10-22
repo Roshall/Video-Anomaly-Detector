@@ -1,4 +1,4 @@
-﻿#ifndef ANALYZER_SERVER_H
+#ifndef ANALYZER_SERVER_H
 #define ANALYZER_SERVER_H
 #include <event2/http.h>
 
@@ -26,5 +26,6 @@ void ApiClip(evhttp_request* req, void* arg);
 void ApiSnapShot(evhttp_request* req, void*);
 void ApiFileUpload(evhttp_request* req, void* arg);
 void alarm_sound_cv(evhttp_request* req, void* arg);
+void ApiOfflineFinishedAck(evhttp_request* req, void* arg);
 
 #endif  // ANALYZER_SERVER_H

@@ -56,11 +56,20 @@ std::string escape_json(const std::string& s) {
 }
 
 bool get_request_json(const evhttp_request* req, nlohmann::json& root) {
-  char buf[kRecvBufMaxSize];
-  ParsePostRequest(req, buf);
+  if (req == nullptr || req->input_buffer == nullptr) {
+    return false;
+  }
+  const size_t post_size = evbuffer_get_length(req->input_buffer);
+  if (post_size == 0) {
+    return false;
+  }
+  const char* data = reinterpret_cast<const char*>(evbuffer_pullup(req->input_buffer, -1));
+  if (!data) {
+    return false;
+  }
 
   try {
-    root = nlohmann::json::parse(buf);
+    root = nlohmann::json::parse(data, data + post_size);
     return true;
   } catch (...) {
     return false;

@@ -206,7 +206,27 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
     const std::string camera_id = root.value("cameraId", "");
     const std::string source_type = root.value("sourceType", "");
     const std::string stream_url = root.value("streamUrl", "");
+
+    if (camera_id.empty()) {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"cameraId is required and cannot be empty"})");
+      return;
+    }
+
+    if (stream_url.empty()) {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"streamUrl is required and cannot be empty"})");
+      return;
+    }
+
+    if (source_type != "stream" && source_type != "file") {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"sourceType must be 'stream' or 'file'"})");
+      return;
+    }
+
     const auto& controls = root["controls"];
+    if (controls.empty()) {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"controls array cannot be empty"})");
+      return;
+    }
 
     std::vector<std::pair<std::unique_ptr<avs_analyzer::Monitor>, avs_analyzer::EventDetectorConfig>> monitors;
     std::vector<std::string> control_codes;
@@ -215,24 +235,73 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
 
     for (const auto& ctrl : controls) {
       try {
+        if (!ctrl.is_object()) {
+          LOGE("control item is not an object, skipping");
+          continue;
+        }
+
         int task = 0;
         if (ctrl.contains("algorithmCode")) {
           const auto& ac = ctrl["algorithmCode"];
           if (ac.is_string()) {
-            task = std::stoi(ac.get<std::string>());
+            try {
+              task = std::stoi(ac.get<std::string>());
+            } catch (const std::exception&) {
+              LOGE("invalid algorithmCode string, skipping control");
+              continue;
+            }
           } else if (ac.is_number_integer()) {
             task = ac.get<int>();
           } else {
-            task = 0;
+            LOGE("algorithmCode has invalid type, skipping control");
+            continue;
           }
+        } else {
+          LOGE("algorithmCode is missing, skipping control");
+          continue;
         }
+
         if (task < 0 || task >= 6) {
-          LOGE("wrong algorithm code: {}", task);
+          LOGE("wrong algorithm code: {}, must be in range [0, 5]", task);
           continue;
         }
 
         const std::string ctrl_code = ctrl.value("code", "");
+        if (ctrl_code.empty()) {
+          LOGE("control code is empty, skipping control");
+          continue;
+        }
+
         const std::string behavior = ctrl.value("behavior", "");
+
+        const bool push_stream = ctrl.value("pushStream", false);
+        const std::string push_stream_url = ctrl.value("pushStreamUrl", "");
+
+        if (push_stream && push_stream_url.empty()) {
+          LOGE("pushStream is true but pushStreamUrl is empty for control {}, skipping", ctrl_code);
+          continue;
+        }
+
+        const float conf_threshold = ctrl.value("modelConfidenceThreshold", 0.5f);
+        if (conf_threshold < 0.0f || conf_threshold > 1.0f) {
+          LOGE("modelConfidenceThreshold {} is out of range [0.0, 1.0] for control {}, using default 0.5", 
+               conf_threshold, ctrl_code);
+        }
+
+        std::string roi_str;
+        if (ctrl.contains("recognitionRegion")) {
+          const auto& rr = ctrl["recognitionRegion"];
+          if (rr.is_string()) {
+            roi_str = rr.get<std::string>();
+          } else if (rr.is_array()) {
+            roi_str = rr.dump();
+          }
+        }
+        if (roi_str.empty()) {
+          LOGE("recognitionRegion is empty for control {}, skipping", ctrl_code);
+          continue;
+        }
+
         control_codes.push_back(ctrl_code);
 
         avs_analyzer::LevelMode mode{};
@@ -241,31 +310,62 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
             .video_code = camera_id,
             .source_type = source_type,
             .stream_url = stream_url,
-            .push_stream = ctrl.value("pushStream", false),
-            .push_stream_url = ctrl.value("pushStreamUrl", ""),
+            .push_stream = push_stream,
+            .push_stream_url = push_stream_url,
             .task = static_cast<avs_analyzer::Task>(task),
-            .conf_threshold = ctrl.value("modelConfidenceThreshold", 0.5f),
+            .conf_threshold = std::max(0.0f, std::min(1.0f, conf_threshold)),
             .behavior = to_u8string(behavior),
-            .roi_str = ctrl.value("recognitionRegion", ""),
+            .roi_str = roi_str,
             .levels = parse_levels(ctrl.contains("levels") ? ctrl["levels"] : nlohmann::json{}, mode),
             .level_mode = mode,
         };
 
         const int ws = ctrl.value("alertWindowSize", 1);
+        if (ws <= 0) {
+          LOGE("alertWindowSize {} is invalid for control {}, using default 1", ws, ctrl_code);
+        }
+        const int window_size = std::max(1, ws);
+
+        const float alert_frame_ratio = ctrl.value("alertFrameRatio", 60.0f);
+        if (alert_frame_ratio < 0.0f || alert_frame_ratio > 100.0f) {
+          LOGE("alertFrameRatio {} is out of range [0.0, 100.0] for control {}, using default 60.0",
+               alert_frame_ratio, ctrl_code);
+        }
+        const float safe_ratio = std::max(0.0f, std::min(100.0f, alert_frame_ratio));
+
+        const float min_interval = ctrl.value("minInterval", 2.0f);
+        if (min_interval < 0.0f) {
+          LOGE("minInterval {} is negative for control {}, using default 2.0", min_interval, ctrl_code);
+        }
+
+        const float alert_interval = ctrl.value("alertInterval", 0.5f);
+        if (alert_interval < 0.0f) {
+          LOGE("alertInterval {} is negative for control {}, using default 0.5", alert_interval, ctrl_code);
+        }
+
+        const float max_alarm_duration = ctrl.value("maxAlarmDuration", 60.0f);
+        if (max_alarm_duration < 0.0f) {
+          LOGE("maxAlarmDuration {} is negative for control {}, using default 60.0", 
+               max_alarm_duration, ctrl_code);
+        }
+
         const int first_threshold = monitor.levels.first.empty() ? 0 : monitor.levels.first.front();
         const int64_t duration = (mode == avs_analyzer::LevelMode::kDuration) ? first_threshold : 0;
 
         avs_analyzer::EventDetectorConfig event_cfg{
-            .major_stride_ms = static_cast<int64_t>(ctrl.value("minInterval", 0.0f) * 1000),
-            .minor_stride_ms = static_cast<int64_t>(ctrl.value("alertInterval", 0.0f) * 1000),
-            .window_size = ws,
-            .min_vote = std::max(static_cast<int>(ws * ctrl.value("alertFrameRatio", 100.0f) / 100), 1),
-            .max_event_duration_ms = static_cast<int64_t>(ctrl.value("maxAlarmDuration", 0.0f) * 1000),
+            .major_stride_ms = static_cast<int64_t>(std::max(0.0f, min_interval) * 1000),
+            .minor_stride_ms = static_cast<int64_t>(std::max(0.0f, alert_interval) * 1000),
+            .window_size = window_size,
+            .min_vote = std::max(1, static_cast<int>(window_size * safe_ratio / 100.0f)),
+            .max_event_duration_ms = static_cast<int64_t>(std::max(0.0f, max_alarm_duration) * 1000),
             .latest_duration_ms = duration,
             .minimum_num = (mode == avs_analyzer::LevelMode::kNumPeople) ? std::max(first_threshold, 1) : 1,
         };
+
+        const std::string thresholds_log = monitor.levels.first.empty() ? "none" : std::to_string(monitor.levels.first[0]);
+        const std::string levels_log = monitor.levels.second.empty() ? "none" : monitor.levels.second[0];
         LOGD("Parsed monitor config: code={}, task={}, thresholds={}, levels={}, event_cfg={{major_stride_ms: {}, minor_stride_ms: {}, window_size: {}, min_vote: {}, max_event_duration_ms: {}, latest_duration_ms: {}, minimum_num: {}}}",
-             monitor.code, toString(monitor.task), monitor.levels.first[0], monitor.levels.second[0],
+             monitor.code, toString(monitor.task), thresholds_log, levels_log,
              event_cfg.major_stride_ms, event_cfg.minor_stride_ms, event_cfg.window_size, event_cfg.min_vote,
              event_cfg.max_event_duration_ms, event_cfg.latest_duration_ms, event_cfg.minimum_num);
 
@@ -279,6 +379,11 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       } catch (const std::exception& e) {
         LOGE("runtime error in controls add: {}", e.what());
       }
+    }
+
+    if (monitors.empty()) {
+      send_json(req, HTTP_BADREQUEST, R"({"msg":"no valid monitors to add after validation"})");
+      return;
     }
 
     std::vector<std::pair<int, std::string>> add_results;

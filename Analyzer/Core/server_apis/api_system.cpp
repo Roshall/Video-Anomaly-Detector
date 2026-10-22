@@ -19,6 +19,7 @@ void ApiIndex(evhttp_request* req, void*) {
       {"/file/upload", "upload files"},
       {"/file", "serve static files"},
       {"/alarm-sound", "alarm sound control"},
+      {"/api/offline/finishedAck", "offline video completion acknowledgment"},
       {"/test/load_models", "test if models are loaded successfully"}
     }
   };
@@ -36,4 +37,8 @@ void ApiHealth(evhttp_request* req, void*) {
   result["msg"] = result_msg;
   result["code"] = result_code;
   send_json(req, HTTP_OK, result.dump());
+}
+
+void ApiOfflineFinishedAck(evhttp_request* req, void*) {
+  send_json(req, HTTP_OK, R"({"code":1000,"msg":"success"})");
 }
