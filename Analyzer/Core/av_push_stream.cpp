@@ -1,4 +1,4 @@
-﻿#include "av_push_stream.h"
+#include "av_push_stream.h"
 
 #include "Utils/log.h"
 #include "frame_recorder.h"
@@ -14,7 +14,8 @@ namespace avs_analyzer {
 AvPushStream::AvPushStream(Worker* worker)
     : worker_(worker),
       recorder_(
-          {worker->VideoWidth(), worker->VideoHeight()}) {}
+          {worker->VideoWidth(), worker->VideoHeight()}),
+      max_frames_(worker->PushQueueMaxFrames()) {}
 
 AvPushStream::~AvPushStream() { CloseConnect(); }
 
@@ -36,8 +37,14 @@ void AvPushStream::CloseConnect() {
 }
 
 void AvPushStream::AddVideoFrame(std::shared_ptr<const Frame> frame) {
-  if (video_frame_q_.size_approx() > 30 * 10) {
-    LOGW("Too many frames remain, throw away one");
+  if (static_cast<int>(video_frame_q_.size_approx()) >= max_frames_) {
+    worker_->RecordPushFrameDrop();
+    const auto now = std::chrono::steady_clock::now();
+    if (last_drop_log_ == std::chrono::steady_clock::time_point{} ||
+        now - last_drop_log_ >= std::chrono::seconds(1)) {
+      last_drop_log_ = now;
+      LOGW("Push queue full ({} frames), dropping newest frame", max_frames_);
+    }
     return;
   }
   video_frame_q_.enqueue(std::move(frame));

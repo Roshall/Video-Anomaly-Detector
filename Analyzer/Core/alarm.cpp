@@ -1,4 +1,4 @@
-﻿#include "alarm.h"
+#include "alarm.h"
 
 #include <cstdint>
 #include <nlohmann/json.hpp>
@@ -10,6 +10,7 @@
 #include "Utils/log.h"
 #include "Utils/common.h"
 #include "Utils/request.h"
+#include "metrics.h"
 #include "video_processing/frame_recorder.h"
 #include "video_processing/frame_walk_time.h"
 #include "video_processing/hls_utils.h"
@@ -17,6 +18,49 @@
 #include "scheduler.h"
 
 namespace avs_analyzer {
+
+HlsEventWriter::HlsEventWriter(int width, int height, int fps,
+                               std::string base_path,
+                               const Recorder::HlsConfig& hls_config)
+    : recorder_(std::make_unique<Recorder>(Recorder::VideoConfig{width, height, fps})) {
+  if (recorder_->Initialize(base_path, Recorder::OutputType::kHls, hls_config)) {
+    paths_ = recorder_->last_hls_paths;
+  } else {
+    LOGW("HlsEventWriter: failed to initialize HLS recorder at {}", base_path);
+    recorder_.reset();
+  }
+}
+
+std::optional<Recorder::HlsPaths> HlsEventWriter::paths() const {
+  if (!recorder_) {
+    return paths_;
+  }
+  return recorder_->last_hls_paths;
+}
+
+void HlsEventWriter::AddFrames(const Event& event) {
+  if (!recorder_ || event.frames.empty()) {
+    return;
+  }
+  for (const auto& frame : event.frames) {
+    if (frame && frame->data) {
+      recorder_->AddVideoFrame(frame->data.get());
+    }
+  }
+  LOGD("HlsEventWriter: added {} frames to HLS recorder", event.frames.size());
+}
+
+std::optional<Recorder::HlsPaths> HlsEventWriter::Close() {
+  if (!recorder_) {
+    return paths_;
+  }
+  recorder_->CloseOutputSegment();
+  if (recorder_->last_hls_paths.has_value()) {
+    paths_ = recorder_->last_hls_paths;
+  }
+  recorder_.reset();
+  return paths_;
+}
 
 void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
                                    const std::string& video_type,
@@ -51,7 +95,10 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
   
   const std::string data = param.dump();
   std::string response;
-  Request::post(url.data(), data.data(), response);
+  if (!Request::post(url.data(), data.data(), response)) {
+    MetricsRegistry::Instance().alarm().upload_failures.fetch_add(
+        1, std::memory_order_relaxed);
+  }
   
   LOGI("Alarm::PostAlarmVideoToAdmin: {} video reported - request:{} response:{}", video_type, url, response);
 }
@@ -65,80 +112,69 @@ Alarm::Alarm(std::string upload_dir, std::string admin_host, int width, int heig
       fps(fps),
       id(id),
       report_delta(report_delta),
-      output_mode(mode),
-      hls_recorder(nullptr) {}
-
-void Alarm::AddFrameToHls(const Event& event) const {
-  if (!hls_recorder) {
-    LOGW("Alarm::AddFrameToHls: hls_recorder is null, skipping.");
-    return;
-  }
-  
-  if (event.frames.empty()) {
-    LOGW("Alarm::AddFrameToHls: event has no frames, skipping.");
-    return;
-  }
-  
-  // Feed frames from this slice to the HLS encoder
-  for (const auto& frame : event.frames) {
-    if (frame && frame->data) {
-      hls_recorder->AddVideoFrame(frame->data.get());
-    }
-  }
-  
-  LOGD("Alarm::AddFrameToHls: added {} frames to HLS recorder", event.frames.size());
-}
+      output_mode(mode) {}
 
 void Alarm::ReportHlsToAdmin(const std::string& playlist_path,
                              std::chrono::time_point<std::chrono::system_clock> start_ts,
                              const std::string& video_code) const {
+  if (admin_host.empty()) {
+    return;
+  }
   std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
   PostAlarmVideoToAdmin(video_code, "hls", playlist_path, start_time);
 }
 
-void Alarm::Finalize(
-    std::unique_ptr<Event> event,
-    std::chrono::time_point<std::chrono::system_clock> start_ts,
-    const std::string& video_code) const {
-  if (output_mode == OutputMode::kMp4Only) {
-    if (hls_recorder) {
-      LOGW("Alarm::Finalize: mp4-only mode ignores HLS recorder.");
-      hls_recorder.reset();
+void Alarm::Finalize(AlarmJob&& job) const {
+  if (job.hls_playlist) {
+    ReportHlsToAdmin(job.hls_playlist->playlist, job.start_ts, job.video_code);
+  }
+
+  if (job.hls_paths) {
+    if (output_mode == OutputMode::kMp4Only) {
+      return;
     }
-    FinalizeMp4Event(std::move(event), start_ts, video_code);
+    const auto hls_paths = *job.hls_paths;
+    const std::string start_time = FrameWallClock::to_iso8601_utc(job.start_ts);
+    const std::string video_code = job.video_code;
+    const int64_t alarm_id = job.id;
+    const bool is_file = report_delta;
+    LOGI("Alarm::Finalize: submitting async reencode task for video_code: {}",
+         video_code);
+    g_th_pool.detach_task([hls_paths, start_time, upload_dir = upload_dir,
+                           admin_host = admin_host, alarm_id, video_code,
+                           is_file]() {
+      ReencodeConfig reencode_cfg;
+      if (!ReencodeHlsToSuggestedMp4(hls_paths, reencode_cfg)) {
+        MetricsRegistry::Instance().alarm().reencode_failures.fetch_add(
+            1, std::memory_order_relaxed);
+        LOGE("Alarm async reencode: ReencodeHlsToSuggestedMp4 failed for video_code: {}",
+             video_code);
+        return;
+      }
+
+      const std::string& mp4_path = hls_paths.mp4_output;
+      auto file_size = getFileSize(mp4_path);
+      Alarm temp_alarm(upload_dir, admin_host, 0, 0, alarm_id, 0,
+                       OutputMode::kAuto, is_file);
+      temp_alarm.PostAlarmVideoToAdmin(video_code, "mp4", mp4_path, start_time,
+                                       file_size);
+      if (!RemoveHlsFiles(hls_paths)) {
+        LOGW("Alarm async cleanup: RemoveHlsFiles reported failures for {}",
+             hls_paths.playlist);
+      }
+    });
     return;
   }
 
-  if (hls_recorder) {
-    // Check if this is an intermediate slice or final event
-    if (event && event->more_segments) {
-      // Intermediate slice: buffer frames to HLS
-      AddFrameToHls(*event);
-      
-      // Report HLS stream on first intermediate event (for live playback)
-      if (!hls_reported && hls_recorder->last_hls_paths.has_value()) {
-        const auto& playlist_path = hls_recorder->last_hls_paths.value().playlist;
-        ReportHlsToAdmin(playlist_path, start_ts, video_code);
-        alarm_start_time = start_ts;  // Track when the alarm was triggered for reporting purposes
-        hls_reported = true;
-      }
-    } else {
-      // Final slice: close and reencode
-      if (alarm_start_time != std::chrono::system_clock::time_point{}) {
-        start_ts = alarm_start_time;  // Use the original alarm trigger time for reporting
-      }
-      FinializeHlsEvent(std::move(event), start_ts, video_code);
-    }
-  } else {
-    if (alarm_start_time != std::chrono::system_clock::time_point{}) {
-      start_ts = alarm_start_time;  // Use the original alarm trigger time for reporting
-    }
-    FinalizeMp4Event(std::move(event), start_ts, video_code);
+  if (job.captured_by_hls) {
+    return;
   }
+
+  FinalizeMp4Event(job.event.get(), job.start_ts, job.video_code);
 }
 
 void Alarm::FinalizeMp4Event(
-    std::unique_ptr<Event> event,
+    const Event* event,
     std::chrono::time_point<std::chrono::system_clock> start_ts,
     const std::string& video_code) const {
   if (!event || event->frames.empty()) {
@@ -159,8 +195,11 @@ void Alarm::FinalizeMp4Event(
     }
   }
 
-  auto video_path = std::format("{}/{}.mp4", prefix_dir.string(),
-                                event->frames[0]->data->best_effort_timestamp);
+  const int64_t file_ts =
+      (event->frames.front() && event->frames.front()->data)
+          ? event->frames.front()->data->best_effort_timestamp
+          : event->start_timestamp;
+  auto video_path = std::format("{}/{}.mp4", prefix_dir.string(), file_ts);
 
   if (!recorder.Initialize(video_path, Recorder::OutputType::kFile)) {
     LOGE("Alarm::FinalizeMp4Event: cannot initialize recorder at {}", video_path);
@@ -168,7 +207,9 @@ void Alarm::FinalizeMp4Event(
   }
 
   for (auto& frame : event->frames) {
-    recorder.AddVideoFrame(frame->data.get());
+    if (frame && frame->data) {
+      recorder.AddVideoFrame(frame->data.get());
+    }
   }
   recorder.CloseOutputSegment();
   auto file_size = getFileSize(video_path);
@@ -177,65 +218,5 @@ void Alarm::FinalizeMp4Event(
   PostAlarmVideoToAdmin(video_code, "mp4", video_path, 
     report_delta ? std::format("{:.3f}", std::chrono::duration<double>(start_ts.time_since_epoch()).count()) : start_time,
     file_size);
-}
-
-void Alarm::FinializeHlsEvent(
-    std::unique_ptr<Event> event,
-    std::chrono::time_point<std::chrono::system_clock> start_ts,
-    const std::string& video_code) const {
-  if (!hls_recorder) {
-    LOGW("Alarm::FinializeHlsEvent: hls_recorder is null, skipping.");
-    return;
-  }
-
-  // Add final slice frames before closing
-  if (event && !event->frames.empty()) {
-    AddFrameToHls(*event);
-  }
-
-  // Close the HLS recorder to finalize segments (synchronous)
-  hls_recorder->CloseOutputSegment();
-  
-  // Get HLS paths from recorder
-  if (!hls_recorder->last_hls_paths.has_value()) {
-    LOGE("Alarm::FinializeHlsEvent: no HLS paths available");
-    hls_recorder.reset();  // Reset recorder
-    return;
-  }
-  
-  // Copy data needed for async task
-  const auto hls_paths = hls_recorder->last_hls_paths.value();
-  const std::string start_time = FrameWallClock::to_iso8601_utc(start_ts);
-  
-  // Reset recorder now that it's closed
-  hls_recorder.reset();
-  
-  LOGI("Alarm::FinializeHlsEvent: submitting async reencode task for video_code: {}", video_code);
-
-  // Submit async reencode and reporting task to global thread pool
-  g_th_pool.detach_task([hls_paths, start_time, upload_dir = upload_dir,
-     admin_host = admin_host,
-                         alarm_id = id, video_code]() {
-    // Reencode HLS to MP4
-    ReencodeConfig reencode_cfg;
-    bool reencode_success = ReencodeHlsToSuggestedMp4(hls_paths, reencode_cfg);
-
-    if (!reencode_success) {
-      LOGE("Alarm async reencode: ReencodeHlsToSuggestedMp4 failed for video_code: {}", video_code);
-      return;
-    }
-
-    const std::string& mp4_path = hls_paths.mp4_output;
-    auto file_size = getFileSize(mp4_path);
-
-    // Report MP4 to admin
-    // Need to create a temporary Alarm object to call the helper function
-    Alarm temp_alarm(upload_dir, admin_host, 0, 0, alarm_id, 0);
-    temp_alarm.PostAlarmVideoToAdmin(video_code, "mp4", mp4_path, start_time, file_size);
-    // Remove HLS playlist/segments but preserve generated MP4 (use helper)
-    if (!RemoveHlsFiles(hls_paths)) {
-      LOGW("Alarm async cleanup: RemoveHlsFiles reported failures for {}", hls_paths.playlist);
-    }
-  });
 }
 }  // namespace avs_analyzer

@@ -1,5 +1,7 @@
-﻿#ifndef ANALYZER_ALGORITHM_H
+#ifndef ANALYZER_ALGORITHM_H
 #define ANALYZER_ALGORITHM_H
+
+#include <chrono>
 
 #include <opencv2/opencv.hpp>
 #include <readerwriterqueue/readerwriterqueue.h>
@@ -20,11 +22,14 @@ class Algorithm {
   Algorithm() = default;
   virtual ~Algorithm();
 
-  virtual Detection ProcessDetections() = 0;
-  QueueValue FetchOneFrameResults();
+  // Waits up to `timeout` for the next inference result.
+  // Returns false if no result arrived before the deadline.
+  virtual bool TryProcessDetections(Detection& out,
+                                    std::chrono::milliseconds timeout) = 0;
   void PushResult(const YOLODetector::ResultType& results, uint64_t frame_ts);
 
  protected:
+  bool FetchOneFrameResults(QueueValue& out, std::chrono::milliseconds timeout);
   moodycamel::BlockingReaderWriterQueue<QueueValue> result_queue_;
 };
 

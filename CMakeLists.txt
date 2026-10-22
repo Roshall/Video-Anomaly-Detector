@@ -32,6 +32,14 @@ endif()
 
 option(BUILD_TESTS "Build unit tests" OFF)
 
+# Optional sanitizer build. Example: -DANALYZER_SANITIZE=thread
+set(ANALYZER_SANITIZE "" CACHE STRING "Sanitizer to enable (address, thread, undefined)")
+if(ANALYZER_SANITIZE)
+    message(STATUS "Enabling sanitizer: ${ANALYZER_SANITIZE}")
+    add_compile_options(-fsanitize=${ANALYZER_SANITIZE} -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=${ANALYZER_SANITIZE})
+endif()
+
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     set(THIRDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty-aarch64")
 else()
@@ -217,48 +225,57 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
-add_executable(tests tests/event_test.cpp Analyzer/Core/event.cpp)
-target_link_libraries(tests GTest::gtest_main)
-target_include_directories(tests PRIVATE Analyzer/Core)
+# The bundled FFmpeg in 3rdparty/lib must be preferred over system copies for
+# indirect dependencies (e.g. libavfilter -> libswresample).
+add_link_options(-Wl,--disable-new-dtags)
 
+# Shared include directories and common dependencies for all unit-test targets.
+# Test targets add themselves with: target_link_libraries(<target> PRIVATE analyzer_test_common)
+add_library(analyzer_test_common INTERFACE)
+target_include_directories(analyzer_test_common INTERFACE
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core/video_processing
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core/tracker
+        ${THIRDPARTY_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
+        ${FFMPEG_INCLUDE_DIRS}
+        ${FREETYPE_INCLUDE_DIRS}
+        ${EIGEN_INCLUDE_DIR}
+)
+target_link_libraries(analyzer_test_common INTERFACE
+        GTest::gtest_main
+        Threads::Threads
+        spdlog::spdlog
+        nlohmann_json::nlohmann_json
+)
 
 add_executable(yuv_test tests/yuv_test.cpp)
-target_link_libraries(yuv_test PRIVATE opencv_core)
+target_link_libraries(yuv_test PRIVATE analyzer_test_common opencv_core opencv_imgproc opencv_imgcodecs)
 target_include_directories(yuv_test PRIVATE ${OpenCV_INCLUDE_DIRS})
+add_test(NAME yuv_test COMMAND $<TARGET_FILE:yuv_test>)
 
-add_executable(detect_test Analyzer/Core/event.cpp tests/strategic_detect_test.cpp
-        tests/test_helper.cpp)
 add_executable(write_test
         Analyzer/Core/video_processing/frame_recorder.cpp
         Analyzer/Core/video_processing/hls_utils.cpp
         Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/streamer.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
         tests/test_helper.cpp
         tests/continuous_video_test.cpp)
 
-target_link_libraries(write_test PRIVATE PkgConfig::FFMPEG Threads::Threads)
+target_link_libraries(write_test PRIVATE analyzer_test_common PkgConfig::FFMPEG Threads::Threads)
 target_include_directories(write_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_include_directories(write_test PRIVATE Analyzer/Core/video_processing)
-
-add_executable(annotator_test
-        Analyzer/Core/video_processing/annotator.cpp
-        Analyzer/Core/video_processing/helper.cpp
-        Analyzer/Core/video_processing/frame_recorder.cpp
-        Analyzer/Core/video_processing/hls_utils.cpp
-        tests/test_helper.cpp
-        tests/annotator_test.cpp
-)
-target_link_libraries(annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc)
-target_include_directories(annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
-target_include_directories(annotator_test PRIVATE Analyzer/Core/video_processing)
-target_compile_definitions(annotator_test PRIVATE
-        __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 
 add_executable(write_pict_test
         Analyzer/Core/video_processing/jpeg_encoder.cpp
         Analyzer/Core/video_processing/helper.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
         tests/save_pict_test.cpp
 )
-target_link_libraries(write_pict_test PRIVATE PkgConfig::FFMPEG)
+target_link_libraries(write_pict_test PRIVATE analyzer_test_common PkgConfig::FFMPEG)
 target_include_directories(write_pict_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_include_directories(write_pict_test PRIVATE
         Analyzer/Core/video_processing)
@@ -269,7 +286,7 @@ add_executable(concurrent_save_test
         Analyzer/Core/Utils/log_formatter.cpp
         tests/concurrent_save_test.cpp
 )
-target_link_libraries(concurrent_save_test PRIVATE PkgConfig::FFMPEG Threads::Threads spdlog::spdlog)
+target_link_libraries(concurrent_save_test PRIVATE analyzer_test_common PkgConfig::FFMPEG Threads::Threads spdlog::spdlog)
 target_include_directories(concurrent_save_test PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_include_directories(concurrent_save_test PRIVATE
         Analyzer/Core/video_processing
@@ -285,7 +302,7 @@ add_executable(yolo_test
         Analyzer/Core/task.cpp
         tests/yolo_test.cpp
 )
-target_link_libraries(yolo_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect onnxruntime)
+target_link_libraries(yolo_test PRIVATE analyzer_test_common PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect onnxruntime)
 target_include_directories(yolo_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(yolo_test PRIVATE Analyzer/Core/detector Analyzer/Core)
 target_compile_definitions(yolo_test PRIVATE
@@ -308,7 +325,7 @@ add_executable(tracker_test
         Analyzer/Core/config.cpp
         tests/tracker_test.cpp
 )
-target_link_libraries(tracker_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect opencv_video opencv_videoio onnxruntime nlohmann_json::nlohmann_json)
+target_link_libraries(tracker_test PRIVATE analyzer_test_common PkgConfig::FFMPEG opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn_objdetect opencv_video opencv_videoio onnxruntime nlohmann_json::nlohmann_json)
 target_include_directories(tracker_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(tracker_test PRIVATE Analyzer/Core Analyzer/Core/tracker ${EIGEN_INCLUDE_DIR})
 target_compile_definitions(tracker_test PRIVATE
@@ -319,14 +336,15 @@ add_executable(log_test
         Analyzer/Core/Utils/log.cpp
         tests/log_test.cpp
 )
-target_link_libraries(log_test PRIVATE spdlog::spdlog)
+target_link_libraries(log_test PRIVATE analyzer_test_common spdlog::spdlog)
 target_include_directories(log_test PRIVATE Analyzer/Core/Utils)
+add_test(NAME log_test COMMAND $<TARGET_FILE:log_test>)
 
 add_executable(draw_text_test Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_shapes.cpp
         tests/draw_text_test.cpp
 )
-target_link_libraries(draw_text_test PRIVATE PkgConfig::FREETYPE PkgConfig::FFMPEG opencv_core)
+target_link_libraries(draw_text_test PRIVATE analyzer_test_common PkgConfig::FREETYPE PkgConfig::FFMPEG opencv_core)
 target_include_directories(draw_text_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(draw_text_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
@@ -340,7 +358,7 @@ add_executable(dynamic_annotator_test
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp
         tests/dynamic_annotator_test.cpp)
-target_link_libraries(dynamic_annotator_test PRIVATE PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE nlohmann_json::nlohmann_json)
+target_link_libraries(dynamic_annotator_test PRIVATE analyzer_test_common PkgConfig::FFMPEG opencv_core opencv_imgproc PkgConfig::FREETYPE nlohmann_json::nlohmann_json)
 target_include_directories(dynamic_annotator_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_processing Analyzer/Core)
 
@@ -348,25 +366,106 @@ target_include_directories(dynamic_annotator_test PRIVATE Analyzer/Core/video_pr
 add_executable(combined_event_manager_test
         tests/combined_event_manager_test.cpp
         tests/dynamic_annotator_stub.cpp
-        Analyzer/Core/combined_event_manager.cpp)
-target_link_libraries(combined_event_manager_test PRIVATE GTest::gtest_main PkgConfig::FFMPEG opencv_core opencv_imgproc)
+        Analyzer/Core/combined_event_manager.cpp
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
+        Analyzer/Core/Utils/common.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(combined_event_manager_test PRIVATE analyzer_test_common PkgConfig::FFMPEG opencv_core opencv_imgproc atomic)
 target_include_directories(combined_event_manager_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/video_processing)
 add_test(NAME combined_event_manager_test COMMAND $<TARGET_FILE:combined_event_manager_test>)
+
+# JPEG encode/decode round-trip used by the idle pre-roll buffer.
+add_executable(jpeg_roundtrip_test
+        tests/jpeg_roundtrip_test.cpp
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(jpeg_roundtrip_test PRIVATE analyzer_test_common PkgConfig::FFMPEG)
+target_include_directories(jpeg_roundtrip_test PRIVATE ${FFMPEG_INCLUDE_DIRS} Analyzer/Core/video_processing)
+add_test(NAME jpeg_roundtrip_test COMMAND $<TARGET_FILE:jpeg_roundtrip_test>)
+
+# Event buffer memory bounds and pre-roll materialisation.
+add_executable(event_buffer_test
+        tests/event_buffer_test.cpp
+        tests/dynamic_annotator_stub.cpp
+        Analyzer/Core/combined_event_manager.cpp
+        Analyzer/Core/video_processing/jpeg_encoder.cpp
+        Analyzer/Core/Utils/common.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(event_buffer_test PRIVATE analyzer_test_common PkgConfig::FFMPEG opencv_core opencv_imgproc atomic)
+target_include_directories(event_buffer_test PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/video_processing)
+add_test(NAME event_buffer_test COMMAND $<TARGET_FILE:event_buffer_test>)
+
+# Per-analyzer mailbox semantics: live overwrite, bounded offline backlog.
+add_executable(inference_mailbox_test tests/inference_mailbox_test.cpp)
+target_link_libraries(inference_mailbox_test PRIVATE analyzer_test_common opencv_core)
+target_include_directories(inference_mailbox_test PRIVATE Analyzer/Core)
+add_test(NAME inference_mailbox_test COMMAND $<TARGET_FILE:inference_mailbox_test>)
+
+# Bounded result wait and Stop() semantics for Analyzer::FetchRawDetection.
+add_executable(analyzer_timeout_test
+        Analyzer/Core/analyzer.cpp
+        Analyzer/Core/algorithm.cpp
+        Analyzer/Core/detection_algorithm.cpp
+        Analyzer/Core/track_algorithm.cpp
+        Analyzer/Core/bunkoff_analyzer.cpp
+        Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/config.cpp
+        Analyzer/Core/tracker/ByteTrack/BYTETracker.cpp
+        Analyzer/Core/tracker/ByteTrack/KalmanFilter.cpp
+        Analyzer/Core/tracker/ByteTrack/Object.cpp
+        Analyzer/Core/tracker/ByteTrack/Rect.cpp
+        Analyzer/Core/tracker/ByteTrack/STrack.cpp
+        Analyzer/Core/tracker/ByteTrack/lapjv.cpp
+        tests/analyzer_timeout_test.cpp)
+target_link_libraries(analyzer_timeout_test PRIVATE analyzer_test_common opencv_core opencv_imgproc onnxruntime)
+target_include_directories(analyzer_timeout_test PRIVATE ${OpenCV_INCLUDE_DIRS} Analyzer/Core Analyzer/Core/tracker 3rdparty/include/readerwriterqueue)
+add_test(NAME analyzer_timeout_test COMMAND $<TARGET_FILE:analyzer_timeout_test>)
+
 # Test executable that starts the HTTP server and exercises endpoints
 add_executable(test_server
         tests/test_server.cpp
+        Analyzer/Core/server_apis/api_common.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
 )
 target_link_libraries(test_server PRIVATE
-        GTest::gtest_main
+        analyzer_test_common
         Threads::Threads
         libevent::core
         libevent::pthreads
         libevent::extra
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
 )
 target_include_directories(test_server PRIVATE
         Analyzer/Core
 )
 add_test(NAME test_server COMMAND $<TARGET_FILE:test_server>)
+
+# Unit tests for Monitor::ParseRecognitionRegion: single-polygon strings and
+# the JSON-array (multi-region) format for Task::kBunkOff.
+add_executable(monitor_roi_test
+        tests/monitor_roi_test.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/Utils/common.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp
+)
+target_link_libraries(monitor_roi_test PRIVATE
+        analyzer_test_common
+        opencv_core
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+        Threads::Threads
+)
+target_include_directories(monitor_roi_test PRIVATE
+        Analyzer/Core
+)
+add_test(NAME monitor_roi_test COMMAND $<TARGET_FILE:monitor_roi_test>)
 
 add_executable(frame_recorder_hls_test
         tests/frame_recorder_hls_test.cpp
@@ -376,7 +475,7 @@ add_executable(frame_recorder_hls_test
         Analyzer/Core/Utils/log.cpp
         Analyzer/Core/Utils/log_formatter.cpp)
 target_link_libraries(frame_recorder_hls_test PRIVATE
-        GTest::gtest_main
+        analyzer_test_common
         PkgConfig::FFMPEG
         Threads::Threads
         spdlog::spdlog)
@@ -388,9 +487,40 @@ target_include_directories(frame_recorder_hls_test PRIVATE
         Analyzer/Core
         Analyzer/Core/video_processing)
 add_test(NAME frame_recorder_hls_test COMMAND $<TARGET_FILE:frame_recorder_hls_test>)
+
+# Admission control and shared-inference deduplication for multi-monitor workers.
+add_executable(admission_test
+        tests/admission_test.cpp
+        Analyzer/Core/admission.cpp)
+target_link_libraries(admission_test PRIVATE analyzer_test_common opencv_core Threads::Threads)
+target_include_directories(admission_test PRIVATE Analyzer/Core)
+add_test(NAME admission_test COMMAND $<TARGET_FILE:admission_test>)
+
+# Monitor registry snapshot lifetime: removals never invalidate an in-flight
+# detect-loop snapshot and never wait for it.
+add_executable(monitor_registry_test
+        tests/monitor_registry_test.cpp
+        Analyzer/Core/monitor/monitor_registry.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(monitor_registry_test PRIVATE
+        analyzer_test_common
+        opencv_core
+        onnxruntime
+        Threads::Threads
+        spdlog::spdlog)
+target_include_directories(monitor_registry_test PRIVATE
+        ${OpenCV_INCLUDE_DIRS}
+        Analyzer/Core
+        Analyzer/Core/detector
+        3rdparty/include/readerwriterqueue)
+add_test(NAME monitor_registry_test COMMAND $<TARGET_FILE:monitor_registry_test>)
 endif()
 
-set(source
+# Everything except main(): compiled once and reused by the Analyzer executable
+# and by integration-style tests that need the whole runtime.
+set(analyzer_core_source
+        Analyzer/Core/admission.cpp
         Analyzer/Core/alarm.cpp
         Analyzer/Core/alarm_sound.cpp
         Analyzer/Core/algorithm.cpp
@@ -408,6 +538,7 @@ set(source
         Analyzer/Core/detector/yolo_detector_onnx.h
         Analyzer/Core/event.cpp
         Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/monitor/monitor_registry.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
         Analyzer/Core/server_apis/api_alarm.cpp
@@ -454,13 +585,13 @@ set(source
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_types.h
-        Analyzer/main.cpp
         Analyzer/Core/worker.cpp
 )
 
-add_executable(Analyzer ${source})
-target_link_libraries(Analyzer PRIVATE
+add_library(analyzer_core OBJECT ${analyzer_core_source})
+target_link_libraries(analyzer_core PUBLIC
         Threads::Threads
+        atomic
         opencv_core
         opencv_imgproc
         opencv_dnn
@@ -480,10 +611,8 @@ target_link_libraries(Analyzer PRIVATE
         miniaudio
         PkgConfig::FREETYPE
 )
-target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
-
 # Include directories (if needed beyond what find_package provides)
-target_include_directories(Analyzer PRIVATE
+target_include_directories(analyzer_core PUBLIC
         ${THIRDPARTY_DIR}/include
         ${OpenCV_INCLUDE_DIRS}
         ${FFMPEG_INCLUDE_DIRS}
@@ -492,7 +621,26 @@ target_include_directories(Analyzer PRIVATE
         ${FREETYPE_INCLUDE_DIRS}
 )
 
-target_include_directories(Analyzer PRIVATE Analyzer/Core Analyzer/Core/video_processing Analyzer/Core/tracker)
+target_include_directories(analyzer_core PUBLIC
+        Analyzer/Core
+        Analyzer/Core/video_processing
+        Analyzer/Core/tracker)
+
+add_executable(Analyzer Analyzer/main.cpp)
+target_link_libraries(Analyzer PRIVATE analyzer_core)
+target_link_options(Analyzer PRIVATE -Wl,--disable-new-dtags)
+
+# Integration tests that exercise the full runtime (scheduler, worker, alarm
+# pipeline) link the same object set as the executable.
+if(BUILD_TESTS)
+    add_executable(alarm_job_test tests/alarm_job_test.cpp)
+    target_link_libraries(alarm_job_test PRIVATE analyzer_core analyzer_test_common)
+    add_test(NAME alarm_job_test COMMAND $<TARGET_FILE:alarm_job_test>)
+
+    add_executable(scheduler_lifecycle_test tests/scheduler_lifecycle_test.cpp)
+    target_link_libraries(scheduler_lifecycle_test PRIVATE analyzer_core analyzer_test_common)
+    add_test(NAME scheduler_lifecycle_test COMMAND $<TARGET_FILE:scheduler_lifecycle_test>)
+endif()
 
 # ---------------------------------------------------------------------------
 # Deployment: library directories and C++ runtime bundling

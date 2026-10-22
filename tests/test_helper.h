@@ -15,6 +15,8 @@ extern "C" {
 }
 #include "streamer.h"
 
+using avs_analyzer::Streamer;
+
 int runner(Streamer&, const std::function<AVFrame*(AVFrame*, int&)>&,
            bool free_frame = true);
 #endif  // ANALYZER_TEST_HELPER_H

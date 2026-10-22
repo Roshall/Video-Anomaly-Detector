@@ -2,11 +2,14 @@
 
 #include <string>
 
+#include "metrics.h"
+
 void ApiIndex(evhttp_request* req, void*) {
   nlohmann::json result{ "urls", 
     {
       {"/api", "this api version 2.0"},
       {"/api/health", "check health"},
+      {"/api/metrics", "runtime counters for workers, models and alarms"},
       {"/api/controls", "get all controls being analyzed"},
       {"/api/control", "get control being analyzed"},
       {"/api/control/add", "add control"},
@@ -36,6 +39,15 @@ void ApiHealth(evhttp_request* req, void*) {
   nlohmann::json result;
   result["msg"] = result_msg;
   result["code"] = result_code;
+  send_json(req, HTTP_OK, result.dump());
+}
+
+void ApiMetrics(evhttp_request* req, void*) {
+  const auto metrics = avs_analyzer::MetricsRegistry::Instance().ToJson();
+  nlohmann::json result;
+  result["code"] = 1000;
+  result["msg"] = "runtime metrics";
+  result["data"] = metrics;
   send_json(req, HTTP_OK, result.dump());
 }
 

@@ -1,7 +1,9 @@
-﻿#ifndef ANALYZER_CONFIG_H
+#ifndef ANALYZER_CONFIG_H
 #define ANALYZER_CONFIG_H
 
 #include <string>
+#include <vector>
+
 #include "video_processing/frame_recorder.h"
 
 namespace avs_analyzer {
@@ -12,6 +14,21 @@ struct Config {
   int thread_pool_size{3};
   u_int32_t file_cache_timeout{3600}; // 1 hour
   int rtsp_probe_timeout_ms{5000}; // RTSP probe timeout in milliseconds
+  int inference_workers_per_model{2};
+  int inference_workers_per_model_accelerated{1};
+  int inference_result_timeout_ms{5000};
+  int offline_pipeline_depth{4};
+  // Per-worker cap for buffered pre-roll / event frames.
+  int event_buffer_budget_mb{256};
+  // Bounded per-stream push queue; newest frames are dropped when full.
+  int push_queue_max_frames{50};
+  // Reconnect policy for pull streams.
+  int stream_reconnect_max_attempts{50};
+  int stream_reconnect_backoff_ms{500};
+  int stream_reconnect_backoff_max_ms{10000};
+  std::vector<std::string> preload_models{"yolov8n.onnx", "sleeping_m.onnx",
+                                          "climbing_m.onnx",
+                                          "phone_playing_m.onnx"};
   void Show();
 
   std::string admin_host{};  // 后台管理服务地址 http://192.168.1.4:9001

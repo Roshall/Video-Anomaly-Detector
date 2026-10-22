@@ -1,7 +1,8 @@
-﻿#ifndef ANALYZER_ANALYZER_H
+#ifndef ANALYZER_ANALYZER_H
 #define ANALYZER_ANALYZER_H
 #include <opencv2/core/hal/interface.h>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <opencv2/opencv.hpp>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <vector>
 #include "detector/constant_yolo.h"
+#include "metrics.h"
 #include "task.h"
 #include "algorithm.h"
 
@@ -24,7 +26,9 @@ class Analyzer {
   virtual ~Analyzer();
 
   using ImagePtr = DetectorPool::ImagePtr;
-  void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image);
+  using SharedInference = DetectorPool::SharedInference;
+  void AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image,
+                     std::shared_ptr<SharedInference> shared = nullptr);
   [[nodiscard]] virtual std::vector<cv::Rect> RetrieveDetection() const = 0;
   void SetNextFrameTimestamp(uint64_t ts) {
     frame_ts_ms_.store(ts, std::memory_order_release);
@@ -41,13 +45,17 @@ class Analyzer {
   void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
     add_task_callback_ = std::move(cb);
   }
+  void SetMetrics(std::shared_ptr<WorkerMetrics> metrics) {
+    metrics_ = std::move(metrics);
+  }
   virtual void SetROIs(const std::vector<std::vector<cv::Point>>& polygons) = 0;
   uint64_t WantsFrame() const {
     return frame_ts_ms_.load(std::memory_order_acquire);
   }
 
   void Stop() {
-    // Push an empty result to unblock FetchOneFrameResults
+    stopped_.store(true, std::memory_order_release);
+    // Wake a thread blocked waiting for the next inference result.
     algorithm_->PushResult({{}, 0}, std::numeric_limits<uint64_t>::max());
   }
 
@@ -60,10 +68,14 @@ class Analyzer {
 
   uint64_t id_{NextId()};
   std::atomic<uint64_t> frame_ts_ms_{0};
+  std::atomic<bool> stopped_{false};
   Task task_;
   std::unique_ptr<Algorithm> algorithm_;
   float conf_th_;
+  std::chrono::milliseconds result_timeout_{5000};
+  mutable std::atomic<int64_t> last_timeout_log_ms_{0};
   DetectorPool::AddTaskFunc add_task_callback_;
+  std::shared_ptr<WorkerMetrics> metrics_;
 };
 
 std::unique_ptr<Analyzer> CreateAnalyzer(Monitor* monitor, const Config& config);

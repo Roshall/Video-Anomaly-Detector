@@ -7,22 +7,7 @@
 #include <string>
 #include <vector>
 
-struct DL_INIT_PARAM {
-  std::string modelPath;
-  float rectConfidenceThreshold = 0.25f;
-  float iouThreshold = 0.45f;
-  std::array<int,2> imgSize{640, 640}; // {W, H}
-  bool cudaEnable = false;             // optional, Linux CUDA EP
-  int intraOpNumThreads = 0;
-  int logSeverityLevel = 2;
-  int target_id = 0;
-};
-
-struct DL_RESULT {
-  int classId;
-  float confidence;
-  cv::Rect box;
-};
+#include "inference_types.h"
 
 class YOLOv8Detect {
  public:
@@ -42,7 +27,7 @@ class YOLOv8Detect {
   };
 
   // centered letterbox BGR->RGB
-  static PreprocInfo letterbox_bgr_to_rgb_(const cv::Mat& src_bgr, int W, int H, cv::Mat& dst_rgb);
+  PreprocInfo letterbox_bgr_to_rgb_(const cv::Mat& src_bgr, int W, int H);
 
   static void hwc_to_nchw_norm_(const cv::Mat& rgb, float* out);
 
@@ -66,5 +51,13 @@ class YOLOv8Detect {
   float iou_th_  = 0.45f;
   std::array<int,2> img_size_{640, 640};
   bool cuda_ = false;
+
+  // Preprocessing scratch buffers. One YOLOv8Detect instance is owned by a
+  // single inference thread, so these are never shared across threads.
+  cv::Mat rgb_;
+  cv::Mat canvas_;
+  cv::Mat resized_;
+  std::vector<float> blob_;
+  std::array<int64_t, 4> input_dims_{1, 3, 0, 0};
 };
 #endif

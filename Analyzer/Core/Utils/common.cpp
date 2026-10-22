@@ -1,6 +1,8 @@
 #include "Utils/common.h"
 #include <sys/stat.h>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 
 namespace  avs_analyzer {
@@ -36,5 +38,16 @@ int64_t getCurTimestamp()  // 获取毫秒级时间戳（13位）
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
       .count();
+}
+
+int64_t NextAlarmId() {
+  static std::atomic<int64_t> last{0};
+  int64_t prev = last.load(std::memory_order_relaxed);
+  for (;;) {
+    const int64_t next = std::max(getCurTimestamp(), prev + 1);
+    if (last.compare_exchange_weak(prev, next, std::memory_order_relaxed)) {
+      return next;
+    }
+  }
 }
 }

@@ -1,6 +1,7 @@
-﻿#ifndef ANALYZER_MONITOR_H
+#ifndef ANALYZER_MONITOR_H
 #define ANALYZER_MONITOR_H
 
+#include <atomic>
 #include <cctype>
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
@@ -160,8 +161,8 @@ struct Monitor {
     return true;
   }
   static uint64_t NextId() {
-    static uint64_t id = 0;
-    return id++;
+    static std::atomic<uint64_t> id{0};
+    return id.fetch_add(1, std::memory_order_relaxed);
   }
 };
 }  // namespace avs_analyzer

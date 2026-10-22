@@ -1,4 +1,4 @@
-﻿#include "analyzer.h"
+#include "analyzer.h"
 
 #include <vector>
 
@@ -6,6 +6,7 @@
 
 #include "algorithm.h"
 #include "bunkoff_analyzer.h"
+#include "config.h"
 #include "detection_algorithm.h"
 #include "general_analyzer.h"
 #include "monitor.h"
@@ -15,7 +16,9 @@
 namespace avs_analyzer {
 Analyzer::Analyzer(Monitor* monitor, const Config& config)
     : task_(monitor->task),
-      conf_th_(monitor->conf_threshold) {
+      conf_th_(monitor->conf_threshold),
+      result_timeout_(
+          std::chrono::milliseconds(config.inference_result_timeout_ms)) {
   if (task_ == Task::kWandering) {
     algorithm_ = std::make_unique<TrackAlgorithm>(monitor->levels.first[0]);
   } else {
@@ -26,21 +29,43 @@ Analyzer::Analyzer(Monitor* monitor, const Config& config)
 Analyzer::~Analyzer() = default;
 
 Detection Analyzer::FetchRawDetection() const {
-  Detection det;
   const auto ts_ms = WantsFrame();
-  while (true) {
-    det = algorithm_->ProcessDetections();
-    if (det.frame_ts >= ts_ms) {
-      break;
+  Detection det;
+  while (!stopped_.load(std::memory_order_acquire)) {
+    if (!algorithm_->TryProcessDetections(det, result_timeout_)) {
+      if (metrics_) {
+        metrics_->detect_wait_timeout.fetch_add(1, std::memory_order_relaxed);
+      }
+      const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now().time_since_epoch())
+                              .count();
+      auto last = last_timeout_log_ms_.load(std::memory_order_relaxed);
+      if (now_ms - last >= 1000 &&
+          last_timeout_log_ms_.compare_exchange_strong(last, now_ms,
+                                                       std::memory_order_relaxed)) {
+        LOGW("Analyzer {}: timed out after {} ms waiting for inference result "
+             "for frame {}",
+             id_, result_timeout_.count(), ts_ms);
+      }
+      det = Detection{};
+      det.frame_ts = ts_ms;
+      return det;
     }
-    LOGD("Analyzer {}: skipping stale detections from frame {} (requested {})",
+    if (det.frame_ts >= ts_ms) {
+      return det;
+    }
+    LOGT("Analyzer {}: skipping stale detections from frame {} (requested {})",
          id_, det.frame_ts, ts_ms);
   }
+  det = Detection{};
+  det.frame_ts = ts_ms;
   return det;
 }
 
-void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image) {
-  add_task_callback_(id_, video_id, frame_id, std::move(image));
+void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image,
+                             std::shared_ptr<SharedInference> shared) {
+  add_task_callback_(id_, video_id, frame_id, std::move(image),
+                     std::move(shared));
 }
 
 uint64_t Analyzer::NextId() {

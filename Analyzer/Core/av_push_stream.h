@@ -1,7 +1,8 @@
-﻿#ifndef ANALYZER_AVPUSHSTREAM_H
+#ifndef ANALYZER_AVPUSHSTREAM_H
 #define ANALYZER_AVPUSHSTREAM_H
 #include <semaphore>
 #include <memory>
+#include <chrono>
 
 #include "frame_recorder.h"
 extern "C" {
@@ -39,6 +40,10 @@ class AvPushStream {
  private:
   Worker* worker_;
   Recorder recorder_;
+
+  // Bounded queue: newest frames are dropped when the consumer falls behind.
+  int max_frames_{50};
+  std::chrono::steady_clock::time_point last_drop_log_{};
 
   // 视频帧
   ReaderWriterQueue<std::shared_ptr<const Frame>> video_frame_q_;

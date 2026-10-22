@@ -13,7 +13,8 @@ struct Config;
 class DetectionAlgorithm: public Algorithm {
  public:
   DetectionAlgorithm() = default;
-  Detection ProcessDetections() override;
+  bool TryProcessDetections(Detection& out,
+                            std::chrono::milliseconds timeout) override;
 };
 }
 

@@ -16,7 +16,8 @@ struct Config;
 class TrackAlgorithm: public Algorithm {
  public:
   explicit TrackAlgorithm(uint64_t min_frame_duration);
-  Detection ProcessDetections() override;
+  bool TryProcessDetections(Detection& out,
+                            std::chrono::milliseconds timeout) override;
 
  private:
   byte_track::BYTETracker tracker_;

@@ -1,60 +1,65 @@
-﻿#ifndef ANALYZER_GENERATEALARMVIDEO_H
+#ifndef ANALYZER_GENERATEALARMVIDEO_H
 #define ANALYZER_GENERATEALARMVIDEO_H
 #include <cstdint>
-#include <memory>
-#include <string>
 #include <chrono>
+#include <memory>
 #include <optional>
+#include <string>
+
 #include "event.h"
 #include "video_processing/frame_recorder.h"
 
 namespace avs_analyzer {
 
+struct AlarmJob;
+
+// Owns the HLS recorder for one combined event. Created, fed, and closed by
+// the detect thread so finalization never touches recorder state.
+class HlsEventWriter {
+ public:
+  HlsEventWriter(int width, int height, int fps, std::string base_path,
+                 const Recorder::HlsConfig& hls_config);
+  ~HlsEventWriter() = default;
+  HlsEventWriter(const HlsEventWriter&) = delete;
+  HlsEventWriter& operator=(const HlsEventWriter&) = delete;
+
+  [[nodiscard]] bool valid() const noexcept { return recorder_ != nullptr; }
+  [[nodiscard]] std::optional<Recorder::HlsPaths> paths() const;
+  void AddFrames(const Event& event);
+  // Closes the recorder and returns the finalized HLS paths.
+  std::optional<Recorder::HlsPaths> Close();
+
+ private:
+  std::unique_ptr<Recorder> recorder_;
+  std::optional<Recorder::HlsPaths> paths_;
+};
+
+// Immutable alarm output settings shared by all jobs of a worker.
 struct Alarm {
   enum class OutputMode { kAuto, kMp4Only };
 
   Alarm() = delete;
   Alarm(std::string upload_dir, std::string admin_host, int width, int height,
-        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto, bool report_delta = false);
+        int64_t id = 0, int fps = 25, OutputMode mode = OutputMode::kAuto,
+        bool report_delta = false);
   ~Alarm() = default;
   Alarm(const Alarm&) = delete;
   Alarm& operator=(const Alarm&) = delete;
-  Alarm(Alarm&&) noexcept = default;
-  Alarm& operator=(Alarm&&) noexcept = default;
 
-  void Finalize(std::unique_ptr<Event> event,
-                std::chrono::time_point<std::chrono::system_clock> start_ts,
-                const std::string& video_code) const;
-  
-  void SetId(int64_t new_id) { id = new_id; }
-  void SetOutputMode(OutputMode mode) { output_mode = mode; }
-  
+  // Writes/reports one immutable alarm job. Safe to call concurrently for
+  // different jobs.
+  void Finalize(AlarmJob&& job) const;
+
   // Report HLS stream .m3u8 path to admin for live playback
   void ReportHlsToAdmin(const std::string& playlist_path,
-                       std::chrono::time_point<std::chrono::system_clock> start_ts,
-                       const std::string& video_code) const;
-  
-  void SetHlsRecorder(std::unique_ptr<Recorder> recorder) {
-    hls_recorder = std::move(recorder);
-    MarkNoReport();  // Reset report status when setting a new recorder
-    // clear alarm start time when initializing a new recorder, will be set on first frame
-    alarm_start_time = std::chrono::time_point<std::chrono::system_clock>{};
-  }
-  
-  // Add frames from an intermediate event slice to the active HLS recorder
-  void AddFrameToHls(const Event& event) const;
-
-  void MarkNoReport() const { hls_reported = false; }
-  
-  // Finalize HLS recording: close, reencode to MP4, and report (async)
-  void FinializeHlsEvent(std::unique_ptr<Event> event,
-                         std::chrono::time_point<std::chrono::system_clock> start_ts,
-                         const std::string& video_code) const;
-
-private:
-  void FinalizeMp4Event(std::unique_ptr<Event> event,
                         std::chrono::time_point<std::chrono::system_clock> start_ts,
                         const std::string& video_code) const;
+
+ private:
+  void FinalizeMp4Event(
+      const Event* event,
+      std::chrono::time_point<std::chrono::system_clock> start_ts,
+      const std::string& video_code) const;
   // Helper function to post alarm video to admin
   void PostAlarmVideoToAdmin(const std::string& video_code,
                              const std::string& video_type,
@@ -62,16 +67,15 @@ private:
                              const std::string& create_time,
                              int64_t file_size = 0) const;
 
-public:
-  std::string upload_dir;
-  std::string admin_host;
-  int width, height, fps;
-  int64_t id;
-  bool report_delta{false};
-  OutputMode output_mode{OutputMode::kAuto};
-  mutable std::unique_ptr<Recorder> hls_recorder;
-  mutable bool hls_reported{false};  // Track if HLS stream has been reported to admin
-  mutable std::chrono::time_point<std::chrono::system_clock> alarm_start_time; // Track when the alarm was triggered for reporting purposes
+ public:
+  const std::string upload_dir;
+  const std::string admin_host;
+  const int width;
+  const int height;
+  const int fps;
+  const int64_t id;
+  const bool report_delta;
+  const OutputMode output_mode;
 };
 
 }  // namespace avs_analyzer

@@ -30,6 +30,7 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* even
     evhttp_set_timeout(http, 0);
     evhttp_set_cb(http, "/", ApiIndex, nullptr);
     evhttp_set_cb(http, "/api/health", ApiHealth, nullptr);
+    evhttp_set_cb(http, "/api/metrics", ApiMetrics, nullptr);
     evhttp_set_cb(http, "/api/controls", ApiAllMonitors, &scheduler);
     evhttp_set_cb(http, "/api/control", ApiMonitor, &scheduler);
     evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);

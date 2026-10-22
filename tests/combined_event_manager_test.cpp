@@ -10,6 +10,13 @@ using namespace avs_analyzer;
 static AVFrame* make_frame() {
   AVFrame* f = av_frame_alloc();
   if (!f) return nullptr;
+  f->format = AV_PIX_FMT_YUV420P;
+  f->width = 64;
+  f->height = 64;
+  if (av_frame_get_buffer(f, 32) < 0) {
+    av_frame_free(&f);
+    return nullptr;
+  }
   f->pts = 1;
   f->best_effort_timestamp = 1;
   return f;

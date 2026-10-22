@@ -6,36 +6,39 @@
 #define ANALYZER_YOLO_DETECTOR_ONNX_H
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <semaphore>
 #include <shared_mutex>
 #include <thread>
 #include <utility>
 
-#include <concurrentqueue/moodycamel/concurrentqueue.h>
+#include <concurrentqueue/moodycamel/blockingconcurrentqueue.h>
 
 #include "inference.h"
+#include "mailbox.h"
+#include "metrics.h"
 
 namespace avs_analyzer {
 inline constexpr DL_INIT_PARAM kDefaultParam{};
 
+// One inference session. Each session owns its ONNX session and scratch
+// buffers and is driven by exactly one worker thread created on demand when
+// the first analyzer registers.
 class YOLODetector {
  public:
   // Resource identifier: (output_id, video_id, frame_ts)
-  using ResourceID = std::array<unsigned long, 3>;
+  using ResourceID = AnalyzerMailboxes::ResourceID;
   using ResultType = std::pair<std::vector<DL_RESULT>, unsigned long>;
   // Callback now consists of the result processor and a predicate to check if the frame is still wanted
   using CallbackFunc = std::function<void(const ResultType&, uint64_t)>;
   using WantsFrameFunc = std::function<uint64_t()>;
   using Callback = std::pair<CallbackFunc, WantsFrameFunc>;
-  using ImagePtr = std::shared_ptr<const cv::Mat>;
-  struct Task {
-    ResourceID id;
-    ImagePtr image;
-  };
+  using ImagePtr = AnalyzerMailboxes::ImagePtr;
+  using Task = AnalyzerMailboxes::Task;
+  using SharedInference = avs_analyzer::SharedInference;
 
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
   explicit YOLODetector(std::string_view mode_path,
@@ -43,27 +46,32 @@ class YOLODetector {
   ~YOLODetector();
 
   void AddTask(Task task);
-  void RegisterCallback(unsigned long id, Callback cb);
+  // Starts the session thread lazily; `depth` > 1 enables an offline backlog.
+  void RegisterCallback(unsigned long id, Callback cb, size_t depth = 1);
   void DeregisterCallback(unsigned long id);
-  // Asynchronous consumer loop (run in dedicated thread)
-  void Run();
   void Stop();
-  [[nodiscard]] bool isRunning() const { return running_.load(); }
+  [[nodiscard]] bool isRunning() const {
+    return running_.load(std::memory_order_acquire);
+  }
 
  private:
-  void InvokeCallback(const ResourceID& id, const std::vector<DL_RESULT>& results) const;
-  void DropOverflowTasks();
+  void Start();
+  void Run();
+  std::vector<DL_RESULT> RunInference(const cv::Mat& image);
   std::vector<DL_RESULT> FilterResults(std::vector<DL_RESULT> input) const;
 
   DL_INIT_PARAM params_;
   std::unique_ptr<YOLOv8Detect> model_;
-  mutable std::mutex mutex_;
-  moodycamel::ConcurrentQueue<Task> task_queue_;
-  std::counting_semaphore<> task_sem_{0};
-  std::map<unsigned long, Callback> callbacks_;
-  std::atomic<bool> running_{true};
+  std::atomic<bool> running_{false};
+  std::mutex lifecycle_mutex_;
+
+  AnalyzerMailboxes mailboxes_;
+  moodycamel::BlockingConcurrentQueue<unsigned long> ready_ids_;
+
   mutable std::shared_mutex callback_mutex_;
-  static constexpr size_t kMaxQueueSize = 100;
+  std::map<unsigned long, Callback> callbacks_;
+
+  std::shared_ptr<ModelMetrics> metrics_;
   std::jthread worker_thread_;
 };
 

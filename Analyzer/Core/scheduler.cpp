@@ -1,16 +1,19 @@
-﻿#include "scheduler.h"
+#include "scheduler.h"
 
 #include <algorithm>
+#include <chrono>
 #include <mutex>
 #include <ranges>
 #include <string>
 #include <vector>
 
+#include "Utils/log.h"
 #include "alarm.h"
 #include "alarm_sound.h"
 #include "analyzer.h"
 #include "config.h"
 #include "detector/constant_yolo.h"
+#include "metrics.h"
 #include "monitor.h"
 #include "worker.h"
 
@@ -18,7 +21,7 @@ namespace avs_analyzer {
 BS::thread_pool<> g_th_pool{3};
 
 Scheduler::Scheduler(Config& config)
-    : config_(config), detector_pool_(config.model_dir, config.use_accelerator) {
+    : config_(config), detector_pool_(config) {
   if (!config_.alarm_sound_path.empty()) {
     try {
       alarm_controller_ = std::make_unique<AlarmController>(
@@ -30,39 +33,70 @@ Scheduler::Scheduler(Config& config)
   }
 }
 
-Scheduler::~Scheduler() = default;
+Scheduler::~Scheduler() {
+  state_.store(false, std::memory_order_release);
+  DrainQueues();
+}
 
 Config& Scheduler::GetConfig() const { return config_; }
 
 void Scheduler::CleanUpLoop() {
-  while (state_) {
-    clean_up_cs_.acquire();
-    {
-      AlarmJob job;
-      while (alarm_queue_.try_dequeue(job)) {
-        if (job.alarm) {
-          job.alarm->Finalize(std::move(job.event), job.start_ts,
-                             job.video_code);
-        }
+  while (state_.load(std::memory_order_acquire)) {
+    clean_up_cs_.try_acquire_for(std::chrono::milliseconds(100));
+    DrainQueues();
+  }
+  DrainQueues();
+}
+
+void Scheduler::DrainQueues() {
+  bool progress = true;
+  while (progress) {
+    progress = false;
+    AlarmJob job;
+    uint64_t finalized = 0;
+    while (alarm_queue_.try_dequeue(job)) {
+      if (job.alarm) {
+        job.alarm->Finalize(std::move(job));
       }
+      ++finalized;
+      progress = true;
     }
-    std::unique_ptr<Worker> worker;
+    if (finalized) {
+      MetricsRegistry::Instance().alarm().pending_jobs.fetch_sub(
+          finalized, std::memory_order_relaxed);
+    }
+    // Dropping the last reference may join the worker's threads, which can
+    // enqueue tail alarm jobs that the loop above will pick up next round.
+    std::shared_ptr<Worker> worker;
     while (to_be_deleted_workers_queue_.try_dequeue(worker)) {
+      worker.reset();
+      progress = true;
     }
   }
 }
 
 std::vector<Monitor> Scheduler::GetAllMonitors() {
-  std::vector<Monitor> monitors;
-  std::lock_guard lock(worker_map_mutex_);
-  const auto worker_view = worker_map_ | std::views::values;
-  size_t monitor_count = 0;
-  for (const auto& monitor : worker_view) {
-    monitor_count += monitor->num_task();
+  std::vector<std::shared_ptr<Worker>> workers;
+  {
+    std::lock_guard lock(worker_map_mutex_);
+    workers.reserve(worker_map_.size());
+    for (const auto& worker : worker_map_ | std::views::values) {
+      workers.push_back(worker);
+    }
   }
+
+  size_t monitor_count = 0;
+  for (const auto& worker : workers) {
+    if (worker) {
+      monitor_count += worker->num_task();
+    }
+  }
+  std::vector<Monitor> monitors;
   monitors.reserve(monitor_count);
-  for (const auto& val : worker_view) {
-    val->GetAllMonitor(monitors);
+  for (const auto& worker : workers) {
+    if (worker) {
+      worker->GetAllMonitor(monitors);
+    }
   }
   return monitors;
 }
@@ -108,6 +142,13 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
   results.resize(monitors.size(), {0, ""});
 
   if (monitors.empty()) {
+    return;
+  }
+
+  if (!state_.load(std::memory_order_acquire)) {
+    for (auto& r : results) {
+      r = {0, "service is stopping"};
+    }
     return;
   }
 
@@ -194,7 +235,7 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
     auto& [monitor, event_cfg] = monitors[idx];
     if (!monitor) continue;
     g_th_pool.detach_task(
-        [worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
+        [worker = std::make_shared<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
           worker->OfflineAnalyze();
         });
     results[idx] = {1000, "added successfully"};
@@ -214,52 +255,67 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
     }
     
     if (batch.empty()) continue;
-    
-    // Check if worker exists for this video_code
-    Worker* existing_worker = nullptr;
-    bool need_new_worker = false;
-    
-    {
-      std::lock_guard lock(worker_map_mutex_);
-      if (const auto it = worker_map_.find(video_code); it != worker_map_.end()) {
-        existing_worker = it->second.get();
-      } else {
-        need_new_worker = true;
+
+    // Find or create the worker under the map lock; start() and monitor
+    // registration run outside it. Concurrent adders that find a worker still
+    // starting wait for its start result instead of creating a second one.
+    bool handled = false;
+    for (int attempt = 0; attempt < 2 && !handled; ++attempt) {
+      std::shared_ptr<Worker> worker;
+      bool created = false;
+      {
+        std::lock_guard lock(worker_map_mutex_);
+        if (const auto it = worker_map_.find(video_code);
+            it != worker_map_.end()) {
+          worker = it->second;
+        } else {
+          worker = std::make_shared<Worker>(this, std::move(batch.front().first),
+                                            batch.front().second, false);
+          worker_map_.emplace(video_code, worker);
+          created = true;
+        }
       }
-    }
-    
-    if (existing_worker) {
-      // Add all monitors to existing worker in one batch
-      existing_worker->AddMonitorsBatch(std::move(batch));
-      for (size_t idx : valid_indices) {
-        results[idx] = {1000, "added successfully"};
+      if (!worker) {
+        continue;
       }
-    } else if (need_new_worker) {
-      // Create new worker with first monitor
-      auto& first_monitor = batch[0].first;
-      auto& first_cfg = batch[0].second;
-      
-      std::string start_msg;
-      auto worker = std::make_unique<Worker>(this, std::move(first_monitor), first_cfg, false);
-      
-      if (worker->start(start_msg)) {
-        // Add remaining monitors to the new worker in batch
+
+      if (created) {
+        std::string start_msg;
+        if (!worker->start(start_msg)) {
+          LOGW("failed to start worker {}: {}", video_code, start_msg);
+          RemoveWorkerIf(video_code, worker);
+          for (size_t idx : valid_indices) {
+            results[idx] = {0, "Internal error: cannot start a worker"};
+          }
+          handled = true;
+          break;
+        }
+        // batch[0] was consumed by the constructor; add the rest in one batch.
         if (batch.size() > 1) {
-          std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>> remaining;
+          std::vector<std::pair<std::unique_ptr<Monitor>, EventDetectorConfig>>
+              remaining;
+          remaining.reserve(batch.size() - 1);
           for (size_t i = 1; i < batch.size(); ++i) {
             remaining.push_back(std::move(batch[i]));
           }
           worker->AddMonitorsBatch(std::move(remaining));
         }
-        
-        AddWorker(std::move(worker));
-        for (size_t idx : valid_indices) {
-          results[idx] = {1000, "added successfully"};
-        }
       } else {
-        for (size_t idx : valid_indices) {
-          results[idx] = {0, "Internal error: cannot start a worker"};
+        if (!worker->WaitStarted(std::chrono::seconds(10))) {
+          // The creator failed or timed out; retry creating a new worker.
+          continue;
         }
+        worker->AddMonitorsBatch(std::move(batch));
+      }
+      for (size_t idx : valid_indices) {
+        results[idx] = {1000, "added successfully"};
+      }
+      handled = true;
+    }
+
+    if (!handled) {
+      for (size_t idx : valid_indices) {
+        results[idx] = {0, "Internal error: cannot start a worker"};
       }
     }
   }
@@ -279,20 +335,33 @@ void Scheduler::MonitorBatchRemove(const std::vector<std::pair<std::string, std:
   
   // Reserve result slots
   results.resize(monitor_ids.size(), {1000, ""});
-  
-  std::lock_guard lock(worker_map_mutex_);
+
+  // Snapshot the workers under the lock; removal itself runs unlocked.
+  std::unordered_map<std::string, std::shared_ptr<Worker>> workers;
+  {
+    std::lock_guard lock(worker_map_mutex_);
+    for (const auto& [video_code, index_code_pairs] : grouped) {
+      if (const auto it = worker_map_.find(video_code);
+          it != worker_map_.end()) {
+        workers.emplace(video_code, it->second);
+      }
+    }
+  }
+
   for (const auto& [video_code, index_code_pairs] : grouped) {
-    if (const auto f = worker_map_.find(video_code); worker_map_.end() != f) {
+    if (const auto it = workers.find(video_code); it != workers.end()) {
       // Collect codes for batch removal
       std::vector<std::string> codes;
       codes.reserve(index_code_pairs.size());
       for (const auto& [idx, code] : index_code_pairs) {
         codes.push_back(code);
       }
-      
+
       // Batch remove from worker
-      f->second->RemoveMonitorsBatch(codes);
-      
+      if (it->second) {
+        it->second->RemoveMonitorsBatch(codes);
+      }
+
       // Set all results for this group
       for (const auto& [idx, code] : index_code_pairs) {
         results[idx] = {1000, "removing control, removed successfully"};
@@ -315,27 +384,26 @@ size_t Scheduler::GetWorkerSize() {
 bool Scheduler::ContainsMonitor(const Monitor* monitor) {
   return ContainsMonitor(monitor->video_code, monitor->code);
 }
-void Scheduler::AddWorker(std::unique_ptr<Worker> worker) {
-  std::lock_guard lock(worker_map_mutex_);
-  auto code = worker->Code();
-  worker_map_.emplace(code, std::move(worker));
-}
 void Scheduler::RemoveWorker(const std::string& code) {
-  bool result = false;
-  std::unique_ptr<Worker> worker_to_delete;
-  // {
-  //   std::lock_guard lock(worker_map_mutex_);
-  // RemoveWorker my be called inside MonitorRemove which already holds the lock
-    if (auto f = worker_map_.find(code); worker_map_.end() != f) {
-      worker_to_delete = std::move(f->second);
-      worker_map_.erase(f);
-      result = true;
+  RemoveWorkerIf(code, nullptr);
+}
+void Scheduler::RemoveWorkerIf(const std::string& code,
+                               const std::shared_ptr<Worker>& expected) {
+  std::shared_ptr<Worker> worker_to_delete;
+  {
+    std::lock_guard lock(worker_map_mutex_);
+    const auto it = worker_map_.find(code);
+    if (it == worker_map_.end()) {
+      return;
     }
-  // }
-  if (result) {
-    to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
-    NotifyCleanUp();
+    if (expected && it->second != expected) {
+      return;
+    }
+    worker_to_delete = std::move(it->second);
+    worker_map_.erase(it);
   }
+  to_be_deleted_workers_queue_.enqueue(std::move(worker_to_delete));
+  NotifyCleanUp();
 }
 void Scheduler::NotifyCleanUp() {
   clean_up_cs_.release();
@@ -343,23 +411,49 @@ void Scheduler::NotifyCleanUp() {
 
 void Scheduler::AddAlarm(AlarmJob job) {
   alarm_queue_.enqueue(std::move(job));
+  MetricsRegistry::Instance().alarm().pending_jobs.fetch_add(
+      1, std::memory_order_relaxed);
   NotifyCleanUp();
 }
 void Scheduler::ClearWorker() {
-  worker_map_.clear();
+  std::vector<std::shared_ptr<Worker>> workers;
+  {
+    std::lock_guard lock(worker_map_mutex_);
+    workers.reserve(worker_map_.size());
+    for (auto& worker : worker_map_ | std::views::values) {
+      workers.push_back(std::move(worker));
+    }
+    worker_map_.clear();
+  }
+  for (auto& worker : workers) {
+    if (worker) {
+      to_be_deleted_workers_queue_.enqueue(std::move(worker));
+    }
+  }
+  NotifyCleanUp();
 }
 bool Scheduler::ContainsMonitor(const std::string& video_code,
                                 const std::string& code) {
-  std::lock_guard lock(worker_map_mutex_);
-  const auto it = worker_map_.find(video_code);
-  if (worker_map_.end() == it) {
-    return false;
+  std::shared_ptr<Worker> worker;
+  {
+    std::lock_guard lock(worker_map_mutex_);
+    const auto it = worker_map_.find(video_code);
+    if (worker_map_.end() == it) {
+      return false;
+    }
+    worker = it->second;
   }
-  return it->second->ContainsMonitor(code);
+  return worker && worker->ContainsMonitor(code);
 }
 
-DetectorPool::AddTaskFunc Scheduler::RegisterAnalyzerCallback(Analyzer& analyzer) {
-  return detector_pool_.RegisterToDetector(analyzer.task(), analyzer.id(), analyzer.detector_callback());
+DetectorPool::AddTaskFunc Scheduler::RegisterAnalyzerCallback(Analyzer& analyzer,
+                                                              size_t depth) {
+  return detector_pool_.RegisterToDetector(analyzer.task(), analyzer.id(),
+                                           analyzer.detector_callback(), depth);
+}
+
+nlohmann::json Scheduler::GetModelStatus() const {
+  return detector_pool_.GetModelStatus();
 }
 
 void Scheduler::DeregisterAnalyzerCallback(Analyzer& analyzer) {

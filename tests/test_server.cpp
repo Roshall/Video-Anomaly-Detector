@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <fcntl.h>
 
+#include "server_apis/api_common.h"
+
 #include "Utils/file_server_cb.h"
 
 using namespace std::chrono_literals;
@@ -59,6 +61,87 @@ static void ApiStreamEventForTest(evhttp_request* req, void*) {
                    "application/json; charset=utf-8");
   evhttp_send_reply(req, HTTP_OK, nullptr, buff);
   evbuffer_free(buff);
+}
+
+// Test callback exercising the shared request-body parser get_request_json()
+// from server_apis/api_common.cpp. Replies with the number of top-level
+// elements of the parsed JSON body, or HTTP 400 with count -1 when the body
+// cannot be parsed (this is the regression surface for the old 8KB
+// ParsePostRequest truncation, report finding #3).
+static void ApiEchoCountForTest(evhttp_request* req, void*) {
+  nlohmann::json root;
+  if (!get_request_json(req, root)) {
+    evbuffer* buff = evbuffer_new();
+    evbuffer_add_printf(buff, R"({"count":-1,"msg":"invalid request parameter"})");
+    evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type",
+                     "application/json; charset=utf-8");
+    evhttp_send_reply(req, HTTP_BADREQUEST, nullptr, buff);
+    evbuffer_free(buff);
+    return;
+  }
+  const auto count = static_cast<long long>(root.size());
+  evbuffer* buff = evbuffer_new();
+  evbuffer_add_printf(buff, R"({"count":%lld})", count);
+  evhttp_add_header(evhttp_request_get_output_headers(req), "Content-Type",
+                   "application/json; charset=utf-8");
+  evhttp_send_reply(req, HTTP_OK, nullptr, buff);
+  evbuffer_free(buff);
+}
+
+// Helper: simple blocking HTTP POST over TCP, returns full response (headers+body).
+static std::string http_post(const char* host, int port, const char* path,
+                             const std::string& body,
+                             const char* content_type = "application/json") {
+  struct addrinfo hints{}, *res = nullptr;
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  std::string portstr = std::to_string(port);
+  if (getaddrinfo(host, portstr.c_str(), &hints, &res) != 0) return {};
+
+  int sock = -1;
+  for (struct addrinfo* rp = res; rp != nullptr; rp = rp->ai_next) {
+    sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+    if (sock == -1) continue;
+    struct timeval tv{}; tv.tv_sec = 2; tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) break;
+    close(sock);
+    sock = -1;
+  }
+  freeaddrinfo(res);
+  if (sock == -1) return {};
+
+  std::string req = std::string("POST ") + path + " HTTP/1.1\r\nHost: " + host + ":" +
+                    portstr + "\r\nContent-Type: " + content_type +
+                    "\r\nContent-Length: " + std::to_string(body.size()) +
+                    "\r\nConnection: close\r\n\r\n" + body;
+  ssize_t sent = send(sock, req.data(), static_cast<size_t>(req.size()), 0);
+  if (sent <= 0) { close(sock); return {}; }
+
+  std::string resp;
+  char buf[4096];
+  while (true) {
+    ssize_t n = recv(sock, buf, sizeof(buf), 0);
+    if (n > 0) {
+      resp.append(buf, static_cast<size_t>(n));
+      continue;
+    }
+    if (n == 0) {
+      break; // peer closed
+    }
+    break;
+  }
+  close(sock);
+  return resp;
+}
+
+// Extract the response body (everything after the CRLFCRLF header separator).
+static std::string response_body(const std::string& resp) {
+  const auto pos = resp.find("\r\n\r\n");
+  if (pos == std::string::npos) return {};
+  return resp.substr(pos + 4);
 }
 
 // Helper: simple blocking HTTP GET over TCP, returns full response (headers+body).
@@ -209,6 +292,7 @@ class HTTPServerFixture : public ::testing::Test {
       evhttp_set_timeout(http, 2);
       evhttp_set_cb(http, "/api/health", ApiHealthForTest, nullptr);
       evhttp_set_cb(http, "/api/stream_event", ApiStreamEventForTest, nullptr);
+      evhttp_set_cb(http, "/api/echo_count", ApiEchoCountForTest, nullptr);
 
       // Generic callback serves files under route_prefix (/video/...)
       evhttp_set_gencb(http, file_route_cb, &file_opts_);
@@ -299,6 +383,51 @@ TEST_F(HTTPServerFixture, StreamEventEndpointRecordsStartEnd) {
   ASSERT_FALSE(resp2.empty());
   std::this_thread::sleep_for(10ms);
   EXPECT_EQ(stream_event_end_count.load(std::memory_order_relaxed), 1);
+}
+
+// ---------------------------------------------------------------------------
+// get_request_json() body parsing (report finding #3: the old
+// ParsePostRequest truncated request bodies at 8KB).
+// ---------------------------------------------------------------------------
+TEST_F(HTTPServerFixture, PostSmallJsonBodyParses) {
+  const std::string body = R"({"cameraId":"cam-1","sourceType":"stream"})";
+  std::string resp = http_post("127.0.0.1", PORT, "/api/echo_count", body);
+  ASSERT_FALSE(resp.empty()) << "no response from server";
+  ASSERT_NE(resp.find("HTTP/1.1 200"), std::string::npos) << "resp=" << resp;
+  EXPECT_NE(response_body(resp).find("\"count\":2"), std::string::npos)
+      << "body=" << response_body(resp);
+}
+
+// Regression test: a POST body larger than the old 8KB limit must be parsed
+// COMPLETELY. A truncated JSON array would fail to parse (count -1 / 400).
+TEST_F(HTTPServerFixture, PostLargeBodyBeyond8KBParsesCompletely) {
+  // Build a JSON array of 200 strings, each ~100 chars => ~20KB body,
+  // well above the old kRecvBufMaxSize (8192) truncation point.
+  nlohmann::json arr = nlohmann::json::array();
+  for (int i = 0; i < 200; ++i) {
+    std::string s = "media/path/";
+    s += std::to_string(1000000 + i);
+    while (s.size() < 100) s += "-padding-";
+    arr.push_back(s);
+  }
+  const std::string body = arr.dump();
+  ASSERT_GT(body.size(), 8192u) << "test body must exceed the old 8KB limit";
+
+  std::string resp = http_post("127.0.0.1", PORT, "/api/echo_count", body);
+  ASSERT_FALSE(resp.empty()) << "no response from server";
+  ASSERT_NE(resp.find("HTTP/1.1 200"), std::string::npos)
+      << "large body must not be rejected\nresp=" << resp.substr(0, 200);
+  EXPECT_NE(response_body(resp).find("\"count\":200"), std::string::npos)
+      << "all 200 elements must survive parsing\nbody=" << response_body(resp);
+}
+
+TEST_F(HTTPServerFixture, PostEmptyBodyFails) {
+  std::string resp = http_post("127.0.0.1", PORT, "/api/echo_count", "");
+  ASSERT_FALSE(resp.empty()) << "no response from server";
+  // get_request_json() must reject an empty body: callback answers 400 / -1.
+  EXPECT_NE(resp.find(" 400"), std::string::npos) << "resp=" << resp;
+  EXPECT_NE(response_body(resp).find("\"count\":-1"), std::string::npos)
+      << "body=" << response_body(resp);
 }
 
 int main(int argc, char** argv) {

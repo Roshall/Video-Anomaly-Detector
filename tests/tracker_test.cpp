@@ -28,8 +28,13 @@ int main() {
     // Run detector on the frame and push result to algorithm queue.
     std::vector<DL_RESULT> res = detector.RunSession(img);
     unsigned long frame_ms = static_cast<unsigned long>(i * (1000 / 30));
-    track_algo.PushResult(std::pair<std::vector<DL_RESULT>, unsigned long>(res, frame_ms));
-    auto detection = track_algo.ProcessDetections();
+    track_algo.PushResult(avs_analyzer::YOLODetector::ResultType{res, frame_ms}, frame_ms);
+    avs_analyzer::Detection detection;
+    if (!track_algo.TryProcessDetections(detection,
+                                         std::chrono::milliseconds(100))) {
+      std::cerr << "No detection result for frame " << i << "\n";
+      continue;
+    }
     auto& bbox = detection.bbox;
     auto& confs = detection.confidences;
 

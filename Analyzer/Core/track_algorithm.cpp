@@ -14,8 +14,13 @@ TrackAlgorithm::TrackAlgorithm(uint64_t min_frame_duration)
   
 }
 
-Detection TrackAlgorithm::ProcessDetections() {
-  auto [res, frame_ms] = FetchOneFrameResults();
+bool TrackAlgorithm::TryProcessDetections(Detection& out,
+                                          std::chrono::milliseconds timeout) {
+  QueueValue value;
+  if (!FetchOneFrameResults(value, timeout)) {
+    return false;
+  }
+  auto& [res, frame_ms] = value;
   std::vector<byte_track::Object> objects;
   objects.reserve(res.size());
   for (auto& obj : res) {
@@ -36,6 +41,7 @@ Detection TrackAlgorithm::ProcessDetections() {
       confs.push_back(t->getScore());
     }
   }
-  return {bbox, confs, frame_ms};
+  out = {std::move(bbox), std::move(confs), frame_ms};
+  return true;
 }
 }  // namespace avs_analyzer

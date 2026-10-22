@@ -1,8 +1,15 @@
-﻿#include "av_pull_stream.h"
+#include "av_pull_stream.h"
 
+#include <algorithm>
+#include <chrono>
+#include <format>
+#include <string>
+#include <thread>
+#include <utility>
 
-#include "scheduler.h"
 #include "Utils/log.h"
+#include "config.h"
+#include "scheduler.h"
 #include "worker.h"
 #include "video_processing/helper.h"
 
@@ -10,163 +17,256 @@ extern "C" {
 #include <libavutil/dict.h>
 }
 
-
 namespace avs_analyzer {
 
 AvPullStream::AvPullStream(Worker* worker) : worker_(worker) { LOGI(""); }
 
-AvPullStream::~AvPullStream() {
-  CloseConnect();
-}
+AvPullStream::~AvPullStream() { CloseConnect(); }
 
-bool AvPullStream::Connect(bool file) {
-  std::string_view stream_url = worker_->StreamUrl();
+bool AvPullStream::OpenResources(bool file, StreamResourcesPtr& out,
+                                 std::string& error) {
+  std::lock_guard lock(open_mutex_);
+
+  auto resources = std::make_shared<StreamResources>();
+  const std::string stream_url(worker_->StreamUrl());
 
   AVDictionary* fmt_options{};
   if (!file) {
-    av_dict_set(&fmt_options, "rtsp_transport", "tcp",
-                0);  // 设置rtsp底层网络协议 tcp or udp
-    av_dict_set(&fmt_options, "stimeout", "10000000",
-                0);  // 设置rtsp连接超时（单位 us）1秒=1000000
-    av_dict_set(&fmt_options, "rw_timeout", "1000000",
-                0);  // 设置rtmp/http-flv连接超时（单位 us
+    av_dict_set(&fmt_options, "rtsp_transport", "tcp", 0);
+    av_dict_set(&fmt_options, "stimeout", "10000000", 0);
+    av_dict_set(&fmt_options, "rw_timeout", "1000000", 0);
   }
 
-  auto fmt = avformat_alloc_context();
-  int ret =
-      avformat_open_input(&fmt, stream_url.data(), nullptr, &fmt_options);
-  fmt_ctx.reset(fmt);
-  if(fmt_options) {
+  AVFormatContext* fmt = nullptr;
+  int ret = avformat_open_input(&fmt, stream_url.data(), nullptr, &fmt_options);
+  if (fmt_options) {
     av_dict_free(&fmt_options);
     fmt_options = nullptr;
   }
   if (ret != 0) {
-    LOGE_FFMPEG(std::format("avformat_open_input error: url={}", stream_url), ret);
-    return false;
-  }
-
-  if (ret = avformat_find_stream_info(fmt_ctx.get(), nullptr); ret < 0) {
-    LOGE_FFMPEG("avformat_find_stream_info error", ret);
-    return false;
-  }
-
-  // video start
-  auto video_index =
-    av_find_best_stream(fmt_ctx.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
-  stream = fmt_ctx->streams[video_index];
-  if (video_index > -1) {
-    const AVCodecParameters* videoCodecPar = stream->codecpar;
-
-    const AVCodec* video_codec = nullptr;
-    video_codec = avcodec_find_decoder(videoCodecPar->codec_id);
-    if (!video_codec) {
-      LOGE("avcodec_find_decoder error");
-      return false;
+    if (fmt) {
+      avformat_close_input(&fmt);
     }
-
-    video_codec_ctx.reset(avcodec_alloc_context3(video_codec));
-    if (ret = avcodec_parameters_to_context(video_codec_ctx.get(), videoCodecPar); ret < 0) {
-      LOGE_FFMPEG("avcodec_parameters_to_context error", ret);
-      return false;
-    }
-    if (ret = avcodec_open2(video_codec_ctx.get(), video_codec, nullptr); ret < 0) {
-      LOGE_FFMPEG("avcodec_open2 error", ret);
-      return false;
-    }
-  worker_->OnStreamOpened({stream->time_base, video_codec_ctx->sample_aspect_ratio, video_codec_ctx->pix_fmt, video_codec_ctx->width,
-              video_codec_ctx->height, video_index});
-
-  } else {
-    LOGE("av_find_best_stream video error videoIndex={}", video_index);
+    error = std::format("avformat_open_input error: url={}", stream_url);
+    LOGE_FFMPEG(error, ret);
     return false;
   }
-  // video end;
+  resources->fmt.reset(fmt);
 
-  if (worker_->VideoStreamIndex() <= -1) {
+  if ((ret = avformat_find_stream_info(resources->fmt.get(), nullptr)) < 0) {
+    error = "avformat_find_stream_info error";
+    LOGE_FFMPEG(error, ret);
     return false;
   }
 
-  connect_count++;
+  const int video_index = av_find_best_stream(
+      resources->fmt.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+  if (video_index < 0) {
+    error = std::format("av_find_best_stream video error videoIndex={}",
+                        video_index);
+    LOGE(error);
+    return false;
+  }
+  AVStream* stream = resources->fmt->streams[video_index];
+  const AVCodecParameters* codec_par = stream->codecpar;
 
+  const AVCodec* video_codec = avcodec_find_decoder(codec_par->codec_id);
+  if (!video_codec) {
+    error = "avcodec_find_decoder error";
+    LOGE(error);
+    return false;
+  }
+
+  resources->codec.reset(avcodec_alloc_context3(video_codec));
+  if (!resources->codec) {
+    error = "avcodec_alloc_context3 error";
+    LOGE(error);
+    return false;
+  }
+  if ((ret = avcodec_parameters_to_context(resources->codec.get(), codec_par)) <
+      0) {
+    error = "avcodec_parameters_to_context error";
+    LOGE_FFMPEG(error, ret);
+    return false;
+  }
+  if ((ret = avcodec_open2(resources->codec.get(), video_codec, nullptr)) < 0) {
+    error = "avcodec_open2 error";
+    LOGE_FFMPEG(error, ret);
+    return false;
+  }
+
+  resources->video_stream = stream;
+  resources->video_index = video_index;
+  resources->time_base = stream->time_base;
+  resources->ctx =
+      VideoContext{stream->time_base, resources->codec->sample_aspect_ratio,
+                   resources->codec->pix_fmt, resources->codec->width,
+                   resources->codec->height, video_index};
+  resources->generation = ++generation_;
+
+  if (!resources->ctx.valid()) {
+    error = "invalid video context";
+    LOGE("{}: width={} height={} index={}", error, resources->ctx.width,
+         resources->ctx.height, video_index);
+    return false;
+  }
+
+  out = std::move(resources);
   return true;
 }
 
-bool AvPullStream::Reconnect() {
-  if (connect_count <= 100) {
-    CloseConnect();
-    if (Connect(false)) {
-      return true;
-    }
+void AvPullStream::PublishResources(StreamResourcesPtr resources) {
+  // Packets queued for the previous generation are useless once the new
+  // decoder is live; drop them so the detect thread does not decode stale data.
+  ClearPacketQueue();
+  std::atomic_store(&current_, std::move(resources));
+}
+
+bool AvPullStream::Connect(bool file) {
+  StreamResourcesPtr resources;
+  std::string error;
+  if (!OpenResources(file, resources, error)) {
     return false;
   }
+  PublishResources(resources);
+  connect_count.fetch_add(1, std::memory_order_relaxed);
+  worker_->OnStreamOpened(resources->ctx);
+  return true;
+}
+
+bool AvPullStream::SleepInterruptible(int ms) {
+  constexpr int kSliceMs = 100;
+  for (int slept = 0; slept < ms; slept += kSliceMs) {
+    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+      return false;
+    }
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(std::min(kSliceMs, ms - slept)));
+  }
+  return !shutdown_.load(std::memory_order_acquire) && worker_->State();
+}
+
+bool AvPullStream::Reconnect() {
+  const Config& conf = worker_->scheduler->GetConfig();
+  const int attempts = std::max(1, conf.stream_reconnect_max_attempts);
+  int backoff_ms = std::max(100, conf.stream_reconnect_backoff_ms);
+  const int backoff_max_ms = std::max(backoff_ms, conf.stream_reconnect_backoff_max_ms);
+
+  for (int attempt = 1; attempt <= attempts; ++attempt) {
+    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+      return false;
+    }
+    connect_count.fetch_add(1, std::memory_order_relaxed);
+    worker_->metrics_->reconnects.fetch_add(1, std::memory_order_relaxed);
+
+    StreamResourcesPtr resources;
+    std::string error;
+    if (OpenResources(false, resources, error)) {
+      PublishResources(resources);
+      worker_->OnStreamOpened(resources->ctx);
+      LOGI("reconnect success: attempt={}/{} connectCount={}", attempt, attempts,
+           connect_count.load(std::memory_order_relaxed));
+      return true;
+    }
+
+    LOGW("reconnect attempt {}/{} failed: {}", attempt, attempts, error);
+    if (attempt == attempts) {
+      break;
+    }
+    if (!SleepInterruptible(backoff_ms)) {
+      return false;
+    }
+    backoff_ms = std::min(backoff_ms * 2, backoff_max_ms);
+  }
+
+  LOGE("pull stream reconnect attempts exhausted (max={})", attempts);
   return false;
 }
 
-AVPacketPtr AvPullStream::GetVideoPkt() {
+bool AvPullStream::GetVideoPkt(StreamPacket& packet) {
   pkt_cs_.acquire();
-  AVPacketPtr pkg;
-  video_pkt_queue_.try_dequeue(pkg);
-  return pkg;
+  return video_pkt_queue_.try_dequeue(packet);
 }
+
 void AvPullStream::SignalShutdown() {
-  //sent a message to wake up the thread and let it terminated itself.
+  shutdown_.store(true, std::memory_order_release);
+  // Wake the detect thread blocked on the packet queue.
   pkt_cs_.release();
 }
+
 void AvPullStream::ClearPacketQueue() {
-  AVPacketPtr video_pkt;
-  while (pkt_cs_.try_acquire() && video_pkt_queue_.try_dequeue(video_pkt)) {
+  StreamPacket packet;
+  while (video_pkt_queue_.try_dequeue(packet)) {
+    // Consume the token that was released for this packet.
+    pkt_cs_.try_acquire();
   }
 }
+
 void AvPullStream::Read() {
-  int continuity_error_count = 0;
   AVPacketPtr pkt{av_packet_alloc()};
-  while (worker_->State()) {
-    if (int ret = av_read_frame(fmt_ctx.get(), pkt.get()); ret >= 0) {
-      continuity_error_count = 0;
-  if (pkt->stream_index == worker_->VideoStreamIndex()) {
+  if (!pkt) {
+    LOGE("av_packet_alloc failed");
+    worker_->Remove();
+    return;
+  }
+
+  while (worker_->State() && !shutdown_.load(std::memory_order_acquire)) {
+    const StreamResourcesPtr resources = std::atomic_load(&current_);
+    if (!resources) {
+      LOGE("pull stream has no open resources");
+      worker_->Remove();
+      return;
+    }
+
+    const int ret = av_read_frame(resources->fmt.get(), pkt.get());
+    if (ret >= 0) {
+      if (pkt->stream_index == resources->video_index) {
         if (video_pkt_queue_.size_approx() > 300) {
-          LOGW("too many package to encode, throw one away.");
+          LOGW("too many packages to decode, dropping one.");
           av_packet_unref(pkt.get());
           continue;
         }
-        video_pkt_queue_.enqueue(std::move(pkt));
+        StreamPacket packet;
+        packet.generation = resources->generation;
+        packet.pkt = std::move(pkt);
+        video_pkt_queue_.enqueue(std::move(packet));
         pkt_cs_.release();
         pkt.reset(av_packet_alloc());
+        if (!pkt) {
+          LOGE("av_packet_alloc failed");
+          worker_->Remove();
+          return;
+        }
       } else {
         av_packet_unref(pkt.get());
       }
-    } else {
-      LOGE_FFMPEG("av_read_frame in pull stream failed", ret);
-      continuity_error_count++;
-      // TODO: timeout reconnect to be configurable
-      if (continuity_error_count > 5) {  // 大于5秒重启拉流连接
+      continue;
+    }
 
-        LOGE("av_read_frame error, continuity_error_count = {} (s)",
-             continuity_error_count);
+    if (ret == AVERROR_EOF) {
+      LOGI("pull stream reached EOF, stopping read loop");
+      eof_.store(true, std::memory_order_release);
+      SignalShutdown();
+      return;
+    }
 
-        if (Reconnect()) {
-          continuity_error_count = 0;
-          LOGI("reConnect success : mConnectCount={}", connect_count);
-        } else {
-          LOGI("reConnect error : mConnectCount={}", connect_count);
-          worker_->Remove();
-        }
-      } else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      }
+    LOGE_FFMPEG("av_read_frame in pull stream failed", ret);
+    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+      return;
+    }
+
+    if (!Reconnect()) {
+      // Give the detect thread a chance to drain/flush and exit.
+      SignalShutdown();
+      worker_->Remove();
+      return;
     }
   }
 }
+
 void AvPullStream::CloseConnect() {
   ClearPacketQueue();
   SignalShutdown();
-//  fmt_ctx.reset();
 }
-float AvPullStream::GetFps() const {
-  if (stream->avg_frame_rate.num && stream->avg_frame_rate.den) {
-    return static_cast<float>(stream->avg_frame_rate.num) / stream->avg_frame_rate.den;
-  }
-  return 25.0f;
-}
-}
-// namespace avs_analyzer
+
+}  // namespace avs_analyzer

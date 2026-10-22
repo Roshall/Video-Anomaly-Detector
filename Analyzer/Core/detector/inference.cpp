@@ -3,8 +3,17 @@
 //
 #include "inference.h"
 
+namespace {
+const Ort::MemoryInfo& CpuMemoryInfo() {
+  static const Ort::MemoryInfo info =
+      Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtDeviceAllocator,
+                                 OrtMemTypeCPU);
+  return info;
+}
+}  // namespace
+
 YOLOv8Detect::PreprocInfo YOLOv8Detect::letterbox_bgr_to_rgb_(
-    const cv::Mat& src_bgr, int W, int H, cv::Mat& dst_rgb) {
+    const cv::Mat& src_bgr, int W, int H) {
   const float r = std::min(static_cast<float>(W) / src_bgr.cols,
                            static_cast<float>(H) / src_bgr.rows);
   const int new_w = static_cast<int>(std::round(src_bgr.cols * r));
@@ -12,11 +21,11 @@ YOLOv8Detect::PreprocInfo YOLOv8Detect::letterbox_bgr_to_rgb_(
   const int pad_x = (W - new_w) / 2;
   const int pad_y = (H - new_h) / 2;
 
-  cv::Mat resized;
-  cv::resize(src_bgr, resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
-  cv::Mat canvas(H, W, CV_8UC3, cv::Scalar(114,114,114));
-  resized.copyTo(canvas(cv::Rect(pad_x, pad_y, new_w, new_h)));
-  cv::cvtColor(canvas, dst_rgb, cv::COLOR_BGR2RGB);
+  cv::resize(src_bgr, resized_, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
+  canvas_.create(H, W, CV_8UC3);
+  canvas_.setTo(cv::Scalar(114, 114, 114));
+  resized_.copyTo(canvas_(cv::Rect(pad_x, pad_y, new_w, new_h)));
+  cv::cvtColor(canvas_, rgb_, cv::COLOR_BGR2RGB);
   return {r, pad_x, pad_y};
 }
 void YOLOv8Detect::hwc_to_nchw_norm_(const cv::Mat& rgb, float* out) {
@@ -66,19 +75,18 @@ std::vector<DL_RESULT> YOLOv8Detect::RunSession(const cv::Mat& bgr) {
   if (bgr.empty() || bgr.type() != CV_8UC3) return {};
 
   // preprocess (centered letterbox to target WxH, RGB, keep scale/pad)
-  cv::Mat rgb;
-  const auto pp = letterbox_bgr_to_rgb_(bgr, img_size_[0], img_size_[1], rgb);
+  const auto pp = letterbox_bgr_to_rgb_(bgr, img_size_[0], img_size_[1]);
 
   // NCHW FP32, normalized [0,1]
-  const int W = rgb.cols, H = rgb.rows;
+  const int W = rgb_.cols, H = rgb_.rows;
   const size_t HW = static_cast<size_t>(H) * W;
-  std::vector<float> blob(3 * HW);
-  hwc_to_nchw_norm_(rgb, blob.data());
+  blob_.resize(3 * HW);
+  hwc_to_nchw_norm_(rgb_, blob_.data());
 
-  std::array<int64_t,4> in_dims{1, 3, H, W};
+  input_dims_ = {1, 3, H, W};
   Ort::Value input = Ort::Value::CreateTensor<float>(
-      Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtDeviceAllocator, OrtMemTypeCPU),
-      blob.data(), blob.size(), in_dims.data(), in_dims.size());
+      CpuMemoryInfo(), blob_.data(), blob_.size(), input_dims_.data(),
+      input_dims_.size());
 
   auto outs = session_->Run(run_opts_, input_names_.data(), &input, 1,
                             output_names_.data(), output_names_.size());

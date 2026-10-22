@@ -1,13 +1,12 @@
-﻿#include "algorithm.h"
+#include "algorithm.h"
 
 
 namespace avs_analyzer {
 Algorithm::~Algorithm() = default;
 
-Algorithm::QueueValue Algorithm::FetchOneFrameResults() {
-    QueueValue result;
-    result_queue_.wait_dequeue(result);
-    return result;
+bool Algorithm::FetchOneFrameResults(QueueValue& out,
+                                    std::chrono::milliseconds timeout) {
+  return result_queue_.wait_dequeue_timed(out, timeout);
 }
 
 void Algorithm::PushResult(const YOLODetector::ResultType& results, uint64_t frame_ts) {

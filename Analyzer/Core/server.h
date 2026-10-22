@@ -15,6 +15,7 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler,
                             FileRouteOptions& file_route_opt);
 void ApiIndex(evhttp_request* req, void* arg);
 void ApiHealth(evhttp_request* req, void* arg);
+void ApiMetrics(evhttp_request* req, void* arg);
 void ApiAllMonitors(evhttp_request* req, void* arg);
 void ApiMonitor(evhttp_request* req, void* arg);
 void ApiAddMonitor(evhttp_request* req, void* arg);

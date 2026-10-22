@@ -1,4 +1,4 @@
-﻿#include "config.h"
+#include "config.h"
 
 #include <nlohmann/json.hpp>
 
@@ -87,13 +87,54 @@ Config::Config(const char* file) {
     model_dir = json_get_or_string(root, {"DLModel", "dir"},
                                    json_get_or_string(root, {"modelDir"}, model_dir));
 
-    use_accelerator = json_get_or<bool>(root, {"acceleratorInference"}, use_accelerator);
+    use_accelerator = json_get_or<bool>(
+        root, {"DLModel", "acceleratorInference"},
+        json_get_or<bool>(root, {"acceleratorInference"}, use_accelerator));
     log_level = json_get_or_string(root, {"application", "logLevel"}, log_level);
     thread_pool_size = json_get_or<int>(root, {"application", "threadPoolSize"}, thread_pool_size);
     file_cache_timeout = json_get_or<u_int32_t>(
         root, {"application", "fileCacheTimeout"}, file_cache_timeout);
     rtsp_probe_timeout_ms = json_get_or<int>(
       root, {"application", "rtspProbeTimeoutMs"}, rtsp_probe_timeout_ms);
+
+    inference_workers_per_model = json_get_or<int>(
+        root, {"performance", "inferenceWorkersPerModel"},
+        inference_workers_per_model);
+    inference_workers_per_model_accelerated = json_get_or<int>(
+        root, {"performance", "inferenceWorkersPerModelAccelerated"},
+        inference_workers_per_model_accelerated);
+    inference_result_timeout_ms = json_get_or<int>(
+        root, {"application", "inferenceResultTimeoutMs"},
+        inference_result_timeout_ms);
+    offline_pipeline_depth = json_get_or<int>(
+        root, {"performance", "offlinePipelineDepth"}, offline_pipeline_depth);
+    event_buffer_budget_mb = json_get_or<int>(
+        root, {"performance", "eventBufferBudgetMb"}, event_buffer_budget_mb);
+    push_queue_max_frames = json_get_or<int>(
+        root, {"performance", "pushQueueMaxFrames"}, push_queue_max_frames);
+    stream_reconnect_max_attempts = json_get_or<int>(
+        root, {"performance", "streamReconnectMaxAttempts"},
+        stream_reconnect_max_attempts);
+    stream_reconnect_backoff_ms = json_get_or<int>(
+        root, {"performance", "streamReconnectBackoffMs"},
+        stream_reconnect_backoff_ms);
+    stream_reconnect_backoff_max_ms = json_get_or<int>(
+        root, {"performance", "streamReconnectBackoffMaxMs"},
+        stream_reconnect_backoff_max_ms);
+    if (root.contains("performance") && root["performance"].is_object()) {
+      const auto& perf = root["performance"];
+      if (perf.contains("preloadModels") && perf["preloadModels"].is_array()) {
+        std::vector<std::string> models;
+        for (const auto& entry : perf["preloadModels"]) {
+          if (entry.is_string() && !entry.get<std::string>().empty()) {
+            models.push_back(entry.get<std::string>());
+          }
+        }
+        if (!models.empty()) {
+          preload_models = std::move(models);
+        }
+      }
+    }
 
     alarm_sound_path = json_get_or_string(
         root, {"alarm", "soundPath"}, alarm_sound_path);
@@ -140,6 +181,20 @@ Config::Config(const char* file) {
     // 0: use all core
     thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
     rtsp_probe_timeout_ms = std::clamp(rtsp_probe_timeout_ms, 1000, 30000);
+    inference_workers_per_model = std::clamp(inference_workers_per_model, 1, 8);
+    inference_workers_per_model_accelerated =
+        std::clamp(inference_workers_per_model_accelerated, 1, 8);
+    inference_result_timeout_ms = std::clamp(inference_result_timeout_ms, 100, 60000);
+    offline_pipeline_depth = std::clamp(offline_pipeline_depth, 1, 16);
+    event_buffer_budget_mb = std::clamp(event_buffer_budget_mb, 32, 4096);
+    push_queue_max_frames = std::clamp(push_queue_max_frames, 10, 300);
+    stream_reconnect_max_attempts =
+        std::clamp(stream_reconnect_max_attempts, 1, 1000);
+    stream_reconnect_backoff_ms =
+        std::clamp(stream_reconnect_backoff_ms, 100, 60000);
+    stream_reconnect_backoff_max_ms =
+        std::clamp(stream_reconnect_backoff_max_ms,
+                   stream_reconnect_backoff_ms, 300000);
     alarm_sound_cooldown_sec = std::max(0, alarm_sound_cooldown_sec);
     bunkoff_overlap_ratio = std::clamp(bunkoff_overlap_ratio, 0.0, 1.0);
     if (legend_prealloc_max_labels < 1 || legend_prealloc_max_labels > 6) {
@@ -182,6 +237,13 @@ void Config::Show() {
          "Use Accelerator    : %s\n"
          "Log Level          : %s\n"
          "RTSP Probe Timeout : %d ms\n"
+         "Inference Workers  : %d (accelerated %d)\n"
+         "Inference Timeout  : %d ms\n"
+         "Offline Depth      : %d\n"
+         "Event Buffer Budget: %d MB\n"
+         "Push Queue Max     : %d\n"
+         "Reconnect Attempts : %d\n"
+         "Reconnect Backoff  : %d ms (max %d ms)\n"
          "Alarm Sound Path   : %s\n"
          "Alarm Cooldown Sec : %d\n"
          "Font Path          : %s\n"
@@ -207,6 +269,15 @@ void Config::Show() {
          use_accelerator ? "true" : "false",
          log_level.c_str(),
          rtsp_probe_timeout_ms,
+         inference_workers_per_model,
+         inference_workers_per_model_accelerated,
+         inference_result_timeout_ms,
+         offline_pipeline_depth,
+         event_buffer_budget_mb,
+         push_queue_max_frames,
+         stream_reconnect_max_attempts,
+         stream_reconnect_backoff_ms,
+         stream_reconnect_backoff_max_ms,
          alarm_sound_path.c_str(),
          alarm_sound_cooldown_sec,
          font_path.c_str(),

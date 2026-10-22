@@ -7,14 +7,22 @@
 #include "detector/inference.h"
 
 namespace avs_analyzer {
-Detection DetectionAlgorithm::ProcessDetections() {
+bool DetectionAlgorithm::TryProcessDetections(
+    Detection& out, std::chrono::milliseconds timeout) {
+  QueueValue value;
+  if (!FetchOneFrameResults(value, timeout)) {
+    return false;
+  }
+  auto& [res, frame_ms] = value;
   std::vector<cv::Rect> bbox;
   std::vector<float> confs;
-  auto [res, frame_ms] = FetchOneFrameResults();
+  bbox.reserve(res.size());
+  confs.reserve(res.size());
   for (auto& obj : res) {
     bbox.push_back(obj.box);
     confs.push_back(obj.confidence);
   }
-  return {bbox, confs, frame_ms};
+  out = {std::move(bbox), std::move(confs), frame_ms};
+  return true;
 }
 }  // namespace avs_analyzer
