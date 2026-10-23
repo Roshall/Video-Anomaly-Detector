@@ -6,11 +6,11 @@
             "description": "Debug Config",
             "hidden": false,
             "generator": "Ninja",
-            "binaryDir": "${workspaceFolder}/build",
+            "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_MAKE_PROGRAM": "/home/lg/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja"
+                "BUILD_TESTS": "ON"
             }
         },
         {
@@ -18,11 +18,10 @@
             "description": "Release Config",
             "hidden": false,
             "generator": "Ninja",
-            "binaryDir": "${workspaceFolder}/build",
+            "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "CMAKE_MAKE_PROGRAM": "/usr/bin/ninja"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         }
     ],

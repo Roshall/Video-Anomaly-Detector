@@ -30,7 +30,7 @@ if(USE_CUDA)
     add_compile_definitions(USE_CUDA)
 endif()
 
-option(BUILD_TESTS "Build unit tests" OFF)
+option(BUILD_TESTS "Build unit tests" ON)
 
 # Optional sanitizer build. Example: -DANALYZER_SANITIZE=thread
 set(ANALYZER_SANITIZE "" CACHE STRING "Sanitizer to enable (address, thread, undefined)")
