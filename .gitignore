@@ -9,3 +9,5 @@ resources/
 .*/
 !conf/config.json
 build*/
+install.sh
+update.sh
