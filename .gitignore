@@ -1,12 +1,11 @@
 *.onnx
 *.jp*g
-3rdparty/*
-.cache/*
-.clang*
+3rdparty*/
 *.json
-models/*
+models/
 *.log
 *.txt
-resources/*
-.serena/*
+resources/
+.*/
 !conf/config.json
+build*/
