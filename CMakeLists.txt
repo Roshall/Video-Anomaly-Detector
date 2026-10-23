@@ -515,6 +515,30 @@ target_include_directories(monitor_registry_test PRIVATE
         Analyzer/Core/detector
         3rdparty/include/readerwriterqueue)
 add_test(NAME monitor_registry_test COMMAND $<TARGET_FILE:monitor_registry_test>)
+
+# 昇腾迁移：双后端抽象层 + 引擎解耦的 TDD 测试（Phase 1.2）。
+# 自包含：只需 gtest + opencv_core/imgproc，不依赖 FFmpeg/CANN/ONNXRuntime，
+# 可在 x86 上直接回归。其中 tests/architecture/layering_test.cpp 强制分层边界：
+# 推理引擎(backend) 与 图像处理引擎(imaging) 只经中性契约 io/ 通信，互不 include。
+add_executable(abstraction_test
+        tests/imaging/frame_test.cpp
+        tests/imaging/image_processor_contract_test.cpp
+        tests/imaging/opencv_image_processor_test.cpp
+        tests/backend/inference_backend_test.cpp
+        tests/pipeline/pipeline_factory_test.cpp
+        tests/architecture/layering_test.cpp
+        Analyzer/Core/imaging/opencv_image_processor.cpp)
+target_link_libraries(abstraction_test PRIVATE
+        GTest::gtest_main
+        opencv_core
+        opencv_imgproc
+        Threads::Threads)
+target_include_directories(abstraction_test PRIVATE
+        ${OpenCV_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core)
+target_compile_definitions(abstraction_test PRIVATE
+        ANALYZER_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+add_test(NAME abstraction_test COMMAND $<TARGET_FILE:abstraction_test>)
 endif()
 
 # Everything except main(): compiled once and reused by the Analyzer executable
