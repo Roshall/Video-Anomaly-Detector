@@ -1,17 +1,45 @@
 #include "server_apis/api_common.h"
 
 #include <event2/buffer.h>
+#include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
 
 #include <cstring>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 #include "Utils/log.h"
+#include "server_apis/server_context.h"
 
 namespace {
 constexpr int kRecvBufMaxSize = 1024 * 8;
+
+struct PendingReply {
+  evhttp_request* req{nullptr};
+  int code{0};
+  std::string body;
+};
+
+void AsyncReplyCb(evutil_socket_t, short, void* arg) {
+  auto* reply = static_cast<PendingReply*>(arg);
+  // libevent frees the (owned) request from evhttp_send_done once the reply
+  // has been written, so it must not be freed here.
+  send_json(reply->req, reply->code, reply->body);
+  delete reply;
+}
+}  // namespace
+
+void ReplyJsonAsync(event_base* base, evhttp_request* req, int code,
+                    std::string body) {
+  auto* reply = new PendingReply{req, code, std::move(body)};
+  timeval zero{0, 0};
+  if (event_base_once(base, -1, EV_TIMEOUT, AsyncReplyCb, reply, &zero) != 0) {
+    LOGE("failed to schedule deferred HTTP reply");
+    evhttp_request_free(reply->req);
+    delete reply;
+  }
 }
 
 void send_json(evhttp_request* req, int code, const std::string& json) {

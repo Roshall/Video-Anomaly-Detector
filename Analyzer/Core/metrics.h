@@ -76,12 +76,14 @@ struct ModelMetrics {
 
 struct AlarmMetrics {
   std::atomic<uint64_t> pending_jobs{0};
+  std::atomic<uint64_t> jobs_dropped{0};
   std::atomic<uint64_t> upload_failures{0};
   std::atomic<uint64_t> reencode_failures{0};
 
   [[nodiscard]] nlohmann::json ToJson() const {
     return {
         {"pendingJobs", pending_jobs.load(std::memory_order_relaxed)},
+        {"jobsDropped", jobs_dropped.load(std::memory_order_relaxed)},
         {"uploadFailures", upload_failures.load(std::memory_order_relaxed)},
         {"reencodeFailures", reencode_failures.load(std::memory_order_relaxed)},
     };

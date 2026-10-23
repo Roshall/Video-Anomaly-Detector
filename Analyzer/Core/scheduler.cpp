@@ -9,6 +9,7 @@
 
 #include "Utils/log.h"
 #include "alarm.h"
+#include "alarm/alarm_io_dispatcher.h"
 #include "alarm_sound.h"
 #include "analyzer.h"
 #include "config.h"
@@ -18,10 +19,15 @@
 #include "worker.h"
 
 namespace avs_analyzer {
-BS::thread_pool<> g_th_pool{3};
+BS::thread_pool<0> g_control_pool{1};
+BS::thread_pool<0> g_media_pool{1};
+BS::thread_pool<0> g_alarm_pool{1};
 
 Scheduler::Scheduler(Config& config)
     : config_(config), detector_pool_(config) {
+  alarm_dispatcher_ = std::make_unique<AlarmIoDispatcher>(
+      static_cast<size_t>(config_.max_pending_alarm_jobs),
+      static_cast<size_t>(config_.alarm_threads));
   if (!config_.alarm_sound_path.empty()) {
     try {
       alarm_controller_ = std::make_unique<AlarmController>(
@@ -39,6 +45,9 @@ Scheduler::~Scheduler() {
   // destroyed before any member of the scheduler is torn down.
   ClearWorker();
   DrainQueues();
+  // Workers may enqueue tail alarm jobs while they are destroyed, so the
+  // dispatcher drains only after the worker queue is empty.
+  DrainAlarms();
 }
 
 Config& Scheduler::GetConfig() const { return config_; }
@@ -55,21 +64,8 @@ void Scheduler::DrainQueues() {
   bool progress = true;
   while (progress) {
     progress = false;
-    AlarmJob job;
-    uint64_t finalized = 0;
-    while (alarm_queue_.try_dequeue(job)) {
-      if (job.alarm) {
-        job.alarm->Finalize(std::move(job));
-      }
-      ++finalized;
-      progress = true;
-    }
-    if (finalized) {
-      MetricsRegistry::Instance().alarm().pending_jobs.fetch_sub(
-          finalized, std::memory_order_relaxed);
-    }
     // Dropping the last reference may join the worker's threads, which can
-    // enqueue tail alarm jobs that the loop above will pick up next round.
+    // enqueue tail alarm jobs that the alarm dispatcher will pick up.
     std::shared_ptr<Worker> worker;
     while (to_be_deleted_workers_queue_.try_dequeue(worker)) {
       worker.reset();
@@ -192,7 +188,7 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
 
     for (size_t i = 0; i < monitors.size(); ++i) {
       auto& [monitor, event_cfg] = monitors[i];
-      g_th_pool.detach_task(
+      g_media_pool.detach_task(
           [worker = std::make_unique<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
             worker->OfflineAnalyze();
           });
@@ -237,7 +233,7 @@ void Scheduler::MonitorBatchAdd(std::vector<std::pair<std::unique_ptr<Monitor>, 
   for (size_t idx : file_indices) {
     auto& [monitor, event_cfg] = monitors[idx];
     if (!monitor) continue;
-    g_th_pool.detach_task(
+    g_media_pool.detach_task(
         [worker = std::make_shared<Worker>(this, std::move(monitor), event_cfg, true)]() mutable {
           worker->OfflineAnalyze();
         });
@@ -421,10 +417,42 @@ void Scheduler::NotifyCleanUp() {
 }
 
 void Scheduler::AddAlarm(AlarmJob job) {
-  alarm_queue_.enqueue(std::move(job));
-  MetricsRegistry::Instance().alarm().pending_jobs.fetch_add(
-      1, std::memory_order_relaxed);
-  NotifyCleanUp();
+  if (!alarm_dispatcher_) {
+    return;
+  }
+  auto& alarm_metrics = MetricsRegistry::Instance().alarm();
+  alarm_metrics.pending_jobs.fetch_add(1, std::memory_order_relaxed);
+  // AlarmJob owns a unique_ptr, so share it to keep the queue tasks copyable.
+  auto shared_job = std::make_shared<AlarmJob>(std::move(job));
+  const bool accepted = alarm_dispatcher_->TrySubmit(
+      [shared_job, &alarm_metrics]() {
+        if (shared_job->alarm) {
+          shared_job->alarm->Finalize(std::move(*shared_job));
+        }
+        alarm_metrics.pending_jobs.fetch_sub(1, std::memory_order_relaxed);
+      });
+  if (!accepted) {
+    alarm_metrics.pending_jobs.fetch_sub(1, std::memory_order_relaxed);
+    alarm_metrics.jobs_dropped.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+bool Scheduler::SubmitAlarmIo(std::function<void()> task) {
+  if (!alarm_dispatcher_) {
+    return false;
+  }
+  const bool accepted = alarm_dispatcher_->TrySubmit(std::move(task));
+  if (!accepted) {
+    MetricsRegistry::Instance().alarm().jobs_dropped.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+  return accepted;
+}
+
+void Scheduler::DrainAlarms() {
+  if (alarm_dispatcher_) {
+    alarm_dispatcher_->Drain();
+  }
 }
 void Scheduler::ClearWorker() {
   std::vector<std::shared_ptr<Worker>> workers;

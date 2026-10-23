@@ -326,12 +326,16 @@ void Worker::OfflineAnalyze() {
   auto finish = [&]() {
     for (const auto& rt : monitors) {
       if (!rt || !rt->monitor) continue;
+      const std::string code = rt->monitor->code;
       const std::string url =
           std::format("{}/api/offline/finished?controlCode={}",
-                      scheduler->GetConfig().admin_host, rt->monitor->code);
-      std::string res;
-      Request::get(url.c_str(), res);
-      LOGI("offline analyzer response ({}): {}", rt->monitor->code, res);
+                      scheduler->GetConfig().admin_host, code);
+      // Never block the media pool on the admin service.
+      g_control_pool.detach_task([url, code]() {
+        std::string res;
+        Request::get(url.c_str(), res);
+        LOGI("offline analyzer response ({}): {}", code, res);
+      });
 
       if (rt->analyzer) {
         rt->analyzer->Stop();
@@ -614,10 +618,11 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
     return;
   }
 
-  g_th_pool.detach_task([conf = scheduler->GetConfig(),
-        code = monitor_code, start_timestamp, event_timestamp,
-        level = std::string(level), alarm_id, video_code = video_code_,
-        encoded = std::move(encoded), is_file = file_]() {
+  if (!scheduler || !scheduler->SubmitAlarmIo(
+          [conf = scheduler->GetConfig(),
+           code = monitor_code, start_timestamp, event_timestamp,
+           level = std::string(level), alarm_id, video_code = video_code_,
+           encoded = std::move(encoded), is_file = file_]() {
         auto img_path =
             std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
                         is_file ? std::to_string(getCurTimestamp()) : FrameWallClock::to_iso8601_utc(start_timestamp));
@@ -653,7 +658,10 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         std::string response;
         Request::post(url.data(), data.data(), response);
         LOGI("sent alarm image to {}", conf.admin_host);
-      });
+      })) {
+    LOGW("alarm image queue is full; dropping image for monitor {}",
+         monitor_code);
+  }
 }
 
 bool Worker::NeedPushStream() const {
@@ -1501,7 +1509,7 @@ void Worker::NotifyAdminStreamEvent(std::string_view state) {
   const std::string url = std::format("{}/api/stream_event?state={}&streamCode={}",
                                       conf.admin_host, state, video_code_);
   // Fire-and-forget async request to avoid blocking the DetectEvent loop.
-  g_th_pool.detach_task([url]() {
+  g_control_pool.detach_task([url]() {
     std::string response;
     Request::get(url.c_str(), response);
     LOGI("sent stream event to {}, response: {}", url, response);
@@ -1547,7 +1555,7 @@ void Worker::CleanUpPushThread(bool detach) {
   }
   if (push_thread && push_thread->joinable()) {
     if (detach) {
-      g_th_pool.detach_task([thread = std::move(push_thread)] {
+      g_control_pool.detach_task([thread = std::move(push_thread)] {
         thread->join();
       });
     } else {

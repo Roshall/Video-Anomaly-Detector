@@ -92,6 +92,12 @@ Config::Config(const char* file) {
         json_get_or<bool>(root, {"acceleratorInference"}, use_accelerator));
     log_level = json_get_or_string(root, {"application", "logLevel"}, log_level);
     thread_pool_size = json_get_or<int>(root, {"application", "threadPoolSize"}, thread_pool_size);
+    offline_threads = json_get_or<int>(
+        root, {"application", "offlineThreads"}, offline_threads);
+    alarm_threads = json_get_or<int>(
+        root, {"application", "alarmThreads"}, alarm_threads);
+    max_pending_alarm_jobs = json_get_or<int>(
+        root, {"performance", "maxPendingAlarmJobs"}, max_pending_alarm_jobs);
     file_cache_timeout = json_get_or<u_int32_t>(
         root, {"application", "fileCacheTimeout"}, file_cache_timeout);
     rtsp_probe_timeout_ms = json_get_or<int>(
@@ -180,6 +186,9 @@ Config::Config(const char* file) {
 
     // 0: use all core
     thread_pool_size = std::clamp(thread_pool_size, 0, static_cast<int>(std::thread::hardware_concurrency()));
+    offline_threads = std::clamp(offline_threads, 1, 32);
+    alarm_threads = std::clamp(alarm_threads, 1, 32);
+    max_pending_alarm_jobs = std::clamp(max_pending_alarm_jobs, 1, 4096);
     rtsp_probe_timeout_ms = std::clamp(rtsp_probe_timeout_ms, 1000, 30000);
     inference_workers_per_model = std::clamp(inference_workers_per_model, 1, 8);
     inference_workers_per_model_accelerated =

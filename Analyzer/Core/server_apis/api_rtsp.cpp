@@ -1,8 +1,11 @@
 #include "server_apis/api_common.h"
 
+#include <algorithm>
 #include <format>
 #include <future>
 #include <string>
+#include <threadpool/BS_thread_pool.hpp>
+#include <utility>
 #include <vector>
 
 extern "C" {
@@ -13,6 +16,7 @@ extern "C" {
 #include "config.h"
 #include "scheduler.h"
 #include "Utils/log.h"
+#include "server_apis/server_context.h"
 
 namespace {
 int probe_rtsp_url(const std::string& url, int timeout_ms) {
@@ -49,8 +53,12 @@ int probe_rtsp_url(const std::string& url, int timeout_ms) {
 }
 
 void ApiProbeRtsp(evhttp_request* req, void* arg) {
-  auto* scheduler = static_cast<avs_analyzer::Scheduler*>(arg);
-  const int timeout_ms = scheduler ? scheduler->GetConfig().rtsp_probe_timeout_ms : 5000;
+  auto* ctx = static_cast<ServerContext*>(arg);
+  if (!ctx || !ctx->scheduler || !ctx->base) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"server is shutting down"})");
+    return;
+  }
+  const int timeout_ms = ctx->scheduler->GetConfig().rtsp_probe_timeout_ms;
 
   nlohmann::json root;
   if (!get_request_json(req, root)) {
@@ -63,82 +71,50 @@ void ApiProbeRtsp(evhttp_request* req, void* arg) {
     return;
   }
 
-  const size_t num_urls = root.size();
-  if (num_urls == 0) {
+  if (root.empty()) {
     send_json(req, HTTP_OK, "[]");
     return;
   }
 
-  const size_t thread_count = avs_analyzer::g_th_pool.get_thread_count();
-  const size_t tasks_running = avs_analyzer::g_th_pool.get_tasks_running();
-  const size_t tasks_queued = avs_analyzer::g_th_pool.get_tasks_queued();
-  const bool use_concurrent = (tasks_running < thread_count) && (tasks_queued < thread_count);
-
-  nlohmann::json result = nlohmann::json::array();
-
-  if (use_concurrent) {
-    LOGD("rtsp probe: using concurrent mode for {} urls (pool: {}/{} threads, {} queued)",
-         num_urls, tasks_running, thread_count, tasks_queued);
-
-    std::vector<std::future<std::pair<std::string, int>>> futures;
-    futures.reserve(num_urls);
-
-    size_t idx = 0;
-    for (const auto& item : root) {
-      std::string name;
-      std::string url;
-
-      if (item.is_object()) {
-        name = item.value("name", "");
-        url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
-      }
-
-      if (name.empty()) {
-        name = std::format("stream-{}", idx);
-      }
-
-      futures.push_back(avs_analyzer::g_th_pool.submit_task([name, url, timeout_ms]() {
-        const int code = probe_rtsp_url(url, timeout_ms);
-        return std::make_pair(name, code);
-      }));
-
-      ++idx;
+  std::vector<std::pair<std::string, std::string>> targets;
+  targets.reserve(root.size());
+  size_t idx = 0;
+  for (const auto& item : root) {
+    std::string name;
+    std::string url;
+    if (item.is_object()) {
+      name = item.value("name", "");
+      url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
     }
-
-    for (auto& fut : futures) {
-      auto [name, code] = fut.get();
-      nlohmann::json entry;
-      entry["name"] = name;
-      entry["code"] = code;
-      result.push_back(std::move(entry));
+    if (name.empty()) {
+      name = std::format("stream-{}", idx);
     }
-  } else {
-    LOGD("rtsp probe: using sequential mode for {} urls (pool busy: {}/{} threads, {} queued)",
-         num_urls, tasks_running, thread_count, tasks_queued);
-
-    size_t idx = 0;
-    for (const auto& item : root) {
-      std::string name;
-      std::string url;
-
-      if (item.is_object()) {
-        name = item.value("name", "");
-        url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
-      }
-
-      if (name.empty()) {
-        name = std::format("stream-{}", idx);
-      }
-
-      const int code = probe_rtsp_url(url, timeout_ms);
-
-      nlohmann::json entry;
-      entry["name"] = name;
-      entry["code"] = code;
-      result.push_back(std::move(entry));
-      ++idx;
-    }
+    targets.emplace_back(std::move(name), std::move(url));
+    ++idx;
   }
 
-  send_json(req, HTTP_OK, result.dump());
+  // Probing opens RTSP connections, so it must never run on the event loop.
+  evhttp_request_own(req);
+  avs_analyzer::g_control_pool.detach_task([base = ctx->base, req,
+                              targets = std::move(targets), timeout_ms]() {
+    LOGD("rtsp probe: probing {} urls", targets.size());
+    // A small request-local pool keeps probes concurrent without occupying
+    // every control thread (which could deadlock the offload).
+    BS::thread_pool<0> probe_pool{
+        std::min<size_t>(targets.size(), 4)};
+    std::vector<std::future<std::pair<std::string, int>>> futures;
+    futures.reserve(targets.size());
+    for (const auto& [name, url] : targets) {
+      futures.push_back(probe_pool.submit_task([name, url, timeout_ms]() {
+        return std::make_pair(name, probe_rtsp_url(url, timeout_ms));
+      }));
+    }
+
+    nlohmann::json result = nlohmann::json::array();
+    for (auto& future : futures) {
+      auto [name, code] = future.get();
+      result.push_back({{"name", name}, {"code", code}});
+    }
+    ReplyJsonAsync(base, req, HTTP_OK, result.dump());
+  });
 }

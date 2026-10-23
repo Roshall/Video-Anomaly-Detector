@@ -522,6 +522,7 @@ endif()
 set(analyzer_core_source
         Analyzer/Core/admission.cpp
         Analyzer/Core/alarm.cpp
+        Analyzer/Core/alarm/alarm_io_dispatcher.cpp
         Analyzer/Core/alarm_sound.cpp
         Analyzer/Core/algorithm.cpp
         Analyzer/Core/analyzer.cpp
@@ -640,6 +641,32 @@ if(BUILD_TESTS)
     add_executable(scheduler_lifecycle_test tests/scheduler_lifecycle_test.cpp)
     target_link_libraries(scheduler_lifecycle_test PRIVATE analyzer_core analyzer_test_common)
     add_test(NAME scheduler_lifecycle_test COMMAND $<TARGET_FILE:scheduler_lifecycle_test>)
+
+    # Bounded alarm I/O queue: capacity, drop accounting, and drain behavior.
+    add_executable(alarm_dispatcher_test
+            tests/alarm_dispatcher_test.cpp
+            Analyzer/Core/alarm/alarm_io_dispatcher.cpp
+            Analyzer/Core/Utils/log.cpp
+            Analyzer/Core/Utils/log_formatter.cpp)
+    target_link_libraries(alarm_dispatcher_test PRIVATE analyzer_test_common Threads::Threads)
+    target_include_directories(alarm_dispatcher_test PRIVATE Analyzer/Core)
+    add_test(NAME alarm_dispatcher_test COMMAND $<TARGET_FILE:alarm_dispatcher_test>)
+
+    # Deferred HTTP replies must not block the event loop.
+    add_executable(api_async_test
+            tests/api_async_test.cpp
+            Analyzer/Core/server_apis/api_common.cpp
+            Analyzer/Core/Utils/log.cpp
+            Analyzer/Core/Utils/log_formatter.cpp)
+    target_link_libraries(api_async_test PRIVATE
+            analyzer_test_common
+            libevent::core
+            libevent::pthreads
+            libevent::extra
+            Threads::Threads
+            nlohmann_json::nlohmann_json)
+    target_include_directories(api_async_test PRIVATE Analyzer/Core)
+    add_test(NAME api_async_test COMMAND $<TARGET_FILE:api_async_test>)
 endif()
 
 # ---------------------------------------------------------------------------

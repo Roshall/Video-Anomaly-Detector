@@ -1,4 +1,4 @@
-﻿#include <event2/event.h>
+#include <event2/event.h>
 #include <event2/thread.h>
 
 #include <csignal>
@@ -8,6 +8,7 @@
 #include "Core/config.h"
 #include "Core/scheduler.h"
 #include "Core/server.h"
+#include "Core/server_apis/server_context.h"
 
 using namespace avs_analyzer;
 
@@ -60,8 +61,14 @@ int main(int argc, char** argv) {
   }
   LoggerSingleton::instance().set_log_level(config.log_level);
 
-  if (g_th_pool.get_thread_count() != static_cast<size_t>(config.thread_pool_size)) {
-    g_th_pool.reset(config.thread_pool_size);
+  if (g_control_pool.get_thread_count() != static_cast<size_t>(config.thread_pool_size)) {
+    g_control_pool.reset(config.thread_pool_size);
+  }
+  if (g_media_pool.get_thread_count() != static_cast<size_t>(config.offline_threads)) {
+    g_media_pool.reset(config.offline_threads);
+  }
+  if (g_alarm_pool.get_thread_count() != static_cast<size_t>(config.alarm_threads)) {
+    g_alarm_pool.reset(config.alarm_threads);
   }
 
   Scheduler scheduler(config);
@@ -77,7 +84,8 @@ int main(int argc, char** argv) {
     .follow_symlinks = false,          // Security: don't follow symlinks
     .enable_directory_listing = false  // Security: no directory listing
   };
-  auto server_thread = HTTPServerStart(scheduler, base, file_opts);
+  ServerContext server_ctx{&scheduler, base};
+  auto server_thread = HTTPServerStart(scheduler, base, file_opts, &server_ctx);
   scheduler.SetState(true);
   std::thread scheduler_cleanup_thread(&Scheduler::CleanUpLoop, &scheduler);
   LOGI("Start Success");
@@ -96,9 +104,18 @@ int main(int argc, char** argv) {
   scheduler_cleanup_thread.join();
 
   server_thread.join();
+
+  // Deferred API replies are produced on the control pool; wait for them
+  // before the event base and scheduler go away. Two rounds drain the
+  // cross-submissions (control add -> media analysis -> control completion).
+  scheduler.DrainAlarms();
+  for (int round = 0; round < 2; ++round) {
+    g_media_pool.wait();
+    g_control_pool.wait();
+  }
+  g_alarm_pool.wait();
+
   event_base_free(base);
   event_config_free(evt_config);
-
-  g_th_pool.wait();
   return 0;
 }

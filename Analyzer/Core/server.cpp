@@ -9,6 +9,7 @@
 #include "Utils/log.h"
 #include "config.h"
 #include "server_apis/api_test.h"
+#include "server_apis/server_context.h"
 
 namespace {
 int extract_port(const std::string& ip_address) {
@@ -20,9 +21,14 @@ int extract_port(const std::string& ip_address) {
 }
 
 std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* event_base_p,
-                            FileRouteOptions& file_route_opt) {
+                            FileRouteOptions& file_route_opt,
+                            ServerContext* server_ctx) {
   int port = extract_port(scheduler.GetConfig().analyzer_host);
-  return std::thread([&, event_base_p, port]() {
+  if (server_ctx) {
+    server_ctx->scheduler = &scheduler;
+    server_ctx->base = event_base_p;
+  }
+  return std::thread([&, event_base_p, port, server_ctx]() {
     LOGI("启动分析器服务：http://0.0.0.0:{}", port);
     evhttp* http = evhttp_new(event_base_p);
     evhttp_set_default_content_type(http, "text/html; charset=utf-8");
@@ -33,9 +39,9 @@ std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler, event_base* even
     evhttp_set_cb(http, "/api/metrics", ApiMetrics, nullptr);
     evhttp_set_cb(http, "/api/controls", ApiAllMonitors, &scheduler);
     evhttp_set_cb(http, "/api/control", ApiMonitor, &scheduler);
-    evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, &scheduler);
-    evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, &scheduler);
-    evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, &scheduler);
+    evhttp_set_cb(http, "/api/control/add", ApiAddMonitor, server_ctx);
+    evhttp_set_cb(http, "/api/control/cancel", ApiRemoveMonitor, server_ctx);
+    evhttp_set_cb(http, "/api/probe_rtsp", ApiProbeRtsp, server_ctx);
     evhttp_set_cb(http, "/api/snapshot", ApiSnapShot, nullptr);
     evhttp_set_cb(http, "/api/cleanup_files", ApiCleanupFiles, &scheduler);
     evhttp_set_cb(http, "/api/storage_usage", ApiStorageUsage, &scheduler);

@@ -3,6 +3,7 @@
 
 #include <concurrentqueue/moodycamel/concurrentqueue.h>  // lock-free queue
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -21,9 +22,14 @@ using namespace moodycamel;
 class AlarmController;
 
 namespace avs_analyzer {
-extern BS::thread_pool<0> g_th_pool;
+// Thread pools split by purpose so a long offline analysis or a slow alarm
+// upload can never starve latency-sensitive control work.
+extern BS::thread_pool<0> g_control_pool;
+extern BS::thread_pool<0> g_media_pool;
+extern BS::thread_pool<0> g_alarm_pool;
 
 struct Config;
+class AlarmIoDispatcher;
 class Worker;
 class Algorithm;
 struct Monitor;
@@ -61,6 +67,14 @@ class Scheduler {
   bool GetState() const;
 
   void AddAlarm(AlarmJob job);
+
+  // Runs a best-effort alarm side effect (JPEG write + admin POST) on the
+  // bounded alarm I/O queue. Returns false when the queue is full and the
+  // task was dropped.
+  bool SubmitAlarmIo(std::function<void()> task);
+
+  // Stops the alarm I/O dispatcher after every queued job has been finalized.
+  void DrainAlarms();
 
   AlarmController* GetAlarmController() noexcept { return alarm_controller_.get(); }
   const AlarmController* GetAlarmController() const noexcept { return alarm_controller_.get(); }
@@ -120,7 +134,7 @@ class Scheduler {
   std::mutex worker_creation_mutex_;
   ConcurrentQueue<std::shared_ptr<Worker>> to_be_deleted_workers_queue_;
 
-  ConcurrentQueue<AlarmJob> alarm_queue_;
+  std::unique_ptr<AlarmIoDispatcher> alarm_dispatcher_;
   DetectorPool detector_pool_;
 
   std::counting_semaphore<> clean_up_cs_{0};

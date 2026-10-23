@@ -12,6 +12,7 @@
 #include "Utils/log.h"
 #include "monitor.h"
 #include "scheduler.h"
+#include "server_apis/server_context.h"
 #include "task.h"
 
 namespace {
@@ -189,7 +190,12 @@ void ApiMonitor(evhttp_request* req, void* arg) {
 }
 
 void ApiAddMonitor(evhttp_request* req, void* arg) {
-  const auto scheduler = static_cast<avs_analyzer::Scheduler*>(arg);
+  auto* ctx = static_cast<ServerContext*>(arg);
+  if (!ctx || !ctx->scheduler || !ctx->base) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"server is shutting down"})");
+    return;
+  }
+  avs_analyzer::Scheduler* scheduler = ctx->scheduler;
 
   int result_code = 0;
   std::string result_msg;
@@ -386,36 +392,50 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
       return;
     }
 
-    std::vector<std::pair<int, std::string>> add_results;
-    scheduler->MonitorBatchAdd(std::move(monitors), add_results);
+    // Parsing and validation stay on the event loop; the blocking scheduler
+    // call (RTSP connect / model load) runs on the control pool and the reply
+    // is delivered back on the loop.
+    evhttp_request_own(req);
+    avs_analyzer::g_control_pool.detach_task(
+        [scheduler, base = ctx->base, req,
+         monitors = std::move(monitors),
+         control_codes = std::move(control_codes), camera_id,
+         is_stream = source_type == "stream"]() mutable {
+          std::vector<std::pair<int, std::string>> add_results;
+          scheduler->MonitorBatchAdd(std::move(monitors), add_results);
 
-    if (source_type == "stream") {
-      nlohmann::json arr = nlohmann::json::array();
-      const size_t n = std::min(control_codes.size(), add_results.size());
-      for (size_t i = 0; i < n; ++i) {
-        arr.push_back({
-            {"controlCode", control_codes[i]},
-            {"code", add_results[i].first},
-            {"msg", add_results[i].second}});
-      }
-      send_json(req, HTTP_OK, arr.dump());
-      return;
-    }
-
-    bool all_ok = !add_results.empty();
-    std::string fail_msg;
-    for (const auto& [rc, msg] : add_results) {
-      if (rc != 1000) {
-        all_ok = false;
-        fail_msg = msg;
-        break;
-      }
-    }
-    nlohmann::json obj{{"cameraId", camera_id},
-                       {"code", all_ok ? 1000 : 0},
-                       {"msg", all_ok ? "added successfully"
-                                      : (fail_msg.empty() ? "batch add failed" : fail_msg)}};
-    send_json(req, HTTP_OK, obj.dump());
+          std::string body;
+          if (is_stream) {
+            nlohmann::json arr = nlohmann::json::array();
+            const size_t n =
+                std::min(control_codes.size(), add_results.size());
+            for (size_t i = 0; i < n; ++i) {
+              arr.push_back({
+                  {"controlCode", control_codes[i]},
+                  {"code", add_results[i].first},
+                  {"msg", add_results[i].second}});
+            }
+            body = arr.dump();
+          } else {
+            bool all_ok = !add_results.empty();
+            std::string fail_msg;
+            for (const auto& [rc, msg] : add_results) {
+              if (rc != 1000) {
+                all_ok = false;
+                fail_msg = msg;
+                break;
+              }
+            }
+            nlohmann::json obj{
+                {"cameraId", camera_id},
+                {"code", all_ok ? 1000 : 0},
+                {"msg", all_ok ? "added successfully"
+                               : (fail_msg.empty() ? "batch add failed"
+                                                   : fail_msg)}};
+            body = obj.dump();
+          }
+          ReplyJsonAsync(base, req, HTTP_OK, std::move(body));
+        });
     return;
   } else {
     result_msg = "invalid request parameter";
@@ -428,7 +448,12 @@ void ApiAddMonitor(evhttp_request* req, void* arg) {
 }
 
 void ApiRemoveMonitor(evhttp_request* req, void* arg) {
-  auto scheduler = static_cast<avs_analyzer::Scheduler*>(arg);
+  auto* ctx = static_cast<ServerContext*>(arg);
+  if (!ctx || !ctx->scheduler || !ctx->base) {
+    send_json(req, HTTP_SERVUNAVAIL, R"({"msg":"server is shutting down"})");
+    return;
+  }
+  avs_analyzer::Scheduler* scheduler = ctx->scheduler;
 
   nlohmann::json root;
   if (!get_request_json(req, root)) {
@@ -468,16 +493,22 @@ void ApiRemoveMonitor(evhttp_request* req, void* arg) {
     monitor_ids.emplace_back(camera_id, code);
   }
 
-  std::vector<std::pair<int, std::string>> rm_results;
-  scheduler->MonitorBatchRemove(monitor_ids, rm_results);
+  evhttp_request_own(req);
+  avs_analyzer::g_control_pool.detach_task(
+      [scheduler, base = ctx->base, req,
+       monitor_ids = std::move(monitor_ids),
+       control_codes = std::move(control_codes)]() mutable {
+        std::vector<std::pair<int, std::string>> rm_results;
+        scheduler->MonitorBatchRemove(monitor_ids, rm_results);
 
-  nlohmann::json arr = nlohmann::json::array();
-  const size_t n = std::min(control_codes.size(), rm_results.size());
-  for (size_t i = 0; i < n; ++i) {
-    arr.push_back({
-        {"controlCode", control_codes[i]},
-        {"code", rm_results[i].first},
-        {"msg", rm_results[i].second}});
-  }
-  send_json(req, HTTP_OK, arr.dump());
+        nlohmann::json arr = nlohmann::json::array();
+        const size_t n = std::min(control_codes.size(), rm_results.size());
+        for (size_t i = 0; i < n; ++i) {
+          arr.push_back({
+              {"controlCode", control_codes[i]},
+              {"code", rm_results[i].first},
+              {"msg", rm_results[i].second}});
+        }
+        ReplyJsonAsync(base, req, HTTP_OK, arr.dump());
+      });
 }

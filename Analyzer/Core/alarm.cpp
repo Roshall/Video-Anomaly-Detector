@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <format>
 #include <chrono>
+#include <semaphore>
 #include <string>
 
 #include "Utils/log.h"
@@ -19,6 +20,10 @@
 
 namespace avs_analyzer {
 
+namespace {
+// A single long HLS reencode must not consume every alarm I/O thread.
+std::counting_semaphore<> g_reencode_slots{1};
+}
 HlsEventWriter::HlsEventWriter(int width, int height, int fps,
                                std::string base_path,
                                const Recorder::HlsConfig& hls_config)
@@ -140,9 +145,13 @@ void Alarm::Finalize(AlarmJob&& job) const {
     const bool is_file = report_delta;
     LOGI("Alarm::Finalize: submitting async reencode task for video_code: {}",
          video_code);
-    g_th_pool.detach_task([hls_paths, start_time, upload_dir = upload_dir,
+    g_alarm_pool.detach_task([hls_paths, start_time, upload_dir = upload_dir,
                            admin_host = admin_host, alarm_id, video_code,
                            is_file]() {
+      g_reencode_slots.acquire();
+      [[maybe_unused]] struct SlotRelease {
+        ~SlotRelease() { g_reencode_slots.release(); }
+      } slot_release;
       ReencodeConfig reencode_cfg;
       if (!ReencodeHlsToSuggestedMp4(hls_paths, reencode_cfg)) {
         MetricsRegistry::Instance().alarm().reencode_failures.fetch_add(

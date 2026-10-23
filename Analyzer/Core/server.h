@@ -9,10 +9,12 @@
 #include "scheduler.h"
 
 struct evhttp_request;
+struct ServerContext;
 
 std::thread HTTPServerStart(avs_analyzer::Scheduler& scheduler,
                             event_base* event_base_p,
-                            FileRouteOptions& file_route_opt);
+                            FileRouteOptions& file_route_opt,
+                            ServerContext* server_ctx);
 void ApiIndex(evhttp_request* req, void* arg);
 void ApiHealth(evhttp_request* req, void* arg);
 void ApiMetrics(evhttp_request* req, void* arg);

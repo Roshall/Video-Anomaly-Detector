@@ -1,10 +1,20 @@
-﻿#include "request.h"
+#include "request.h"
 
 #include <curl/curl.h>
+
+#include <mutex>
 
 #include "log.h"
 
 namespace avs_analyzer {
+namespace {
+void ensure_curl_initialized() {
+  // curl_global_init is not thread-safe; alarm uploads run on several pools.
+  static std::once_flag once;
+  std::call_once(once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+}  // namespace
+
 inline size_t onWrite(void* buffer, size_t size, size_t nmemb, void* stream) {
   auto str = static_cast<std::string*>(stream);
   if (nullptr == str || nullptr == buffer) {
@@ -27,6 +37,8 @@ inline size_t onWrite(void* ptr, size_t size, size_t nmEmb, void* stream) {
 */
 
 bool Request::get(const char* url, std::string& response) {
+  ensure_curl_initialized();
+
   CURL* curl = curl_easy_init();
   bool result;
 
@@ -63,7 +75,7 @@ bool Request::get(const char* url, std::string& response) {
   return result;
 }
 bool Request::post(const char* url, const char* data, std::string& response) {
-  curl_global_init(CURL_GLOBAL_WIN32);
+  ensure_curl_initialized();
 
   CURL* curl = curl_easy_init();
   bool result;
@@ -97,8 +109,8 @@ bool Request::post(const char* url, const char* data, std::string& response) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
     // curl_easy_setopt(curl, CURLOPT_HEADER, false);// 是否显示响应头信息
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5);
 
     CURLcode code = curl_easy_perform(curl);
 
@@ -115,7 +127,6 @@ bool Request::post(const char* url, const char* data, std::string& response) {
     result = false;
   }
   curl_easy_cleanup(curl);
-  curl_global_cleanup();
   return result;
 }
 }  // namespace avs_analyzer

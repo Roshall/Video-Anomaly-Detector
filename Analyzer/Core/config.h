@@ -12,6 +12,11 @@ struct Config {
 
   bool state = false;
   int thread_pool_size{3};
+  // Dedicated pools: offline file analysis and alarm I/O.
+  int offline_threads{2};
+  int alarm_threads{2};
+  // Bound on queued alarm side effects; newest jobs are dropped when full.
+  int max_pending_alarm_jobs{128};
   u_int32_t file_cache_timeout{3600}; // 1 hour
   int rtsp_probe_timeout_ms{5000}; // RTSP probe timeout in milliseconds
   int inference_workers_per_model{2};
