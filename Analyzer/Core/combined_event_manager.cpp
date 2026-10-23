@@ -312,11 +312,19 @@ void CombinedEventManager::TrimFrameBuffer(int64_t current_timestamp_ms) {
     window = window > 0 ? std::min(window, hard_cap) : hard_cap;
   }
 
+  // The byte budget bounds the idle pre-roll (JPEG-encoded, small).
+  // While an event is active or ending, frames are raw and the required
+  // window is bounded by the slice cadence instead: evicting there would
+  // truncate the recorded clip, dropping the trigger moment itself. The
+  // hard time cap below still bounds memory in every state.
+  const bool budget_applies = state_ == CombinedState::kIdle;
+
   while (!frame_buffer_.empty()) {
     const bool over_time =
         window > 0 &&
         current_timestamp_ms - frame_buffer_.front()->timestamp > window;
-    const bool over_budget = budget_bytes > 0 && buffer_bytes_ > budget_bytes;
+    const bool over_budget =
+        budget_applies && budget_bytes > 0 && buffer_bytes_ > budget_bytes;
     if (!over_time && !over_budget) {
       break;
     }

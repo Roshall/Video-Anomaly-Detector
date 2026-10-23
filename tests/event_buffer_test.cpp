@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 
@@ -92,6 +93,57 @@ TEST(EventBufferTest, IdleFramesAreStoredEncodedAndStayWithinBudget) {
   EXPECT_FALSE(manager.has_raw_buffered_frames());
   EXPECT_LE(manager.buffer_bytes(), kBudgetBytes);
   EXPECT_GT(manager.buffer_evictions(), 0u);
+}
+
+TEST(EventBufferTest, ActiveEventIsNotTruncatedByByteBudget) {
+  CombinedEventManager manager;
+  manager.UpdateConfig(MakeConfig());
+  // Fits the idle JPEG pre-roll (~100 frames x ~1.5 KB) but not the raw
+  // active segment (~125 frames x 6 KB). With state-blind eviction the
+  // budget truncated the recorded slice mid-event, dropping the trigger
+  // moment itself.
+  constexpr size_t kBudgetBytes = 256 * 1024;
+  manager.UpdateMemoryBudget(kBudgetBytes);
+
+  AVFramePtr source = MakeFrame(0);
+  ASSERT_TRUE(source);
+
+  // Idle phase: the pre-roll fits, so nothing is evicted yet.
+  size_t max_bytes = 0;
+  for (int64_t ts = 0; ts < 10000; ts += kStepMs) {
+    source->pts = ts;
+    source->best_effort_timestamp = ts;
+    manager.ProcessFrame(source.get(), ts, ts, {});
+    max_bytes = std::max(max_bytes, manager.buffer_bytes());
+  }
+  EXPECT_EQ(manager.buffer_evictions(), 0u);
+  EXPECT_LE(max_bytes, kBudgetBytes);
+
+  // Active phase: raw frames push the buffer past the budget, but the
+  // active segment must never be evicted.
+  const int64_t event_start_ms = 9800;
+  std::unique_ptr<Event> slice;
+  for (int64_t ts = 10000; ts <= 12800; ts += kStepMs) {
+    source->pts = ts;
+    source->best_effort_timestamp = ts;
+    const auto info = ActiveInfo(event_start_ms, event_start_ms);
+    auto result = manager.ProcessFrame(source.get(), ts, ts, {info});
+    max_bytes = std::max(max_bytes, manager.buffer_bytes());
+    if (result.flushed_event) {
+      ASSERT_FALSE(slice);
+      slice = std::move(result.flushed_event.value());
+    }
+  }
+
+  // The budget was genuinely exceeded during the active segment ...
+  EXPECT_GT(max_bytes, kBudgetBytes);
+  // ... and not a single frame was evicted because of it.
+  EXPECT_EQ(manager.buffer_evictions(), 0u);
+
+  // The flushed slice covers the full segment from the pre-roll start.
+  ASSERT_TRUE(slice);
+  EXPECT_EQ(slice->frames.front()->timestamp, event_start_ms - 2000);
+  EXPECT_EQ(slice->frames.back()->timestamp, 12800);
 }
 
 TEST(EventBufferTest, IdleBufferDoesNotGrowWithoutBound) {
