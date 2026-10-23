@@ -107,12 +107,13 @@ int main(int argc, char** argv) {
 
   // Deferred API replies are produced on the control pool; wait for them
   // before the event base and scheduler go away. Two rounds drain the
-  // cross-submissions (control add -> media analysis -> control completion).
-  scheduler.DrainAlarms();
+  // cross-submissions (control add -> media analysis -> control completion),
+  // which also guarantees no producer adds alarm jobs after the final drain.
   for (int round = 0; round < 2; ++round) {
     g_media_pool.wait();
     g_control_pool.wait();
   }
+  scheduler.DrainAlarms();
   g_alarm_pool.wait();
 
   event_base_free(base);
