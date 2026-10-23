@@ -1,4 +1,5 @@
 #include "frame_recorder.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <filesystem>
 #include <format>
@@ -118,14 +119,14 @@ Recorder::HlsPaths Recorder::MakeHlsPaths(std::string_view base,
 
   HlsPaths out;
   out.playlist = playlist_path.string();
-  out.mp4_output = (dir / std::format("{}.mp4", stem)).string();
+  out.mp4_output = (dir / fmt::format("{}.mp4", stem)).string();
 
   if (hls.segment_format == HlsSegmentFormat::kMpegts) {
-    out.segment_pattern = (dir / std::format("{}_%05d.ts", stem)).string();
+    out.segment_pattern = (dir / fmt::format("{}_%05d.ts", stem)).string();
     out.init_filename = "";  // no init file for mpegts
   } else {
-    out.segment_pattern = (dir / std::format("{}_%05d.m4s", stem)).string();
-    out.init_filename = std::format("{}_init.mp4", stem);
+    out.segment_pattern = (dir / fmt::format("{}_%05d.m4s", stem)).string();
+    out.init_filename = fmt::format("{}_init.mp4", stem);
   }
   return out;
 }

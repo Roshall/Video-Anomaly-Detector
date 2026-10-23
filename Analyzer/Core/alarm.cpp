@@ -1,4 +1,5 @@
 #include "alarm.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <cstdint>
 #include <nlohmann/json.hpp>
@@ -77,7 +78,7 @@ void Alarm::PostAlarmVideoToAdmin(const std::string& video_code,
     return;
   }
 
-  std::string url = std::format("{}/api/postAddAlarmVideo", admin_host);
+  std::string url = fmt::format("{}/api/postAddAlarmVideo", admin_host);
   
   // Make path relative to upload_dir
   std::string relative_path = video_path;
@@ -208,7 +209,7 @@ void Alarm::FinalizeMp4Event(
       (event->frames.front() && event->frames.front()->data)
           ? event->frames.front()->data->best_effort_timestamp
           : event->start_timestamp;
-  auto video_path = std::format("{}/{}.mp4", prefix_dir.string(), file_ts);
+  auto video_path = fmt::format("{}/{}.mp4", prefix_dir.string(), file_ts);
 
   if (!recorder.Initialize(video_path, Recorder::OutputType::kFile)) {
     LOGE("Alarm::FinalizeMp4Event: cannot initialize recorder at {}", video_path);
@@ -226,7 +227,7 @@ void Alarm::FinalizeMp4Event(
   // report saved video
   PostAlarmVideoToAdmin(video_code, "mp4", video_path,
                         report_delta
-                            ? std::format("{:.3f}",
+                            ? fmt::format("{:.3f}",
                                           std::chrono::duration<double>(
                                               start_ts.time_since_epoch())
                                               .count())

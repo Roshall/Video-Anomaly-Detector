@@ -1,4 +1,5 @@
 #include "config.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <nlohmann/json.hpp>
 
@@ -69,17 +70,17 @@ Config::Config(const char* file) {
                            json_get_or_string(root, {"mediaRtspHost"}, ""));
 
     if (!admin_host_raw.empty()) {
-      admin_host = std::format("http://{}", admin_host_raw);
+      admin_host = fmt::format("http://{}", admin_host_raw);
     }
     if (!analyzer_host_raw.empty()) {
-      analyzer_host = std::format("http://{}", analyzer_host_raw);
+      analyzer_host = fmt::format("http://{}", analyzer_host_raw);
     }
     if (!media_http_raw.empty()) {
-      media_http_host = std::format("http://{}", media_http_raw);
+      media_http_host = fmt::format("http://{}", media_http_raw);
     }
     if (!media_rtsp_raw.empty()) {
       // NOTE: kept as http:// for backward compatibility with existing code paths.
-      media_rtsp_host = std::format("http://{}", media_rtsp_raw);
+      media_rtsp_host = fmt::format("http://{}", media_rtsp_raw);
     }
 
     upload_dir = json_get_or_string(root, {"uploadDir"}, upload_dir);
