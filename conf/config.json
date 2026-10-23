@@ -15,20 +15,40 @@
 
   "application": {
     "threadPoolSize": 3,
+    "offlineThreads": 2,
+    "alarmThreads": 2,
     "rtspProbeTimeoutMs": 5000,
     "fileCacheTimeout": 3600,
+    "inferenceResultTimeoutMs": 5000,
     "logLevel": "debug"
   },
+  "performance": {
+    "inferenceWorkersPerModel": 2,
+    "inferenceWorkersPerModelAccelerated": 1,
+    "offlinePipelineDepth": 4,
+    "eventBufferBudgetMb": 256,
+    "pushQueueMaxFrames": 50,
+    "maxPendingAlarmJobs": 128,
+    "streamReconnectMaxAttempts": 50,
+    "streamReconnectBackoffMs": 500,
+    "streamReconnectBackoffMaxMs": 10000,
+    "preloadModels": [
+      "yolov8n.onnx",
+      "sleeping_m.onnx",
+      "climbing_m.onnx",
+      "phone_playing_m.onnx"
+    ]
+  },
   "DLModel": {
-    "dir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models",
-    "acceleratorInference": false
+    "dir": "/home/cw/project/video_analysis_manager/VideoAnomalyWarningSystem/Analyzer/models",
+    "acceleratorInference": true
   },
 
-  "uploadDir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/alarm_storage",
-  "offlineVideoDir": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/offline_videos",
+  "uploadDir": "/home/cw/project/video_analysis_manager/VideoAnomalyWarningSystem/alarm_storage",
+  "offlineVideoDir": "/home/cw/project/video_analysis_manager/VideoAnomalyWarningSystem/alarm_storage/offline_videos",
 
   "alarm": {
-    "soundPath": "/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/resources/alarm.wav",
+    "soundPath": "/home/cw/project/video_analysis_manager/VideoAnomalyWarningSystem/Analyzer/resources/alarm.wav",
     "soundCooldownSec": 10
   },
 
