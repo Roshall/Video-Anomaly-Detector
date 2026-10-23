@@ -240,6 +240,7 @@ set(analyzer_core_source
         Analyzer/Core/event.cpp
         Analyzer/Core/event/event_pipeline.cpp
         Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/imaging/opencv_image_processor.cpp
         Analyzer/Core/monitor/monitor_registry.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
@@ -439,6 +440,28 @@ if(BUILD_TESTS)
     analyzer_add_test(scheduler_lifecycle_test tests/scheduler_lifecycle_test.cpp)
     analyzer_add_test(alarm_dispatcher_test tests/alarm_dispatcher_test.cpp)
     analyzer_add_test(api_async_test tests/api_async_test.cpp)
+
+# Ascend dual-backend abstraction tests (self-contained: gtest + opencv only).
+add_executable(abstraction_test
+        tests/imaging/frame_test.cpp
+        tests/imaging/image_processor_contract_test.cpp
+        tests/imaging/opencv_image_processor_test.cpp
+        tests/backend/inference_backend_test.cpp
+        tests/pipeline/pipeline_factory_test.cpp
+        tests/architecture/layering_test.cpp
+        Analyzer/Core/imaging/opencv_image_processor.cpp)
+target_link_libraries(abstraction_test PRIVATE
+        GTest::gtest_main
+        opencv_core
+        opencv_imgproc
+        Threads::Threads)
+target_include_directories(abstraction_test PRIVATE
+        ${OpenCV_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core)
+target_compile_definitions(abstraction_test PRIVATE
+        ANALYZER_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+add_test(NAME abstraction_test COMMAND $<TARGET_FILE:abstraction_test>)
+
 endif()
 
 

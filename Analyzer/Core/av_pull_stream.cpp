@@ -1,4 +1,5 @@
 #include "av_pull_stream.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <chrono>
@@ -45,7 +46,7 @@ bool AvPullStream::OpenResources(bool file, StreamResourcesPtr& out,
     if (fmt) {
       avformat_close_input(&fmt);
     }
-    error = std::format("avformat_open_input error: url={}", stream_url);
+    error = fmt::format("avformat_open_input error: url={}", stream_url);
     LOGE_FFMPEG(error, ret);
     return false;
   }
@@ -60,7 +61,7 @@ bool AvPullStream::OpenResources(bool file, StreamResourcesPtr& out,
   const int video_index = av_find_best_stream(
       resources->fmt.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   if (video_index < 0) {
-    error = std::format("av_find_best_stream video error videoIndex={}",
+    error = fmt::format("av_find_best_stream video error videoIndex={}",
                         video_index);
     LOGE(error);
     return false;

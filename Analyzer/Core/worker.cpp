@@ -1,4 +1,5 @@
 #include "worker.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <chrono>
@@ -297,7 +298,7 @@ void Worker::OfflineAnalyze() {
       }
       const std::string code = ctx->monitor->code;
       const std::string url =
-          std::format("{}/api/offline/finished?controlCode={}",
+          fmt::format("{}/api/offline/finished?controlCode={}",
                       scheduler_->GetConfig().admin_host, code);
       // Never block the media pool on the admin service.
       g_control_pool.detach_task([url, code]() {

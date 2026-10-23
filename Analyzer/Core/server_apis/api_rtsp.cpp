@@ -1,4 +1,5 @@
 #include "server_apis/api_common.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <format>
@@ -87,7 +88,7 @@ void ApiProbeRtsp(evhttp_request* req, void* arg) {
       url = item.value("url", item.value("rtsp", item.value("rtsp_url", "")));
     }
     if (name.empty()) {
-      name = std::format("stream-{}", idx);
+      name = fmt::format("stream-{}", idx);
     }
     targets.emplace_back(std::move(name), std::move(url));
     ++idx;

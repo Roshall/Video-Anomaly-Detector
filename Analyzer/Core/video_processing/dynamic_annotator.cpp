@@ -1,4 +1,5 @@
 #include "dynamic_annotator.h"
+#include <spdlog/fmt/fmt.h>
 #include "painter.h"
 #include "painter_shapes.h"
 #include "painter.h"
@@ -282,7 +283,7 @@ int DynamicAnnotator::init_filter_graph() {
                       ? video_ctx_.sample_aspect_ratio
                       : AVRational{1, 1};
 
-  const auto args_main = std::format(
+  const auto args_main = fmt::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}",
       width, height,
       av_get_pix_fmt_name(video_ctx_.format),
@@ -293,14 +294,14 @@ int DynamicAnnotator::init_filter_graph() {
     const int overlay_h = legend_overlay_frame_->height;
     // We only get here if the graph was not yet initialized. Proceed to create
     // the graph for the pre-allocated overlay frame.
-    const auto args_overlay = std::format(
+    const auto args_overlay = fmt::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1",
       overlay_w, overlay_h,
       av_get_pix_fmt_name(AV_PIX_FMT_YUVA420P),
       tnum, tden);
 
   // Overlay filter positioned at legend_layout_ coordinates
-  const std::string filter_descr = std::format(
+  const std::string filter_descr = fmt::format(
       "[in][legend]overlay=x={}:y={}:format=auto[out]",
       legend_layout_.pos_x, legend_layout_.pos_y);
 

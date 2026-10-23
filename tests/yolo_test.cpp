@@ -2,6 +2,7 @@
 // Created by lg on 10/11/25.
 //
 #include <filesystem>
+#include <spdlog/fmt/fmt.h>
 
 #include "constant_pool.h"
 #include "detector/inference.h"
@@ -57,9 +58,9 @@ int main() {
   std::vector<std::string> test_img{"ireland10h.jpg", "sleep.jpg", "climb.jpg", "phone.jpg"};
   std::vector<std::string> model_names{"yolov8n.onnx", "sleeping_n.onnx", "climbing_m.onnx", "phone_playing_m.onnx"};
   for(size_t i = 0; i < tasks.size(); ++i) {
-    std::string model_path = std::format("/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models/{}", model_names[i]);
+    std::string model_path = fmt::format("/home/lg/CXXProjects/BXC_VideoAnalyzer_v3.51/Analyzer/models/{}", model_names[i]);
     int target_id = 0; // most models default to target 0; adjust if needed per task
-    Detector(model_path, target_id, std::format("/home/lg/Pictures/{}", test_img[i]));
+    Detector(model_path, target_id, fmt::format("/home/lg/Pictures/{}", test_img[i]));
   }
   return 0;
 }

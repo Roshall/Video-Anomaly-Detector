@@ -1,4 +1,5 @@
 #include "server_apis/api_common.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <format>
 #include <string>
@@ -18,14 +19,14 @@ void ApiSnapShot(evhttp_request* req, void*) {
     }
     cv::VideoCapture cap;
     if (!cap.open(path)) {
-      auto msg = std::format(R"({{"error":"failed to open video","path":"{}"}})", escape_json(path));
+      auto msg = fmt::format(R"({{"error":"failed to open video","path":"{}"}})", escape_json(path));
       send_json(req, HTTP_BADREQUEST, msg);
       return;
     }
 
     cv::Mat frame;
     if (!cap.read(frame) || frame.empty()) {
-      auto msg = std::format(R"({{"error":"failed to read first frame","path":"{}" }})", escape_json(path));
+      auto msg = fmt::format(R"({{"error":"failed to read first frame","path":"{}" }})", escape_json(path));
       send_json(req, HTTP_BADREQUEST, msg);
       return;
     }
@@ -47,7 +48,7 @@ void ApiSnapShot(evhttp_request* req, void*) {
       codec = "unknown";
     }
 
-    std::string resolution = std::format("{}x{}", frame.cols, frame.rows);
+    std::string resolution = fmt::format("{}x{}", frame.cols, frame.rows);
 
     const std::string b64 = base64_encode(jpeg.data(),
                                           static_cast<unsigned int>(jpeg.size()),
