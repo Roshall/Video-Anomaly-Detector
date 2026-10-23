@@ -12,6 +12,8 @@
 #include "alarm/alarm_io_dispatcher.h"
 #include "alarm_sound.h"
 #include "analyzer.h"
+#include "analyzer_registration.h"
+#include "combined_event_manager.h"
 #include "config.h"
 #include "detector/constant_yolo.h"
 #include "metrics.h"
@@ -485,17 +487,18 @@ bool Scheduler::ContainsMonitor(const std::string& video_code,
   return worker && worker->ContainsMonitor(code);
 }
 
-DetectorPool::AddTaskFunc Scheduler::RegisterAnalyzerCallback(Analyzer& analyzer,
-                                                              size_t depth) {
-  return detector_pool_.RegisterToDetector(analyzer.task(), analyzer.id(),
-                                           analyzer.detector_callback(), depth);
+std::shared_ptr<AnalyzerRegistration> Scheduler::CreateAnalyzerRegistration(
+    Analyzer& analyzer, size_t depth) {
+  const Task task = analyzer.task();
+  const unsigned long id = analyzer.id();
+  auto add_task = detector_pool_.RegisterToDetector(
+      task, id, analyzer.detector_callback(), depth);
+  return std::make_shared<AnalyzerRegistration>(
+      id, std::move(add_task),
+      [this, task, id]() { detector_pool_.DeregisterToDetector(task, id); });
 }
 
 nlohmann::json Scheduler::GetModelStatus() const {
   return detector_pool_.GetModelStatus();
-}
-
-void Scheduler::DeregisterAnalyzerCallback(Analyzer& analyzer) {
-  detector_pool_.DeregisterToDetector(analyzer.task(), analyzer.id());
 }
 }  // namespace avs_analyzer

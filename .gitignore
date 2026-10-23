@@ -9,5 +9,11 @@ resources/
 .*/
 !conf/config.json
 build*/
+build-*/
+cmake-build-*/
+*.ts
+*.m4s
+*.m3u8
+*.mp4
 install.sh
 update.sh

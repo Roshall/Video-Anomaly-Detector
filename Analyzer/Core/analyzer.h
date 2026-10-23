@@ -9,6 +9,7 @@
 #include <readerwriterqueue.h>
 #include <memory>
 #include <vector>
+#include "analyzer_registration.h"
 #include "detector/constant_yolo.h"
 #include "metrics.h"
 #include "task.h"
@@ -53,8 +54,8 @@ class Analyzer : public std::enable_shared_from_this<Analyzer> {
               return std::numeric_limits<uint64_t>::max();
             }};
   }
-  void SetAddTaskCallback(DetectorPool::AddTaskFunc cb) {
-    add_task_callback_ = std::move(cb);
+  void SetRegistration(std::shared_ptr<AnalyzerRegistration> registration) {
+    registration_ = std::move(registration);
   }
   void SetMetrics(std::shared_ptr<WorkerMetrics> metrics) {
     metrics_ = std::move(metrics);
@@ -85,7 +86,7 @@ class Analyzer : public std::enable_shared_from_this<Analyzer> {
   float conf_th_;
   std::chrono::milliseconds result_timeout_{5000};
   mutable std::atomic<int64_t> last_timeout_log_ms_{0};
-  DetectorPool::AddTaskFunc add_task_callback_;
+  std::shared_ptr<AnalyzerRegistration> registration_;
   std::shared_ptr<WorkerMetrics> metrics_;
 };
 

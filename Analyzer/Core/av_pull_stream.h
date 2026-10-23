@@ -7,6 +7,8 @@
 #include <memory>
 #include <mutex>
 #include <semaphore>
+#include <string>
+#include <string_view>
 
 #include "video_processing/helper.h"
 #include "video_processing/video_context.h"
@@ -16,7 +18,20 @@ extern "C" {
 }
 namespace avs_analyzer {
 using namespace moodycamel;
-class Worker;
+struct Config;
+
+// Callbacks the pull stream needs from its owner. Keeping this narrow lets the
+// stream live in StreamSession without knowing about workers or monitors.
+class PullStreamHost {
+ public:
+  virtual ~PullStreamHost() = default;
+  [[nodiscard]] virtual std::string_view StreamUrl() const = 0;
+  [[nodiscard]] virtual bool State() const = 0;
+  virtual void OnStreamOpened(const VideoContext& context) = 0;
+  virtual void OnStreamError() = 0;
+  [[nodiscard]] virtual const Config& GetConfig() const = 0;
+  virtual void RecordReconnect() = 0;
+};
 
 // One immutable set of demux/decode resources. Reconnect publishes a new
 // instance; consumers keep the one they are using alive via shared_ptr.
@@ -39,7 +54,7 @@ struct StreamPacket {
 
 class AvPullStream {
  public:
-  explicit AvPullStream(Worker* worker);
+  explicit AvPullStream(PullStreamHost* host);
   ~AvPullStream();
   AvPullStream(const AvPullStream&) = delete;
   AvPullStream operator=(const AvPullStream&) = delete;
@@ -70,9 +85,8 @@ class AvPullStream {
   bool Reconnect();
   bool SleepInterruptible(int ms);
 
-  Worker* worker_;
-  std::shared_ptr<StreamResources> current_{};
-  // MPMC: the detect thread consumes, while the read thread flushes stale
+  PullStreamHost* host_;
+  std::shared_ptr<StreamResources> current_{};  // MPMC: the detect thread consumes, while the read thread flushes stale
   // packets on reconnect (and CloseConnect may flush during shutdown).
   ConcurrentQueue<StreamPacket> video_pkt_queue_;
   std::counting_semaphore<> pkt_cs_{0};

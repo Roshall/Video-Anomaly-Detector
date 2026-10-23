@@ -14,6 +14,8 @@
 
 namespace avs_analyzer {
 
+class AnalyzerRegistration;
+
 // Everything the worker needs to detect one monitor's event. Contexts are
 // reference counted so an in-flight detection snapshot stays alive after the
 // monitor is removed; `active` tells the detect loop to stop using it.
@@ -23,6 +25,7 @@ struct MonitorContext {
   std::unique_ptr<Monitor> monitor;
   std::shared_ptr<Analyzer> analyzer;
   std::shared_ptr<EventDetector> detector;
+  std::shared_ptr<AnalyzerRegistration> registration;
   std::vector<DynamicAnnotator::ROIEntry> roi_entries;
   EventDetectorConfig event_cfg;
   std::atomic<int> current_highest_level{0};

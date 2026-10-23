@@ -1,8 +1,10 @@
 #ifndef ANALYZER_AVPUSHSTREAM_H
 #define ANALYZER_AVPUSHSTREAM_H
 #include <semaphore>
+#include <atomic>
 #include <memory>
 #include <chrono>
+#include <string_view>
 
 #include "frame_recorder.h"
 extern "C" {
@@ -11,12 +13,27 @@ extern "C" {
 #include <readerwriterqueue/readerwriterqueue.h>
 namespace avs_analyzer {
 using namespace moodycamel;
-class Worker;
+
 struct Frame;
+
+// Callbacks the push stream needs from its owner (StreamSession). The stream
+// knows nothing about workers, monitors, or events.
+class PushStreamHost {
+ public:
+  virtual ~PushStreamHost() = default;
+  [[nodiscard]] virtual bool State() const = 0;
+  [[nodiscard]] virtual int VideoWidth() const = 0;
+  [[nodiscard]] virtual int VideoHeight() const = 0;
+  [[nodiscard]] virtual std::string_view PushStreamUrl() const = 0;
+  [[nodiscard]] virtual int PushQueueMaxFrames() const = 0;
+  virtual void RecordPushFrameDrop() const = 0;
+  // Called from the encoder thread when reconnecting is no longer possible.
+  virtual void OnPushStreamError() = 0;
+};
 
 class AvPushStream {
  public:
-  explicit AvPushStream(Worker* worker);
+  explicit AvPushStream(PushStreamHost* host);
   ~AvPushStream();
   AvPushStream(const AvPushStream&) = delete;
   AvPushStream operator=(const AvPushStream&) = delete;
@@ -38,13 +55,13 @@ class AvPushStream {
   void EncodeVideo();
 
  private:
-  Worker* worker_;
+  PushStreamHost* host_;
   Recorder recorder_;
 
   // Bounded queue: newest frames are dropped when the consumer falls behind.
   int max_frames_{50};
   std::chrono::steady_clock::time_point last_drop_log_{};
-
+  std::atomic<bool> shutdown_{false};
   // 视频帧
   ReaderWriterQueue<std::shared_ptr<const Frame>> video_frame_q_;
   std::counting_semaphore<> video_frame_cs_{0};

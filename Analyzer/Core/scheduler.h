@@ -30,6 +30,7 @@ extern BS::thread_pool<0> g_alarm_pool;
 
 struct Config;
 class AlarmIoDispatcher;
+class AnalyzerRegistration;
 class Worker;
 class Algorithm;
 struct Monitor;
@@ -54,8 +55,6 @@ struct AlarmJob {
 
 class Scheduler {
  public:
-  friend class Analyzer;
-
   explicit Scheduler(Config& config);
   ~Scheduler();
   Scheduler(const Scheduler&) = delete;
@@ -102,10 +101,10 @@ class Scheduler {
   void NotifyCleanUp();
   void ClearWorker();
   bool ContainsMonitor(const std::string& video_code, const std::string& code);
-  DetectorPool::AddTaskFunc RegisterAnalyzerCallback(Analyzer& analyzer,
-                                                    size_t depth = 1);
-
-  void DeregisterAnalyzerCallback(Analyzer& analyzer);
+  // Registers the analyzer's mailbox and returns an RAII handle. The handle
+  // deregisters the mailbox when the monitor context is destroyed.
+  std::shared_ptr<AnalyzerRegistration> CreateAnalyzerRegistration(
+      Analyzer& analyzer, size_t depth = 1);
 
   // One entry per loaded model runtime: file, target class, session count,
   // running state. Used by the model-load test endpoint.

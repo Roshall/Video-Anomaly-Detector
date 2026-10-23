@@ -64,8 +64,10 @@ Detection Analyzer::FetchRawDetection() const {
 
 void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr image,
                              std::shared_ptr<SharedInference> shared) {
-  add_task_callback_(id_, video_id, frame_id, std::move(image),
-                     std::move(shared));
+  if (registration_) {
+    registration_->AddFrame(video_id, frame_id, std::move(image),
+                            std::move(shared));
+  }
 }
 
 uint64_t Analyzer::NextId() {

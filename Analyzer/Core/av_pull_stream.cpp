@@ -9,8 +9,6 @@
 
 #include "Utils/log.h"
 #include "config.h"
-#include "scheduler.h"
-#include "worker.h"
 #include "video_processing/helper.h"
 
 extern "C" {
@@ -19,7 +17,7 @@ extern "C" {
 
 namespace avs_analyzer {
 
-AvPullStream::AvPullStream(Worker* worker) : worker_(worker) { LOGI(""); }
+AvPullStream::AvPullStream(PullStreamHost* host) : host_(host) { LOGI(""); }
 
 AvPullStream::~AvPullStream() { CloseConnect(); }
 
@@ -28,7 +26,7 @@ bool AvPullStream::OpenResources(bool file, StreamResourcesPtr& out,
   std::lock_guard lock(open_mutex_);
 
   auto resources = std::make_shared<StreamResources>();
-  const std::string stream_url(worker_->StreamUrl());
+  const std::string stream_url(host_->StreamUrl());
 
   AVDictionary* fmt_options{};
   if (!file) {
@@ -131,40 +129,40 @@ bool AvPullStream::Connect(bool file) {
   }
   PublishResources(resources);
   connect_count.fetch_add(1, std::memory_order_relaxed);
-  worker_->OnStreamOpened(resources->ctx);
+  host_->OnStreamOpened(resources->ctx);
   return true;
 }
 
 bool AvPullStream::SleepInterruptible(int ms) {
   constexpr int kSliceMs = 100;
   for (int slept = 0; slept < ms; slept += kSliceMs) {
-    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+    if (shutdown_.load(std::memory_order_acquire) || !host_->State()) {
       return false;
     }
     std::this_thread::sleep_for(
         std::chrono::milliseconds(std::min(kSliceMs, ms - slept)));
   }
-  return !shutdown_.load(std::memory_order_acquire) && worker_->State();
+  return !shutdown_.load(std::memory_order_acquire) && host_->State();
 }
 
 bool AvPullStream::Reconnect() {
-  const Config& conf = worker_->scheduler->GetConfig();
+  const Config& conf = host_->GetConfig();
   const int attempts = std::max(1, conf.stream_reconnect_max_attempts);
   int backoff_ms = std::max(100, conf.stream_reconnect_backoff_ms);
   const int backoff_max_ms = std::max(backoff_ms, conf.stream_reconnect_backoff_max_ms);
 
   for (int attempt = 1; attempt <= attempts; ++attempt) {
-    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+    if (shutdown_.load(std::memory_order_acquire) || !host_->State()) {
       return false;
     }
     connect_count.fetch_add(1, std::memory_order_relaxed);
-    worker_->metrics_->reconnects.fetch_add(1, std::memory_order_relaxed);
+    host_->RecordReconnect();
 
     StreamResourcesPtr resources;
     std::string error;
     if (OpenResources(file_, resources, error)) {
       PublishResources(resources);
-      worker_->OnStreamOpened(resources->ctx);
+      host_->OnStreamOpened(resources->ctx);
       LOGI("reconnect success: attempt={}/{} connectCount={}", attempt, attempts,
            connect_count.load(std::memory_order_relaxed));
       return true;
@@ -207,15 +205,15 @@ void AvPullStream::Read() {
   AVPacketPtr pkt{av_packet_alloc()};
   if (!pkt) {
     LOGE("av_packet_alloc failed");
-    worker_->Remove();
+    host_->OnStreamError();
     return;
   }
 
-  while (worker_->State() && !shutdown_.load(std::memory_order_acquire)) {
+  while (host_->State() && !shutdown_.load(std::memory_order_acquire)) {
     const StreamResourcesPtr resources = std::atomic_load(&current_);
     if (!resources) {
       LOGE("pull stream has no open resources");
-      worker_->Remove();
+      host_->OnStreamError();
       return;
     }
 
@@ -235,7 +233,7 @@ void AvPullStream::Read() {
         pkt.reset(av_packet_alloc());
         if (!pkt) {
           LOGE("av_packet_alloc failed");
-          worker_->Remove();
+          host_->OnStreamError();
           return;
         }
       } else {
@@ -252,14 +250,14 @@ void AvPullStream::Read() {
     }
 
     LOGE_FFMPEG("av_read_frame in pull stream failed", ret);
-    if (shutdown_.load(std::memory_order_acquire) || !worker_->State()) {
+    if (shutdown_.load(std::memory_order_acquire) || !host_->State()) {
       return;
     }
 
     if (!Reconnect()) {
       // Give the detect thread a chance to drain/flush and exit.
       SignalShutdown();
-      worker_->Remove();
+      host_->OnStreamError();
       return;
     }
   }
