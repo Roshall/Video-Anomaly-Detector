@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <spdlog/fmt/fmt.h>
 #include <fstream>
 #include <utility>
 
@@ -128,14 +129,14 @@ void AlarmPipeline::EmitImage(const AlarmRequest& request) {
            start_timestamp, event_timestamp, level = request.level,
            alarm_id = request.alarm_id, video_code = video_code_,
            encoded = std::move(encoded), is_file = file_]() {
-        auto img_path = std::format(
+        auto img_path = fmt::format(
             "{}/alarms/images/{}/{}", conf.upload_dir, code,
             is_file ? std::to_string(getCurTimestamp())
                     : FrameWallClock::to_iso8601_utc(start_timestamp));
         std::filesystem::create_directories(
             std::filesystem::path(img_path));
         auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
-        auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
+        auto img_path_str = fmt::format("{}/{}.jpg", img_path, time_str);
         std::ofstream out(img_path_str, std::ios::binary);
         if (!out.is_open()) {
           LOGE("failed to open alarm image {}", img_path_str);
@@ -151,14 +152,14 @@ void AlarmPipeline::EmitImage(const AlarmRequest& request) {
         LOGI("Saved alarm image {} ({} bytes)", img_path_str, encoded.size());
 
         const std::string url =
-            std::format("{}/api/postAddAlarm", conf.admin_host);
+            fmt::format("{}/api/postAddAlarm", conf.admin_host);
         nlohmann::json param{
             {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
             {"controlCode", code},
             {"videoCode", video_code},
             {"alarmId", alarm_id},
             {"createTime",
-             is_file ? std::format("{:.3f}",
+             is_file ? fmt::format("{:.3f}",
                                    std::chrono::duration<double>(
                                        event_timestamp.time_since_epoch())
                                        .count())
@@ -286,7 +287,7 @@ void AlarmPipeline::NotifyAdminStreamEvent(std::string_view state) {
   if (conf.admin_host.empty() || video_code_.empty()) {
     return;
   }
-  const std::string url = std::format(
+  const std::string url = fmt::format(
       "{}/api/stream_event?state={}&streamCode={}", conf.admin_host, state,
       video_code_);
   // Fire-and-forget async request to avoid blocking the DetectEvent loop.
