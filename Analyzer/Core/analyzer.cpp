@@ -72,7 +72,10 @@ void Analyzer::AddVideoFrame(uint64_t video_id, uint64_t frame_id, ImagePtr imag
 
 uint64_t Analyzer::NextId() {
   static std::atomic<uint64_t> global_id = 0;
-  return global_id.fetch_add(1, std::memory_order_relaxed);
+  // IDs are 1-based: 0 is reserved as the "no analyzer" value. Admission
+  // control drops entries with id 0 and the detector stop sentinel used to
+  // collide with it, which silently starved the first analyzer in a process.
+  return global_id.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 std::unique_ptr<Analyzer> CreateAnalyzer(Monitor* monitor, const Config& config) {

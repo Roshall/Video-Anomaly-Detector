@@ -46,6 +46,18 @@ avs_analyzer::Config MakeConfig(int timeout_ms) {
 
 }  // namespace
 
+TEST(AnalyzerId, IdsAreOneBasedAndUnique) {
+  // Regression: the first analyzer in a process used to get id 0, which
+  // admission control silently dropped (never submitted to inference).
+  auto monitor = MakeMonitor();
+  auto config = MakeConfig(1000);
+  ProbeAnalyzer first(&monitor, config);
+  ProbeAnalyzer second(&monitor, config);
+  EXPECT_NE(first.id(), 0u);
+  EXPECT_NE(second.id(), 0u);
+  EXPECT_NE(first.id(), second.id());
+}
+
 TEST(AnalyzerTimeout, ReturnsEmptyDetectionAfterTimeout) {
   auto monitor = MakeMonitor();
   const auto config = MakeConfig(100);

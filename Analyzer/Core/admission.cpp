@@ -8,6 +8,8 @@ AdmissionResult AdmitFrame(const std::vector<AdmissionEntry>& entries,
                            uint64_t frame_ts) {
   AdmissionResult result;
   for (const auto& entry : entries) {
+    // Analyzer ids are 1-based (Analyzer::NextId starts at 1); 0 means "no
+    // analyzer" and can never be a valid mailbox key.
     if (entry.analyzer_id == 0) {
       continue;
     }

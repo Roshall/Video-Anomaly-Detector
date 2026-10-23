@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <functional>
 #include <map>
 #include <memory>
@@ -39,6 +40,11 @@ class YOLODetector {
   using ImagePtr = AnalyzerMailboxes::ImagePtr;
   using Task = AnalyzerMailboxes::Task;
   using SharedInference = avs_analyzer::SharedInference;
+
+  // Reserved ready-queue id used only to wake a blocked worker on Stop().
+  // Real analyzer ids are 1-based, so this can never collide with one.
+  static constexpr unsigned long kStopSentinel =
+      std::numeric_limits<unsigned long>::max();
 
   explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
   explicit YOLODetector(std::string_view mode_path,

@@ -109,6 +109,9 @@ void YOLODetector::Run() {
     if (!running_.load(std::memory_order_acquire)) {
       break;
     }
+    if (analyzer_id == kStopSentinel) {
+      continue;
+    }
 
     Task task;
     if (!mailboxes_.Acquire(analyzer_id, task)) {
@@ -167,8 +170,10 @@ void YOLODetector::Run() {
 
 void YOLODetector::Stop() {
   running_.store(false, std::memory_order_release);
-  // Wake the worker if it is blocked waiting for the next analyzer.
-  ready_ids_.enqueue(0);
+  // Wake the worker if it is blocked waiting for the next analyzer. The
+  // sentinel is not a mailbox id; a stale one left over from a previous
+  // Stop() must never disturb a freshly started worker thread.
+  ready_ids_.enqueue(kStopSentinel);
 }
 
 std::vector<DL_RESULT> YOLODetector::RunInference(const cv::Mat& image) {

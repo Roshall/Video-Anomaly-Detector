@@ -18,6 +18,20 @@ AdmissionEntry Entry(unsigned long id, Task task, uint64_t wanted_ts) {
   return AdmissionEntry{id, task, wanted_ts};
 }
 
+TEST(Admission, RejectsReservedIdZero) {
+  // Regression: Analyzer::NextId is 1-based; id 0 is reserved as the
+  // "no analyzer" value (and was once the detector stop sentinel). It must
+  // never be admitted, and it must not be counted as a skipped frame.
+  const std::vector<AdmissionEntry> entries{
+      Entry(0, Task::kWandering, 0),
+      Entry(1, Task::kWandering, 0),
+  };
+  const auto result = AdmitFrame(entries, 1000);
+  EXPECT_EQ(result.skipped, 0u);
+  ASSERT_EQ(result.groups.size(), 1u);
+  EXPECT_EQ(result.groups[0].analyzer_ids, std::vector<unsigned long>{1});
+}
+
 TEST(Admission, SkipsFramesTheDetectorDoesNotWantYet) {
   const std::vector<AdmissionEntry> entries{
       Entry(1, Task::kWandering, 500),
