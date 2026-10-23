@@ -1,4 +1,5 @@
 #include "server_apis/api_common.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <event2/buffer.h>
 #include <event2/http.h>
@@ -185,7 +186,7 @@ void ApiFileUpload(evhttp_request* req, void* arg) {
   std::error_code ec;
   std::filesystem::create_directories(offline_dir, ec);
   if (ec) {
-    auto err_msg = std::format(R"({{"error":"failed to create directory: {}}})", 
+    auto err_msg = fmt::format(R"({{"error":"failed to create directory: {}}})", 
                                escape_json(ec.message()));
     send_json(req, HTTP_SERVUNAVAIL, err_msg);
     return;
@@ -256,7 +257,7 @@ void ApiFileUpload(evhttp_request* req, void* arg) {
       // Write file
       std::ofstream output_file(file_path, std::ios::binary);
       if (!output_file) {
-        error_msg = std::format("failed to create file: {}", safe_filename);
+        error_msg = fmt::format("failed to create file: {}", safe_filename);
         LOGE("{}", error_msg);
         continue;
       }
@@ -266,7 +267,7 @@ void ApiFileUpload(evhttp_request* req, void* arg) {
       output_file.close();
 
       if (!output_file) {
-        error_msg = std::format("failed to write file: {}", safe_filename);
+        error_msg = fmt::format("failed to write file: {}", safe_filename);
         LOGE("{}", error_msg);
         continue;
       }

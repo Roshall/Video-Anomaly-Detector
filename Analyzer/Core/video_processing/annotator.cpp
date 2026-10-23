@@ -3,6 +3,7 @@
 //
 
 #include "annotator.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <format>
 
@@ -75,11 +76,11 @@ int VideoOverlay::init(const std::vector<cv::Point>& polygon_vertices,
   auto [num, den] = cfg.sample_aspect_ratio.num ? cfg.sample_aspect_ratio
                                             : AVRational{1, 1};
 
-  const auto args_main = std::format(
+  const auto args_main = fmt::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect={}/{}", width,
       height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(cfg.format)), tnum, tden, num, den);
 
-  const auto args_overlay = std::format(
+  const auto args_overlay = fmt::format(
       "video_size={}x{}:pix_fmt={}:time_base={}/{}:pixel_aspect=1/1", width,
       height, av_get_pix_fmt_name(static_cast<AVPixelFormat>(polygon_overlay_frame->format)), tnum, tden);
 

@@ -1,4 +1,5 @@
 #include "server_apis/api_common.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <chrono>
@@ -79,8 +80,8 @@ bool clip_video_segment(const std::filesystem::path& input_path,
   AVFormatContext* in_fmt = nullptr;
   int ret = avformat_open_input(&in_fmt, input_path.string().c_str(), nullptr, nullptr);
   if (ret < 0) {
-    LOGE_FFMPEG(std::format("clip: failed to open input {}", input_path.string()), ret);
-    err = std::format("failed to open input: {}", ffmpeg_err(ret));
+    LOGE_FFMPEG(fmt::format("clip: failed to open input {}", input_path.string()), ret);
+    err = fmt::format("failed to open input: {}", ffmpeg_err(ret));
     return false;
   }
   avs_analyzer::AVFormatContextPtr in_ctx{in_fmt};
@@ -88,7 +89,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
   ret = avformat_find_stream_info(in_ctx.get(), nullptr);
   if (ret < 0) {
     LOGE_FFMPEG("clip: failed to find stream info", ret);
-    err = std::format("failed to read stream info: {}", ffmpeg_err(ret));
+    err = fmt::format("failed to read stream info: {}", ffmpeg_err(ret));
     return false;
   }
 
@@ -117,7 +118,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     ret = avcodec_parameters_copy(out_stream->codecpar, in_stream->codecpar);
     if (ret < 0) {
       LOGE_FFMPEG("clip: failed to copy codec parameters", ret);
-      err = std::format("failed to copy codec parameters: {}", ffmpeg_err(ret));
+      err = fmt::format("failed to copy codec parameters: {}", ffmpeg_err(ret));
       return false;
     }
     out_stream->codecpar->codec_tag = 0;
@@ -129,7 +130,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     ret = avio_open(&out_ctx->pb, output_path.string().c_str(), AVIO_FLAG_WRITE);
     if (ret < 0) {
       LOGE_FFMPEG("clip: failed to open output file", ret);
-      err = std::format("failed to open output file: {}", ffmpeg_err(ret));
+      err = fmt::format("failed to open output file: {}", ffmpeg_err(ret));
       return false;
     }
   }
@@ -137,7 +138,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
   ret = avformat_write_header(out_ctx.get(), nullptr);
   if (ret < 0) {
     LOGE_FFMPEG("clip: failed to write header", ret);
-    err = std::format("failed to write header: {}", ffmpeg_err(ret));
+    err = fmt::format("failed to write header: {}", ffmpeg_err(ret));
     return false;
   }
 
@@ -146,7 +147,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
   ret = av_seek_frame(in_ctx.get(), -1, seek_ts, AVSEEK_FLAG_BACKWARD);
   if (ret < 0) {
     LOGE_FFMPEG("clip: seek failed", ret);
-    err = std::format("seek failed: {}", ffmpeg_err(ret));
+    err = fmt::format("seek failed: {}", ffmpeg_err(ret));
     return false;
   }
   avformat_flush(in_ctx.get());
@@ -242,7 +243,7 @@ bool clip_video_segment(const std::filesystem::path& input_path,
     ret = av_interleaved_write_frame(out_ctx.get(), pkt.get());
     if (ret < 0) {
       LOGE_FFMPEG("clip: write frame failed", ret);
-      err = std::format("write frame failed: {}", ffmpeg_err(ret));
+      err = fmt::format("write frame failed: {}", ffmpeg_err(ret));
       av_packet_unref(pkt.get());
       return false;
     }
@@ -501,7 +502,7 @@ void ApiClip(evhttp_request* req, void* arg) {
   const int64_t start_ms = static_cast<int64_t>(start_offset * 1000.0);
   const int64_t end_ms = static_cast<int64_t>(end_offset * 1000.0);
   const std::string stem = input_path.stem().string().empty() ? "clip" : input_path.stem().string();
-  const std::string name = std::format("{}_{}_{}_{}.mp4", stem, start_ms, end_ms, ts);
+  const std::string name = fmt::format("{}_{}_{}_{}.mp4", stem, start_ms, end_ms, ts);
   const std::filesystem::path output_path = clips_dir / name;
 
   std::string err;
@@ -509,7 +510,7 @@ void ApiClip(evhttp_request* req, void* arg) {
   LOGD("Clipping video segment: input='{}' output='{}' start={} end={}", 
        input_path.string(), output_path.string(), start_offset, end_offset);
   if (!clip_video_segment(input_path, output_path, start_offset, end_offset, actual_duration, err)) {
-    send_json(req, HTTP_BADREQUEST, std::format(R"({{"error":"{}"}})", escape_json(err)));
+    send_json(req, HTTP_BADREQUEST, fmt::format(R"({{"error":"{}"}})", escape_json(err)));
     return;
   }
 

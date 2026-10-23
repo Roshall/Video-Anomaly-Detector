@@ -1,4 +1,5 @@
 #include "worker.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <cstdint>
 #include <nlohmann/json.hpp>
@@ -258,7 +259,7 @@ bool Worker::start(std::string& msg) {
         out ? out->width() : video_ctx_copy.width,
         out ? out->height() : video_ctx_copy.height);
   } catch (const std::exception& ex) {
-    msg = std::format("format convertor init error: {}", ex.what());
+    msg = fmt::format("format convertor init error: {}", ex.what());
     settle_start(false);
     return false;
   }
@@ -328,7 +329,7 @@ void Worker::OfflineAnalyze() {
       if (!rt || !rt->monitor) continue;
       const std::string code = rt->monitor->code;
       const std::string url =
-          std::format("{}/api/offline/finished?controlCode={}",
+          fmt::format("{}/api/offline/finished?controlCode={}",
                       scheduler->GetConfig().admin_host, code);
       // Never block the media pool on the admin service.
       g_control_pool.detach_task([url, code]() {
@@ -624,11 +625,11 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
            level = std::string(level), alarm_id, video_code = video_code_,
            encoded = std::move(encoded), is_file = file_]() {
         auto img_path =
-            std::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
+            fmt::format("{}/alarms/images/{}/{}", conf.upload_dir, code,
                         is_file ? std::to_string(getCurTimestamp()) : FrameWallClock::to_iso8601_utc(start_timestamp));
         std::filesystem::create_directories(std::filesystem::path(img_path));
         auto time_str = FrameWallClock::to_iso8601_utc(event_timestamp);
-        auto img_path_str = std::format("{}/{}.jpg", img_path, time_str);
+        auto img_path_str = fmt::format("{}/{}.jpg", img_path, time_str);
         std::ofstream out(img_path_str, std::ios::binary);
         if (!out.is_open()) {
           LOGE("failed to open alarm image {}", img_path_str);
@@ -644,13 +645,13 @@ void Worker::AlarmImage(const std::string& monitor_code, int64_t start_pts,
         LOGI("Saved alarm image {} ({} bytes)", img_path_str, encoded.size());
 
         const std::string url =
-            std::format("{}/api/postAddAlarm", conf.admin_host);
+            fmt::format("{}/api/postAddAlarm", conf.admin_host);
         nlohmann::json param {
         {"imagePath", img_path_str.substr(conf.upload_dir.length() + 1)},
         {"controlCode", code},
         {"videoCode", video_code},
         {"alarmId", alarm_id},
-        {"createTime", is_file ? std::format("{:.3f}", std::chrono::duration<double>(event_timestamp.time_since_epoch()).count()) : FrameWallClock::to_iso8601_utc(event_timestamp)},
+        {"createTime", is_file ? fmt::format("{:.3f}", std::chrono::duration<double>(event_timestamp.time_since_epoch()).count()) : FrameWallClock::to_iso8601_utc(event_timestamp)},
         {"level", level},
         {"file", is_file}
         };
@@ -1506,7 +1507,7 @@ void Worker::NotifyAdminStreamEvent(std::string_view state) {
   if (conf.admin_host.empty() || video_code_.empty()) {
     return;
   }
-  const std::string url = std::format("{}/api/stream_event?state={}&streamCode={}",
+  const std::string url = fmt::format("{}/api/stream_event?state={}&streamCode={}",
                                       conf.admin_host, state, video_code_);
   // Fire-and-forget async request to avoid blocking the DetectEvent loop.
   g_control_pool.detach_task([url]() {

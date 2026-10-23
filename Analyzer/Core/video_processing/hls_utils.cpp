@@ -1,4 +1,5 @@
 #include "hls_utils.h"
+#include <spdlog/fmt/fmt.h>
 
 #include <filesystem>
 #include <format>
@@ -51,7 +52,7 @@ bool RemuxHlsToSuggestedMp4(const Recorder::HlsPaths& paths) {
   AVFormatContext* in_fmt = nullptr;
   int ret = avformat_open_input(&in_fmt, playlist.c_str(), nullptr, nullptr);
   if (ret < 0) {
-    LOGE_FFMPEG(std::format("RemuxHlsToSuggestedMp4: could not open playlist {}", playlist), ret);
+    LOGE_FFMPEG(fmt::format("RemuxHlsToSuggestedMp4: could not open playlist {}", playlist), ret);
     return false;
   }
   AVFormatContextPtr in_ctx{in_fmt};
@@ -90,7 +91,7 @@ bool RemuxHlsToSuggestedMp4(const Recorder::HlsPaths& paths) {
   if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
     ret = avio_open(&out_ctx->pb, out_mp4.c_str(), AVIO_FLAG_WRITE);
     if (ret < 0) {
-      LOGE_FFMPEG(std::format("RemuxHlsToSuggestedMp4: could not open output file {}", out_mp4), ret);
+      LOGE_FFMPEG(fmt::format("RemuxHlsToSuggestedMp4: could not open output file {}", out_mp4), ret);
       return false;
     }
   }
@@ -204,7 +205,7 @@ bool ReencodeHlsToSuggestedMp4(const Recorder::HlsPaths& paths, const ReencodeCo
   AVFormatContext* in_fmt = nullptr;
   int ret = avformat_open_input(&in_fmt, playlist.c_str(), nullptr, nullptr);
   if (ret < 0) {
-    LOGE_FFMPEG(std::format("ReencodeHlsToSuggestedMp4: could not open playlist {}", playlist), ret);
+    LOGE_FFMPEG(fmt::format("ReencodeHlsToSuggestedMp4: could not open playlist {}", playlist), ret);
     return false;
   }
   AVFormatContextPtr in_ctx{in_fmt};
@@ -315,7 +316,7 @@ bool ReencodeHlsToSuggestedMp4(const Recorder::HlsPaths& paths, const ReencodeCo
   if (!(out_ctx->oformat->flags & AVFMT_NOFILE)) {
     ret = avio_open(&out_ctx->pb, out_mp4.c_str(), AVIO_FLAG_WRITE);
     if (ret < 0) {
-      LOGE_FFMPEG(std::format("ReencodeHlsToSuggestedMp4: could not open output file {}", out_mp4), ret);
+      LOGE_FFMPEG(fmt::format("ReencodeHlsToSuggestedMp4: could not open output file {}", out_mp4), ret);
       return false;
     }
   }
