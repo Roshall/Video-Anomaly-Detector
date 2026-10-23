@@ -8,7 +8,10 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "Utils/common.h"
+#include "Utils/log.h"
 #include "alarm.h"
 #include "combined_event_manager.h"
 #include "scheduler.h"
@@ -54,6 +57,12 @@ TEST(AlarmJobTest, ConcurrentFinalizeIsIndependent) {
   auto settings = std::make_shared<const Alarm>(
       upload_dir.string(), /*admin_host=*/"", /*width=*/64, /*height=*/64,
       /*fps=*/25, Alarm::OutputMode::kMp4Only, /*report_delta=*/false);
+
+  // Match main(): install the project logger as spdlog's default before
+  // any thread starts. Without this the registry singleton is initialised
+  // lazily inside the worker threads (a data race under TSan).
+  spdlog::set_default_logger(
+      avs_analyzer::LoggerSingleton::instance().get_logger());
 
   constexpr int kThreads = 8;
   constexpr int kIterations = 50;
