@@ -13,6 +13,7 @@
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "frame.h"
+#include "frame_walk_time.h"
 #include "metrics.h"
 #include "video_processing/format_convertor.h"
 #include "video_processing/video_context.h"
@@ -35,13 +36,28 @@ enum class GrabResult {
   kFatal,
 };
 
-// Convertor plus the geometry it was built for. Published as an immutable
-// snapshot so the detect thread can read it without locking.
-struct ConvertorState {
-  std::shared_ptr<FormatConvertor> convertor;
-  int width{0};
-  int height{0};
-  AVPixelFormat format{AV_PIX_FMT_NONE};
+// One decoded frame handed to the worker's per-frame handler. The frame is
+// borrowed: it is only valid for the duration of the callback.
+struct DecodedFrame {
+  AVFrame* frame{nullptr};
+  int64_t timestamp{0};     // resolved PTS in the stream time base
+  int64_t timestamp_ms{0};  // resolved PTS in milliseconds
+};
+
+// Callbacks driving the decode loop. StreamSession owns the loop mechanics
+// (reconnect backoff, generation changes, error budget); the Worker owns what
+// happens with each decoded frame.
+struct DecodeLoopHandlers {
+  // Returns false to stop the loop.
+  std::function<bool(const DecodedFrame&)> on_frame;
+  // First frame of a new stream generation: decoder flushed, timer reset.
+  std::function<void()> on_new_generation;
+  // Decoded geometry changed (e.g. reconnect at another resolution).
+  std::function<void(int width, int height, int fps, int out_width,
+                     int out_height)>
+      on_geometry_changed;
+  // Decode errors exhausted the budget; the worker should remove itself.
+  std::function<void()> on_error_budget_exhausted;
 };
 
 // Owns one input/output stream pair: pull/decode resources, the published
@@ -59,6 +75,9 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
     bool file{false};
     // Lifetime is owned by the Worker; Stop() is requested by clearing it.
     std::atomic<bool>* state{nullptr};
+    // Wall-clock mapping used by the alarm pipeline; re-initialised when the
+    // stream generation changes.
+    FrameWallClock* timer{nullptr};
     std::shared_ptr<WorkerMetrics> metrics;
     std::function<void()> on_stream_error;
     std::function<void(const VideoContext&)> on_stream_opened;
@@ -85,6 +104,10 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
 
   [[nodiscard]] GrabResult GrabFrame(AVFrame* frame,
                                      StreamResourcesPtr& resources);
+  // Runs the decode loop on the calling thread until stopped, EOF or a fatal
+  // error. Resolves timestamps (synthesising missing PTS) and reports stream
+  // generation/geometry changes through the handlers.
+  void RunDecodeLoop(const DecodeLoopHandlers& handlers);
   void PushFrame(std::shared_ptr<const Frame> frame);
 
   [[nodiscard]] std::shared_ptr<const ConvertorState> Convertor() const {
@@ -148,6 +171,11 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
   void StartPushThreadIfNeeded();
   void RebuildConvertor(const VideoContext& context, int out_width,
                         int out_height);
+  // Resolves the frame timestamp, synthesising one when PTS is missing.
+  // Returns false when the timestamp cannot be determined.
+  bool ResolveTimestamps(AVFrame* frame, AVRational time_base,
+                         AVRational fps_hint, int64_t& timestamp,
+                         int64_t& timestamp_ms);
   void JoinPushThread(std::unique_ptr<std::thread> thread, bool detach);
 
   Options options_;
@@ -178,6 +206,9 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
   std::shared_ptr<const ConvertorState> convertor_state_;
   // Detect thread only: generation whose decoder buffers are current.
   uint64_t decoded_generation_{0};
+  // Detect thread only: last resolved timestamp, used to synthesise PTS.
+  std::atomic<int64_t> last_frame_ts_ms_{-1};
+  std::atomic<bool> nopts_logged_{false};
 };
 
 }  // namespace avs_analyzer

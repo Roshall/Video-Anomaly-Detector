@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "Utils/log.h"
+#include "task.h"
 
 namespace avs_analyzer {
 
@@ -75,6 +76,90 @@ bool MonitorRegistry::Empty() const {
 size_t MonitorRegistry::Size() const {
   std::shared_lock lock(mutex_);
   return contexts_.size();
+}
+
+std::vector<std::pair<Task, std::u8string>> MonitorRegistry::TaskLabels() const {
+  const auto snapshot = Snapshot();
+  std::vector<std::pair<Task, std::u8string>> tasks;
+  tasks.reserve(snapshot.size());
+  for (const auto& ctx : snapshot) {
+    if (!ctx || !ctx->monitor) {
+      continue;
+    }
+    const auto task = ctx->monitor->task;
+    const auto it = std::find_if(tasks.begin(), tasks.end(),
+                                 [task](const auto& entry) {
+                                   return entry.first == task;
+                                 });
+    if (it == tasks.end()) {
+      const auto label = ctx->monitor->behavior.empty()
+                             ? toChinese(task)
+                             : ctx->monitor->behavior;
+      tasks.emplace_back(task, label);
+    }
+  }
+  return tasks;
+}
+
+bool MonitorRegistry::AnyPushStream() const {
+  const auto snapshot = Snapshot();
+  return std::any_of(snapshot.begin(), snapshot.end(), [](const auto& ctx) {
+    return ctx && ctx->monitor && ctx->monitor->push_stream;
+  });
+}
+
+void MonitorRegistry::PrepareForStream(const VideoContext& video_context) const {
+  for (const auto& ctx : Snapshot()) {
+    if (ctx) {
+      PrepareForStream(*ctx, video_context);
+    }
+  }
+}
+
+void MonitorRegistry::PrepareForStream(MonitorContext& ctx,
+                                       const VideoContext& video_context) {
+  if (!ctx.monitor || !ctx.analyzer) {
+    return;
+  }
+  if (video_context.width <= 0 || video_context.height <= 0) {
+    return;
+  }
+  auto& monitor = *ctx.monitor;
+  if (!monitor.ParseRecognitionRegion(video_context.width,
+                                      video_context.height)) {
+    LOGE("ParseRecognitionRegion() error for monitor {}", monitor.code);
+    return;
+  }
+  if (monitor.task == Task::kBunkOff) {
+    ctx.analyzer->SetROIs(monitor.roi_polygons);
+  } else {
+    ctx.analyzer->SetROIs({monitor.roi_points});
+  }
+  ctx.roi_entries.clear();
+  if (!monitor.roi_points.empty()) {
+    ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);
+  }
+}
+
+void MonitorRegistry::WakeAnalyzers(const std::vector<Ptr>& contexts) {
+  for (const auto& ctx : contexts) {
+    if (ctx && ctx->analyzer) {
+      ctx->analyzer->Stop();
+    }
+  }
+}
+
+void MonitorRegistry::StopAnalyzers(const std::vector<Ptr>& contexts) {
+  for (const auto& ctx : contexts) {
+    if (!ctx || !ctx->analyzer) {
+      continue;
+    }
+    ctx->analyzer->Stop();
+    // Resetting the registration releases the mailbox; the analyzer also
+    // holds a reference, so clear both.
+    ctx->analyzer->SetRegistration(nullptr);
+    ctx->registration.reset();
+  }
 }
 
 }  // namespace avs_analyzer

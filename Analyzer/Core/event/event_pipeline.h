@@ -25,6 +25,7 @@ extern "C" {
 
 namespace avs_analyzer {
 class Scheduler;
+struct ConvertorState;
 struct WorkerMetrics;
 
 // One image that must be uploaded for a monitor whose event just started.
@@ -52,8 +53,8 @@ struct EventPipelineResult {
 // event manager -> annotator. It does not perform alarm I/O or stream output.
 class EventPipeline {
  public:
-  EventPipeline(Scheduler* scheduler, std::string video_code, bool file,
-                std::shared_ptr<WorkerMetrics> metrics);
+  EventPipeline(Scheduler* scheduler, std::string video_code, uint64_t video_id,
+                bool file, std::shared_ptr<WorkerMetrics> metrics);
 
   // Recomputes the combined event config from the current monitor set.
   void UpdateConfig(const std::vector<MonitorRegistry::Ptr>& monitors,
@@ -65,6 +66,13 @@ class EventPipeline {
   void EnsureAnnotator(const VideoContext& video_context,
                        const std::vector<std::pair<Task, std::u8string>>& tasks,
                        bool force_rebuild = false);
+
+  // Admits the frame for the current monitor set, converts/clones it at most
+  // once and submits it to every admitted analyzer. The caller resolves the
+  // timestamp (live: StreamSession; offline: relative to file start).
+  void SubmitFrame(const AVFrame* frame, const ConvertorState& convertor,
+                   int64_t timestamp_ms,
+                   const std::vector<MonitorRegistry::Ptr>& monitors);
 
   [[nodiscard]] EventPipelineResult ProcessFrame(
       const AVFrame* frame, int64_t timestamp_ms, int64_t best_effort_pts,
@@ -84,6 +92,7 @@ class EventPipeline {
 
   Scheduler* scheduler_{nullptr};
   std::string video_code_;
+  uint64_t video_id_{0};
   // Monitors already warned about an invalid levels config. Owned by the
   // detect thread; config refreshes re-arm it through this flag instead of
   // touching the set from the control thread.

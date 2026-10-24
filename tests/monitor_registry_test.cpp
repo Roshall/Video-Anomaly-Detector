@@ -49,6 +49,42 @@ TEST(MonitorRegistry, SnapshotKeepsRemovedContextsAlive) {
   EXPECT_FALSE(registry.Empty());
 }
 
+TEST(MonitorRegistry, TaskLabelsKeepsOneLabelPerTask) {
+  auto wandering_a = MakeContext("a");
+  wandering_a->monitor->task = Task::kWandering;
+  auto wandering_b = MakeContext("b");
+  wandering_b->monitor->task = Task::kWandering;
+  auto sleeping = MakeContext("c");
+  sleeping->monitor->task = Task::kSleepWork;
+  sleeping->monitor->behavior = u8"custom-label";
+
+  MonitorRegistry registry;
+  registry.AddBatch({wandering_a, wandering_b, sleeping});
+
+  const auto labels = registry.TaskLabels();
+  ASSERT_EQ(labels.size(), 2u);
+  EXPECT_EQ(labels[0].first, Task::kWandering);
+  EXPECT_EQ(labels[0].second, avs_analyzer::toChinese(Task::kWandering));
+  EXPECT_EQ(labels[1].first, Task::kSleepWork);
+  EXPECT_EQ(std::string(labels[1].second.begin(), labels[1].second.end()),
+            "custom-label");
+}
+
+TEST(MonitorRegistry, AnyPushStreamFollowsTheMonitorSet) {
+  auto plain = MakeContext("a");
+  MonitorRegistry registry;
+  registry.AddBatch({plain});
+  EXPECT_FALSE(registry.AnyPushStream());
+
+  auto pushing = MakeContext("b");
+  pushing->monitor->push_stream = true;
+  registry.AddBatch({pushing});
+  EXPECT_TRUE(registry.AnyPushStream());
+
+  registry.RemoveBatch({"b"});
+  EXPECT_FALSE(registry.AnyPushStream());
+}
+
 TEST(MonitorRegistry, RemoveUnknownCodeLeavesRegistryIntact) {
   MonitorRegistry registry;
   registry.AddBatch({MakeContext("a")});

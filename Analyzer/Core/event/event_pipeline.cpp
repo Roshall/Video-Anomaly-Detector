@@ -1,5 +1,8 @@
 #include "event/event_pipeline.h"
 
+#include "admission.h"
+#include "video_processing/format_convertor.h"
+
 #include <algorithm>
 #include <atomic>
 #include <exception>
@@ -33,10 +36,11 @@ struct MonitorEventSnapshot {
 }  // namespace
 
 EventPipeline::EventPipeline(Scheduler* scheduler, std::string video_code,
-                             bool file,
+                             uint64_t video_id, bool file,
                              std::shared_ptr<WorkerMetrics> metrics)
     : scheduler_(scheduler),
       video_code_(std::move(video_code)),
+      video_id_(video_id),
       file_(file),
       metrics_(std::move(metrics)) {}
 
@@ -159,6 +163,87 @@ void EventPipeline::EnsureAnnotator(
     std::atomic_store(&event_manager_, manager);
   }
   manager->SetAnnotator(std::move(candidate));
+}
+
+void EventPipeline::SubmitFrame(
+    const AVFrame* frame, const ConvertorState& convertor,
+    int64_t timestamp_ms,
+    const std::vector<MonitorRegistry::Ptr>& monitors) {
+  if (!frame) {
+    return;
+  }
+  if (!convertor.convertor) {
+    LOGW("frame submit skipped: convertor not initialized");
+    if (metrics_) {
+      metrics_->frames_skipped.fetch_add(1, std::memory_order_relaxed);
+    }
+    return;
+  }
+  // Frames decoded from a previous generation may still arrive right after a
+  // reconnect; skip them rather than feeding a mismatched convertor.
+  if (frame->width != convertor.width || frame->height != convertor.height ||
+      frame->format != convertor.format) {
+    if (metrics_) {
+      metrics_->frames_skipped.fetch_add(1, std::memory_order_relaxed);
+    }
+    return;
+  }
+  if (monitors.empty()) {
+    return;
+  }
+
+  // Admission control: only submit frames each detector actually wants, and
+  // group monitors of the same task so they share one inference.
+  std::vector<AdmissionEntry> entries;
+  entries.reserve(monitors.size());
+  std::unordered_map<unsigned long, MonitorRegistry::Ptr> by_id;
+  by_id.reserve(monitors.size());
+  for (const auto& ctx : monitors) {
+    if (!ctx || !ctx->monitor || !ctx->analyzer || !ctx->detector) {
+      continue;
+    }
+    if (!ctx->active.load(std::memory_order_acquire)) {
+      continue;
+    }
+    const unsigned long analyzer_id = ctx->analyzer->id();
+    entries.push_back(
+        {analyzer_id, ctx->monitor->task, ctx->analyzer->WantsFrame()});
+    by_id.emplace(analyzer_id, ctx);
+  }
+  if (entries.empty()) {
+    return;
+  }
+
+  const auto admission = AdmitFrame(entries, static_cast<uint64_t>(timestamp_ms));
+  if (admission.skipped > 0 && metrics_) {
+    metrics_->frames_skipped.fetch_add(admission.skipped,
+                                       std::memory_order_relaxed);
+  }
+  if (admission.groups.empty()) {
+    return;
+  }
+
+  // FormatConvertor returns a view over a reusable internal buffer.
+  // Convert and clone once per decoded frame; every admitted task group
+  // shares the same read-only image.
+  const cv::Mat img_view = (*convertor.convertor)(frame);
+  auto img = std::make_shared<const cv::Mat>(img_view.clone());
+
+  size_t submitted = 0;
+  for (const auto& group : admission.groups) {
+    for (const auto analyzer_id : group.analyzer_ids) {
+      const auto it = by_id.find(analyzer_id);
+      if (it == by_id.end()) {
+        continue;
+      }
+      it->second->analyzer->AddVideoFrame(video_id_, timestamp_ms, img,
+                                          group.shared);
+      ++submitted;
+    }
+  }
+  if (metrics_ && submitted > 0) {
+    metrics_->frames_submitted.fetch_add(submitted, std::memory_order_relaxed);
+  }
 }
 
 EventPipelineResult EventPipeline::ProcessFrame(

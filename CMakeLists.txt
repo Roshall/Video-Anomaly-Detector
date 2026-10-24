@@ -278,6 +278,7 @@ set(analyzer_core_source
         Analyzer/Core/general_analyzer.cpp
         Analyzer/Core/imaging/opencv_image_processor.cpp
         Analyzer/Core/monitor/monitor_registry.cpp
+        Analyzer/Core/offline/offline_pipeline.cpp
         Analyzer/Core/scheduler.cpp
         Analyzer/Core/server.cpp
         Analyzer/Core/server_apis/api_alarm.cpp

@@ -323,4 +323,157 @@ void StreamSession::PushFrame(std::shared_ptr<const Frame> frame) {
   }
 }
 
+void StreamSession::RunDecodeLoop(const DecodeLoopHandlers& handlers) {
+  const auto initial = Current();
+  if (!initial) {
+    LOGW("decode video without open stream resources");
+    return;
+  }
+
+  int width = initial->codec->width;
+  int height = initial->codec->height;
+  uint64_t current_generation = initial->generation;
+  int fps = Fps();
+  int out_width = PushWidth();
+  int out_height = PushHeight();
+
+  AVFramePtr frame{av_frame_alloc()};
+  if (!frame) {
+    LOGE("av_frame_alloc failed");
+    return;
+  }
+
+  int consecutive_errors = 0;
+  bool done = false;
+
+  while (State() && !done) {
+    StreamResourcesPtr frame_resources;
+    switch (GrabFrame(frame.get(), frame_resources)) {
+      case GrabResult::kOk: {
+        consecutive_errors = 0;
+        if (metrics_) {
+          metrics_->frames_decoded.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        if (frame_resources &&
+            frame_resources->generation != current_generation) {
+          current_generation = frame_resources->generation;
+          if (options_.timer) {
+            options_.timer->init(frame_resources->fmt.get(),
+                                 frame_resources->video_stream);
+          }
+          // Reset before resolving: a stream without PTS restarts its
+          // synthesised timeline on the new generation, matching sources
+          // whose PTS itself restarts after a reconnect.
+          last_frame_ts_ms_.store(-1, std::memory_order_relaxed);
+          if (handlers.on_new_generation) {
+            handlers.on_new_generation();
+          }
+        }
+
+        int64_t timestamp = 0;
+        int64_t timestamp_ms = 0;
+        const AVRational fps_hint =
+            frame_resources ? frame_resources->codec->framerate
+                            : AVRational{0, 1};
+        if (!ResolveTimestamps(frame.get(), frame->time_base, fps_hint,
+                               timestamp, timestamp_ms)) {
+          if (metrics_) {
+            metrics_->frames_skipped.fetch_add(1, std::memory_order_relaxed);
+          }
+          av_frame_unref(frame.get());
+          continue;
+        }
+
+        // A reconnect may change the decoded geometry; rebuild per-stream
+        // output resources before processing this frame.
+        if (frame_resources &&
+            (frame_resources->codec->width != width ||
+             frame_resources->codec->height != height)) {
+          width = frame_resources->codec->width;
+          height = frame_resources->codec->height;
+          fps = Fps();
+          out_width = PushWidth();
+          out_height = PushHeight();
+          if (handlers.on_geometry_changed) {
+            handlers.on_geometry_changed(width, height, fps, out_width,
+                                         out_height);
+          }
+        }
+
+        DecodedFrame decoded{frame.get(), timestamp, timestamp_ms};
+        const bool keep_going =
+            handlers.on_frame ? handlers.on_frame(decoded) : true;
+        av_frame_unref(frame.get());
+        if (!keep_going) {
+          done = true;
+        }
+        break;
+      }
+      case GrabResult::kAgain:
+      case GrabResult::kDecodeError: {
+        if (++consecutive_errors >= 50) {
+          LOGE("worker {} exceeded decode error budget, removing worker",
+               options_.video_code);
+          if (handlers.on_error_budget_exhausted) {
+            handlers.on_error_budget_exhausted();
+          }
+          done = true;
+          break;
+        }
+        const int delay_ms = std::min(500, 10 * consecutive_errors);
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        break;
+      }
+      case GrabResult::kReconnecting:
+        // A reconnect is in progress; wait briefly instead of spinning.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        break;
+      case GrabResult::kEof:
+        LOGI("worker {} reached end of stream", options_.video_code);
+        done = true;
+        break;
+      case GrabResult::kFatal:
+        done = true;
+        break;
+    }
+  }
+}
+
+bool StreamSession::ResolveTimestamps(AVFrame* frame, AVRational time_base,
+                                      AVRational fps_hint,
+                                      int64_t& timestamp,
+                                      int64_t& timestamp_ms) {
+  timestamp = frame->best_effort_timestamp;
+  if (timestamp == AV_NOPTS_VALUE) {
+    timestamp = frame->pts;
+  }
+  if (timestamp != AV_NOPTS_VALUE) {
+    timestamp_ms = av_rescale_q(timestamp, time_base, AVRational{1, 1000});
+    last_frame_ts_ms_.store(timestamp_ms, std::memory_order_relaxed);
+    return true;
+  }
+
+  AVRational fps = fps_hint;
+  int64_t step_ms = 0;
+  if (fps.num > 0 && fps.den > 0) {
+    step_ms = std::llround(1000.0 * fps.den / fps.num);
+  }
+  if (step_ms <= 0) {
+    if (!nopts_logged_.exchange(true, std::memory_order_relaxed)) {
+      LOGW("worker {} cannot resolve frame timestamps (missing PTS and frame "
+           "rate); dropping frames",
+           options_.video_code);
+    }
+    return false;
+  }
+  const int64_t last = last_frame_ts_ms_.load(std::memory_order_relaxed);
+  timestamp_ms = last >= 0 ? last + step_ms : 0;
+  timestamp = av_rescale_q(timestamp_ms, AVRational{1, 1000}, time_base);
+  // Keep the detect loop aligned with the synthesised timestamp.
+  frame->best_effort_timestamp = timestamp;
+  last_frame_ts_ms_.store(timestamp_ms, std::memory_order_relaxed);
+  return true;
+}
+
 }  // namespace avs_analyzer

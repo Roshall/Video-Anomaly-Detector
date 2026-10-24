@@ -9,6 +9,8 @@ extern "C" {
 #include <libavutil/frame.h>
 }
 
+#include <memory>
+
 #include <opencv2/opencv.hpp>
 
 #include "helper.h"
@@ -16,6 +18,17 @@ extern "C" {
 struct SwsContext;
 
 namespace avs_analyzer {
+
+class FormatConvertor;
+
+// Convertor plus the geometry it was built for. Published as an immutable
+// snapshot so the detect thread can read it without locking.
+struct ConvertorState {
+  std::shared_ptr<FormatConvertor> convertor;
+  int width{0};
+  int height{0};
+  AVPixelFormat format{AV_PIX_FMT_NONE};
+};
 
 class FormatConvertor {
  public:

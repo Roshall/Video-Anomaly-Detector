@@ -7,10 +7,13 @@
 #include <string>
 #include <vector>
 
+#include <utility>
+
 #include "analyzer.h"
 #include "event.h"
 #include "monitor.h"
 #include "video_processing/dynamic_annotator.h"
+#include "video_processing/video_context.h"
 
 namespace avs_analyzer {
 
@@ -50,6 +53,23 @@ class MonitorRegistry {
   [[nodiscard]] bool Contains(const std::string& code) const;
   [[nodiscard]] bool Empty() const;
   [[nodiscard]] size_t Size() const;
+
+  // One label per distinct task, used for the annotation legend.
+  [[nodiscard]] std::vector<std::pair<Task, std::u8string>> TaskLabels() const;
+  // True when any monitor requests the push output.
+  [[nodiscard]] bool AnyPushStream() const;
+
+  // Parses ROIs for the given video geometry on every context. Called on the
+  // pull thread when a stream generation opens and from offline analysis.
+  void PrepareForStream(const VideoContext& video_context) const;
+  static void PrepareForStream(MonitorContext& ctx,
+                               const VideoContext& video_context);
+
+  // Wakes a detector blocked on the next inference result.
+  static void WakeAnalyzers(const std::vector<Ptr>& contexts);
+  // Stops analyzers and releases their detector registrations. Blocking work
+  // must run outside the registry lock (callers pass a snapshot).
+  static void StopAnalyzers(const std::vector<Ptr>& contexts);
 
  private:
   mutable std::shared_mutex mutex_;
