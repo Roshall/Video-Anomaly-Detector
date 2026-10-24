@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -126,6 +127,39 @@ TEST(InferenceMailbox, AnalyzersAreIndependent) {
   ASSERT_TRUE(boxes.Acquire(10, task));
   EXPECT_EQ(task.id[0], 10u);
   EXPECT_EQ(task.id[2], 100u);
+}
+
+TEST(InferenceMailbox, EightAnalyzersCanBeScheduledIndependently) {
+  constexpr unsigned long kFirstAnalyzer = 100;
+  constexpr int kAnalyzerCount = 8;
+  AnalyzerMailboxes boxes;
+  for (int i = 0; i < kAnalyzerCount; ++i) {
+    boxes.Add(kFirstAnalyzer + static_cast<unsigned long>(i), 1);
+  }
+
+  for (int i = 0; i < kAnalyzerCount; ++i) {
+    const auto outcome = boxes.Push(MakeTask(
+        kFirstAnalyzer + static_cast<unsigned long>(i),
+        static_cast<uint64_t>(i + 1)));
+    EXPECT_EQ(outcome.result, AnalyzerMailboxes::PushResult::kSchedule);
+  }
+
+  std::vector<unsigned long> acquired_ids;
+  AnalyzerMailboxes::Task task;
+  for (int i = 0; i < kAnalyzerCount; ++i) {
+    const auto analyzer_id =
+        kFirstAnalyzer + static_cast<unsigned long>(i);
+    ASSERT_TRUE(boxes.Acquire(analyzer_id, task));
+    acquired_ids.push_back(task.id[0]);
+  }
+
+  ASSERT_EQ(acquired_ids.size(), kAnalyzerCount);
+  std::sort(acquired_ids.begin(), acquired_ids.end());
+  for (int i = 0; i < kAnalyzerCount; ++i) {
+    EXPECT_EQ(acquired_ids[static_cast<size_t>(i)],
+              kFirstAnalyzer + static_cast<unsigned long>(i));
+  }
+  EXPECT_EQ(boxes.BufferedTasks(), 0u);
 }
 
 }  // namespace
