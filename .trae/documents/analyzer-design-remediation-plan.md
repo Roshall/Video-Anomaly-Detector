@@ -1,5 +1,12 @@
 # Analyzer Design Weakness Remediation Plan
 
+> **Status:** This is the historical seven-phase design record. Current
+> implementation and validation status is maintained in
+> [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md), with actionable unchecked
+> items in [`TODO.md`](../../TODO.md). Do not infer that an unchecked
+> acceptance item passed merely because the corresponding code phase is
+> implemented.
+
 ## 1. Summary
 
 This plan fixes the design weaknesses found in the Analyzer module review, prioritized for **multi-stream performance** and **maintainability**. Security is explicitly out of scope (private LAN).
@@ -703,6 +710,10 @@ Measure via `/api/metrics` and `ps`:
 ---
 
 ## 15. Definition of Done
+
+The checklist below is the original plan acceptance checklist. It is retained
+for traceability; current evidence and outstanding runtime gates are recorded
+in `PROJECT_STATUS.md`.
 
 - [ ] All 13 review findings have a corresponding implemented change.
 - [ ] Inference is per-model, multi-session, fair per analyzer, with bounded mailboxes.

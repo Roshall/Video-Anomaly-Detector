@@ -1,167 +1,216 @@
-# TODO — remaining work
+# Analyzer TODO and Maintenance Checklist
 
-Status of this branch (`refactor/worker-extraction`, HEAD `c1856d5`): all seven
-remediation phases from `.trae/documents/analyzer-design-remediation-plan.md`
-are implemented; `ctest` is 26/26 green (4 manual tests disabled) and the TSan
-suite is clean. The items below are what is still open. Untracked findings from
-`CODEBASE_REVIEW_REPORT.md` (2026-10-24) that are not listed elsewhere are
-tracked in §5.
+**Last reconciled:** 2026-10-24
+**Authoritative summary:** [PROJECT_STATUS.md](PROJECT_STATUS.md)
+**Detailed evidence:** [CODEBASE_REVIEW_REPORT.md](CODEBASE_REVIEW_REPORT.md)
 
-## 1. Validation owed by the remediation plan (§13)
+This checklist is deliberately separate from the historical design plan. A
+source change can be complete while its long-running or hardware validation
+remains pending. Check an item only when the required evidence is recorded in
+[PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-- [ ] **8-stream 30-minute integration run** — 8 local 1080p25 streams
-      (`ffmpeg -re` loop files or an RTSP test server); verify every camera
-      receives a detection result at least once per `major_stride_ms` and no
-      camera is starved for more than 2× its stride.
-- [ ] **API latency** — `GET /api/metrics` p95 < 200 ms while a stream is being
-      added/removed and while a stream is reconnecting.
-- [ ] **Memory** — per-worker RSS stays within `eventBufferBudgetMb` plus a
-      documented fixed overhead over 30 minutes; no monotonic growth.
-- [ ] **Alarm integrity** — all generated alarm jobs produce playable HLS/MP4
-      and uploaded JPEGs; no dropped jobs with the admin service available.
-- [ ] **Reconnect with resolution change** — kill/restart a source at a
-      different resolution; frames continue and push/annotation dimensions
-      match the new geometry.
-- [ ] **CPU distribution** — inference threads spread across sessions; no
-      single-thread saturation attributable to one task queue (plan §13).
-- [ ] **ASan pass** — only TSan has been run. Configure
-      `cmake -B build-asan -DANALYZER_SANITIZE=address -DBUILD_TESTS=ON` and
-      run at least `monitor_registry_test`, `alarm_job_test`,
-      `event_buffer_test`, `detector_pool_test`.
+## 1. Release-blocking validation
 
-## 2. Test gaps
+These items must be completed before claiming production readiness for a
+multi-video deployment.
 
-- [ ] **EventPipeline integration tests** — the guard contracts of
-      `SubmitFrame` (`Analyzer/Core/event/event_pipeline.cpp:168`) and the
-      once-per-monitor invalid-levels warning
-      (`event_pipeline.cpp:366`, reset via `level_log_reset_`) are covered
-      only at the guard level (`tests/event_submit_test.cpp`); the
-      config→manager wiring (`event_pipeline.cpp:99`) and the warning behaviour
-      still need a harness with a fake monitor context.
-- [ ] **ONNX-backed paths are not under TSan.** Model loading / session start
-      are covered by `detector_pool_test` only in normal builds (the test
-      skips via `ANALYZER_TSAN` because ONNX Runtime is uninstrumented).
-      Either accept this or add the planned `IInferenceSession` fake seam.
-- [ ] **Independent review of the config + JPEG lens** — the adversarial
-      reviewer for that area failed on a network timeout and never produced a
-      report; re-run it if you want parity with the other review lenses. The
-      config findings themselves are now tracked in §5.
-- [ ] (Optional) Pin the shared-inference fallback: when the claimer takes
-      longer than the wait budget (capped at 10 s), a waiter re-runs inference
-      by design. Add a test documenting the duplicate-inference trade-off.
+- [ ] **VAL-01 — 8-stream endurance run.** Run eight local 1080p25 streams
+      (`ffmpeg -re` loop files or an RTSP test server) for 30 minutes. Record
+      per-camera decoded/admitted/result cadence, maximum service gap, CPU,
+      queue age, reconnect count, and errors. Acceptance: every camera
+      receives results at its configured major cadence and no camera is
+      starved for more than `2 * major_stride_ms`.
+- [ ] **VAL-02 — API latency under load.** Measure `GET /api/metrics` p95 while
+      adding/removing a stream and while another stream reconnects. Target:
+      less than 200 ms, with no event-loop stalls or unbounded deferred
+      replies.
+- [ ] **VAL-03 — Memory stability.** During VAL-01 measure per-worker and
+      process RSS, event-buffer raw/encoded bytes, packet queues, mailbox
+      frames, push queues, and encoder allocations. Record a fixed-overhead
+      model; show no monotonic growth.
+- [ ] **VAL-04 — Alarm integrity.** Generate alarms with the admin service
+      available. Verify every accepted critical job has a playable output,
+      uploaded JPEGs, correct event ID, and a successful/failed final status.
+      Record dispatcher drops, encoder failures, upload failures, and cleanup
+      failures.
+- [ ] **VAL-05 — Reconnect geometry.** Stop and restart a source at a
+      different resolution and pixel format. Verify frames resume, conversion
+      state is rebuilt, and push/annotation/output dimensions match the new
+      geometry.
+- [ ] **VAL-06 — CPU distribution.** Compare throughput and queue wait with
+      `inferenceWorkersPerModel` values 1, 2, and the deployment default.
+      Confirm no session or task queue starves another video.
+- [ ] **VAL-07 — ASan.** Configure a separate address-sanitized build and run
+      at least `monitor_registry_test`, `alarm_job_test`,
+      `event_buffer_test`, `detector_pool_test`, and the scheduler lifecycle
+      tests.
+- [ ] **VAL-08 — package smoke test.** Install into a clean staging prefix,
+      run the packaged binary with a minimal config, verify shared-library
+      resolution, model/resource paths, metrics startup, and output creation.
+- [ ] **VAL-09 — aarch64 smoke test.** Build with the documented toolchain and
+      run the installed package on the target or a compatible aarch64 runtime.
+      Record FFmpeg codecs, ONNX Runtime ABI, C++ runtime, and HLS availability.
+- [ ] **VAL-10 — Ascend hardware gate.** Block production Ascend enablement
+      until a real device validates ACL context lifetime, model loading,
+      device input/output synchronization, DVPP/VDEC, geometry changes,
+      failure reporting, and multi-stream throughput.
 
-## 3. Deferred code work (LOW severity, intentionally not fixed)
+## 2. P0 correctness and operability
 
-- [x] **Worker extraction** — done in `refactor/worker-extraction`
-      (`c372ba5`): the decode loop moved to `StreamSession::RunDecodeLoop`,
-      frame admission/submission to `EventPipeline::SubmitFrame`, offline
-      analysis to `Core/offline/offline_pipeline`, monitor lifecycle helpers
-      to `MonitorRegistry`, and the shared per-frame event flow to
-      `Core/event/event_runner.{h,cpp}` (`c1856d5`). `worker.cpp` is 393
-      lines (from 830).
-- [x] **Pull-thread ROI races (found in the branch review).** `PrepareForStream`
-      ran on the pull thread and mutated `ctx->roi_entries` plus the analyzers`
-      ROI vectors while the detect thread read them. `MonitorContext::roi_entries`
-      and the analyzer ROI state (`GeneralAnalyzer`, `BunkOffAnalyzer`) are now
-      immutable snapshots published with `std::atomic` `shared_ptr` — swap on
-      (re)connect, load once on the detect thread.
-- [x] **Decode-loop state machine had no test seam.** The error budget, backoff
-      and reconnect waiting now live in `stream/decode_loop_policy.{h,cpp}`
-      with unit tests (`tests/decode_loop_policy_test.cpp`).
-- [x] **TaskLabels was O(n²)** — now an `unordered_set` scan in
-      `Analyzer/Core/monitor/monitor_registry.cpp:78` (was a `std::find_if`
-      per monitor in the removed `Worker::GetMonitorTasks`).
-- [ ] **JPEG range correctness** (`Analyzer/Core/video_processing/jpeg_encoder.cpp:126,135,265`).
-      Limited-range YUV420P is encoded as a full-range JPEG without pixel
-      conversion, so the round trip is pixel-exact but a standards-compliant
-      viewer (browser) may show stretched contrast on alarm JPEGs. Proper fix:
-      convert limited→full on encode and full→limited on decode via
-      `sws_setColorspaceDetails`, then verify with a synthetic limited-range
-      gradient (MAE) and a visual check of alarm clips.
-- [ ] **DetectorPool shutdown vs in-flight loads** —
-      `DetectorPool::StopAllDetectors` (`Analyzer/Core/detector/constant_yolo.cpp:250`)
-      drains `runtimes_` but not `loading_`; a load that finishes after
-      shutdown repopulates the pool. Add a shutdown flag checked before the
-      final `emplace`, or drain `loading_` waiters.
-- [ ] **Shared-inference wait is capped at 10 s** — a claimer that needs more
-      than the cap still causes one duplicate inference per waiting sink.
-      Accepted trade-off; revisit only if slow models appear.
+- [x] **F-01a — typed backend outcome.** `AscendInferenceBackend::RunWithStatus`
+      now distinguishes `ready`, `unavailable`, `invalid_input`, and
+      `execution_error`; skeleton tests cover unavailable and invalid-input
+      behavior. Remaining work is generic status propagation, degraded metrics,
+      explicit CPU fallback policy, and hardware execution.
+- [x] **F-15a — known configuration type validation.** `Config` now reports
+      malformed known numeric, boolean, array, and HLS fields through
+      `validation_errors` and sets `valid=false`; tests cover malformed types.
+- [ ] **F-01b — backend integration policy.** Propagate typed backend outcomes
+      through the generic pipeline, expose readiness/degraded state in health
+      and metrics, and define explicit CPU fallback behavior.
+- [ ] **F-15b — complete configuration schema.** Add required-field/path
+      validation, complete legacy-key coverage, effective-config logging, and
+      application-level startup refusal when `Config::valid` is false.
+- [ ] **F-04 — wall-clock anchoring.** Implement the documented
+      `FrameWallClock::ObservedAnchor` behavior: capture the first valid PTS
+      and wall-clock observation, then calculate later timestamps from the
+      stream time base. Add tests for missing, duplicate, backward, and
+      reconnect timestamps.
+- [ ] **F-02 — recorder result propagation.** Make frame add, flush, trailer,
+      close, filesystem, and codec failures observable in a typed alarm/output
+      result. Do not notify the admin service as successful for an incomplete
+      artifact.
+- [ ] **F-03 — critical alarm delivery.** Separate critical final alarm jobs
+      from best-effort previews/re-encodes. Define retry/backpressure behavior
+      and expose accepted, finalized, dropped, and failed states.
 
-## 4. Housekeeping
+## 3. P1 performance and lifecycle work
 
-- [ ] **Orphan tests** — `tests/event_test.cpp`, `tests/strategic_detect_test.cpp`
-      and `tests/annotator_test.cpp` are not registered in `CMakeLists.txt`;
-      `tests/dynamic_annotator_stub.cpp` is no longer referenced. Register
-      them (and fix their source lists) or delete them.
-- [ ] **CI** — there is no CI workflow. Note the environment quirks if one is
-      added: the system `ctest` is 3.10.2 (no `--test-dir`; run from the
-      build dir or use the ctest from CMake ≥ 3.20), and TSan needs
-      `setarch $(uname -m) -R`.
-- [ ] **Docs** — the README does not document the new knobs
-      (`performance.eventBufferJpegQuality`, empty `preloadModels` disables
-      preloading, `streamReconnect*`) or the `GET /api/metrics` response.
-- [ ] **Plan status** — the Definition of Done checklist in
-      `.trae/documents/analyzer-design-remediation-plan.md` is unchecked.
-      Either tick it against this branch or make this file the status record
-      and point the plan at it.
-- [ ] **Generated build trees** — `build/`, `build-*/`, `build-verify/`,
-      `build-tsan/`, `build-review/`, `build-work/`, `cmake-build-debug/`
-      exist on disk (gitignored); prune stale ones to cut disk noise.
+- [ ] **F-05 — cancellation-aware FFmpeg I/O.** Tie an interrupt callback or
+      equivalent cancellation deadline to pull/probe/read operations. Test
+      stop during DNS, connect, blocked read, reconnect backoff, and EOF.
+- [ ] **F-06 — CPU hot-path profile.** Measure clone, conversion, letterbox,
+      BGR/RGB conversion, tensor packing, inference, annotation, and output
+      enqueue time using admitted-frame rates. Optimize only measured stages;
+      reuse scratch buffers and avoid copies when ownership is safe.
+- [ ] **F-07 — model fairness.** Add per-model/session utilization, queue wait,
+      queue age, result age, shared-inference hit rate, duplicate fallback,
+      and per-video maximum service-gap metrics. If VAL-06 shows starvation,
+      replace static assignment or add fair queue scheduling.
+- [ ] **F-09 — keep media I/O off detection latency.** Measure HLS/event
+      encoding and filesystem stalls against admission latency. Move or bound
+      work that blocks detection, preserving event ordering and output
+      finalization.
+- [ ] **F-13 — byte-bounded packet queues.** Add byte watermarks in addition
+      to packet-count limits. Export queue bytes and drop reasons, especially
+      for large keyframes or bitrate changes.
+- [ ] **F-08 — total memory envelope.** Extend accounting beyond idle JPEG
+      frames to active raw frames, detector mailboxes, packet queues,
+      conversion buffers, push queues, and encoder state. Define process and
+      per-worker overload behavior.
 
-## 5. Open findings from CODEBASE_REVIEW_REPORT.md (2026-10-24)
+## 4. P1 API and deployment hardening
 
-Not yet tracked above; none are addressed by the worker-extraction branch.
+The historical remediation plan marked security out of scope, but these items
+are required for a safe operational contract.
 
-- [ ] **P0 — Ascend backend readiness.** The stub returns `{}` for both device
-      and host inputs, so a configured-but-unavailable NPU looks like a valid
-      empty detection and suppresses alarms
-      (`Analyzer/Core/backend/ascend_inference.cpp`). Add a typed status
-      (`ready`/`unavailable`/`invalid input`/`execution error`) or fail
-      startup when Ascend is required; CPU fallback only when explicitly
-      configured; emit a degraded-mode metric. Note:
-      `tests/ascend/ascend_skeleton_test.cpp` currently pins the unsafe
-      contract and must be updated with the fix.
-- [ ] **P0 — config type fallback.** `json_get_or` swallows all conversion
-      exceptions (`Analyzer/Core/config.cpp`), so a typo or wrong type in a
-      safety/performance setting silently becomes a default. Clamps exist but
-      do not report. Add startup schema validation (path/value/type errors),
-      fail startup for required settings, keep defaults only for optional
-      fields, and log the effective configuration once.
-- [ ] **P1 — end-to-end queue/fairness policy.** Detector, push, event and
-      alarm layers each bound queues differently
-      (`Analyzer/Core/event/event_pipeline.cpp`, `detector/mailbox.h`,
-      `stream/stream_session.cpp`, alarm pipeline). Define one documented
-      per-video policy (decode rate, detection stride, max queue age, push and
-      alarm drop policy, shutdown deadline); export queue depth, oldest-frame
-      age and drop reason per video.
-- [ ] **P1 — CPU hot-path copies.** `EventPipeline::SubmitFrame` converts and
-      `cv::Mat::clone()`s every frame; `detector/inference.cpp` letterboxes,
-      converts BGR→RGB and repacks FP32 NCHW per frame. Profile first; reuse
-      per-worker scratch buffers; avoid the clone when ownership can transfer;
-      consider a native-format backend input contract.
-- [ ] **P1 — inference scaling.** Execution is one image at a time
-      (`Analyzer/Core/detector/yolo_detector_onnx.cpp`,
-      `Analyzer/Core/detector/constant_yolo.cpp`); more detector workers add
-      contention, not throughput. Measure throughput versus
-      `inferenceWorkersPerModel` before changing defaults.
-- [ ] **P1 — recording reliability.** Hard `libx264` requirement, `std::cerr`
-      errors, and `CloseOutputSegment` ignores flush/trailer failures
-      (`Analyzer/Core/video_processing/frame_recorder.cpp`) — a missing
-      encoder or disk failure becomes a partial alarm artifact. Use typed
-      recorder errors, project logging, temp-file/finalize atomicity, and an
-      output-health metric; document codec requirements per architecture.
-- [ ] **P1 — no cancellation-aware FFmpeg read.** RTSP timeouts are set but no
-      `interrupt_callback` is tied to shutdown/deadline
-      (`Analyzer/Core/pipeline/ffmpeg_decoder.cpp`, `stream/stream_session.cpp`),
-      so a blocked demux delays worker shutdown. Wire a cancellation token and
-      test shutdown during connect/read.
-- [ ] **P2 — memory accounting.** `eventBufferBudgetMb` governs idle JPEG
-      frames only; active/ending raw frames and other queues are outside it
-      (`Analyzer/Core/combined_event_manager.cpp`, `config.cpp`). Publish
-      raw/encoded counts and bytes separately and set a process-wide envelope;
-      validate over the §1 30-minute run.
-- [ ] **P2 — build reproducibility.** `CMAKE_BUILD_TYPE` forced to DEBUG,
-      global compiler flags overwritten (incl. `-march=native` on x86), CUDA
-      compiled by default without a provider check (`CMakeLists.txt`). Use
-      target-scoped options, make CUDA opt-in or provider-verified, and add
-      documented release presets for x86_64/aarch64.
+- [ ] **F-10 — request limits and timeouts.** Set a maximum body size before
+      multipart upload buffering, finite HTTP request timeouts, and bounded
+      deferred work. Add tests for oversized and slow clients.
+- [ ] **F-11 — filesystem roots.** Constrain snapshot, clip, cleanup, upload,
+      alarm, and offline paths to configured roots. Add tests for symlinks,
+      traversal, absolute paths, and non-regular files.
+- [ ] **F-12 — outbound HTTP security.** Restore TLS certificate and host
+      verification by default. If insecure mode is needed for development,
+      make it an explicit configuration option and expose its state.
+- [ ] **F-16 — reproducible builds.** Remove unconditional build-type/global
+      flag side effects, make CUDA/provider selection explicit, use
+      target-scoped architecture options, and add x86_64/aarch64 release
+      configure checks.
+
+## 5. P2 tests and maintainability
+
+- [x] **TEST-01a — EventPipeline guard tests.** Added
+      `tests/event_pipeline_test.cpp` and registered `event_pipeline_test`.
+      It covers empty configuration, null-frame handling, invalid video
+      context rejection, manager initialization, and refresh behavior.
+- [ ] **TEST-01b — EventPipeline behavioral integration.** Extend the test
+      harness to cover config-to-manager wiring, invalid-level warning/reset
+      behavior, inactive monitor snapshots, admission counts, and shared
+      inference with fake monitor/analyzer contexts.
+- [x] **TEST-02a — Mailbox/shared-result contracts.** Existing mailbox and
+      shared-inference tests now also cover eight independently schedulable
+      analyzers, ordering, timeout, overwrite, and bounded buffering.
+- [ ] **TEST-02b — Fake inference seam.** Keep ONNX-heavy tests out of TSan
+      when the dependency is uninstrumented, and add a reusable fake
+      inference-session seam for result ordering, fairness, and duplicate
+      fallback at the detector-worker layer.
+- [ ] **TEST-03 — output failure tests.** Inject missing codec, unwritable
+      directory, short write, trailer failure, failed upload, and failed
+      re-encode; assert job status and metrics.
+- [ ] **TEST-04 — shutdown/reconnect tests.** Exercise concurrent monitor
+      removal, blocked inference, blocked pull, push shutdown, worker cleanup,
+      and replacement worker creation under ASan/TSan.
+- [ ] **TEST-05 — configuration tests.** Cover missing, malformed, out-of-
+      range, and valid values; assert defaults, clamps, errors, and effective
+      configuration logging.
+- [ ] **TEST-06 — JPEG range correctness.** Convert limited-range YUV420P to
+      full-range JPEG correctly and back; use a limited-range gradient with an
+      MAE threshold and inspect a representative alarm image.
+- [ ] **TEST-07 — recorder PTS ownership.** Ensure recording does not mutate
+      shared caller frame metadata, or make the ownership/copy contract
+      explicit and test it.
+- [ ] **TEST-08 — test registration.** Resolve orphan sources:
+      `tests/event_test.cpp`, `tests/strategic_detect_test.cpp`,
+      `tests/annotator_test.cpp`, and the unused dynamic annotator stub.
+      Register valid tests or remove obsolete sources deliberately.
+- [ ] **TEST-09 — CI.** Add clean Debug/Release, enabled CTest, ASan, and
+      TSan jobs. Document tool versions, the CTest invocation for older CMake,
+      and any `setarch` requirement.
+
+## 6. Deferred or accepted trade-offs
+
+These are not release blockers by themselves, but they must remain visible:
+
+- [ ] **LOW-01 — DetectorPool shutdown race.** Prevent an in-flight model load
+      from repopulating the pool after shutdown, or drain loading waiters.
+- [ ] **LOW-02 — Shared inference wait cap.** The 10-second wait cap can cause
+      a waiter to duplicate inference. Keep the cap, or make it configurable,
+      and document the duplicate-work trade-off with a test.
+- [ ] **LOW-03 — Active-event memory policy.** Document the intentional choice
+      not to evict active frames under the idle JPEG byte budget; add a
+      separate maximum event duration/overload policy if needed.
+- [ ] **LOW-04 — Dynamic annotator benchmarks.** Turn claimed legend, ROI, and
+      alpha-blending improvements into reproducible benchmarks.
+- [ ] **LOW-05 — generated build trees.** Prune stale `build/`,
+      `build-*/`, `build-review/`, `build-work/`, `build-tsan/`, and
+      `cmake-build-debug/` directories when disk usage matters.
+
+## 7. Completed work
+
+- [x] **DOC-01 — documentation/status record.** README, project status, TODO,
+      and historical remediation-plan links are aligned. See
+      [PROJECT_STATUS.md](PROJECT_STATUS.md).
+- [x] **ARCH-01 — worker extraction.** Decode, event submission, offline
+      analysis, monitor registry, and shared event flow were extracted from
+      the former monolithic worker.
+- [x] **ARCH-02 — stride/admission.** Major/minor stride scheduling,
+      timestamp admission, bounded live/offline mailboxes, and same-task
+      shared inference are implemented.
+- [x] **ARCH-03 — monitor lifetime.** Snapshot-based registry removal and
+      inactive context guards protect in-flight detection work.
+- [x] **ARCH-04 — decode policy seam.** Error budget, backoff, reconnect
+      waiting, and related unit tests are present.
+- [x] **ARCH-05 — event memory controls.** Idle JPEG buffering, event budget
+      configuration, and bounded push/offline queues are present.
+
+## 8. Updating this file
+
+When completing an item:
+
+1. Change only the relevant checkbox.
+2. Record the command, environment, date, and result in
+   [PROJECT_STATUS.md](PROJECT_STATUS.md).
+3. Add or update the focused test/documentation.
+4. Do not mark integration or hardware gates complete based only on static
+   inspection or a component test.
