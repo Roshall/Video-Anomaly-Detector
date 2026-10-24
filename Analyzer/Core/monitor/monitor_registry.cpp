@@ -133,10 +133,12 @@ void MonitorRegistry::PrepareForStream(MonitorContext& ctx,
   } else {
     ctx.analyzer->SetROIs({monitor.roi_points});
   }
-  ctx.roi_entries.clear();
+  auto entries = std::make_shared<RoiEntries>();
   if (!monitor.roi_points.empty()) {
-    ctx.roi_entries.emplace_back(monitor.task, monitor.roi_points);
+    entries->emplace_back(monitor.task, monitor.roi_points);
   }
+  std::atomic_store(&ctx.roi_entries,
+                    std::shared_ptr<const RoiEntries>(std::move(entries)));
 }
 
 void MonitorRegistry::WakeAnalyzers(const std::vector<Ptr>& contexts) {

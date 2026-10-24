@@ -3,6 +3,8 @@
 
 #include "analyzer.h"
 
+#include <memory>
+
 #include <opencv2/opencv.hpp>
 #include <vector>
 
@@ -19,9 +21,14 @@ class BunkOffAnalyzer final : public Analyzer {
  private:
   double overlap_ratio_threshold_{0.3};
 
-  std::vector<std::vector<cv::Point>> roi_polygons_{};
-  std::vector<double> roi_areas_{};
-  std::vector<cv::Rect> roi_bboxes_{};
+  // Immutable ROI state; SetROIs swaps in a new snapshot (pull thread) while
+  // RetrieveDetection reads one (detect thread).
+  struct RoiState {
+    std::vector<std::vector<cv::Point>> polygons;
+    std::vector<double> areas;
+    std::vector<cv::Rect> bboxes;
+  };
+  std::shared_ptr<const RoiState> roi_;
 };
 
 }  // namespace avs_analyzer

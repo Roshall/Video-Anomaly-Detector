@@ -37,11 +37,12 @@ std::vector<cv::Rect> BunkOffAnalyzer::RetrieveDetection() const {
   std::vector<cv::Rect> detection_results;
   const Detection det = FetchRawDetection();
 
-  if (roi_polygons_.empty()) {
+  const auto roi = std::atomic_load(&roi_);
+  if (!roi || roi->polygons.empty()) {
     return detection_results;
   }
 
-  std::vector<bool> roi_has_overlap(roi_polygons_.size(), false);
+  std::vector<bool> roi_has_overlap(roi->polygons.size(), false);
 
   if (!det.bbox.empty()) {
     for (size_t i = 0; i < det.confidences.size(); ++i) {
@@ -55,16 +56,16 @@ std::vector<cv::Rect> BunkOffAnalyzer::RetrieveDetection() const {
       const double bbox_area = static_cast<double>(w) * static_cast<double>(h);
 
       // Check this bbox against each ROI polygon.
-      for (size_t r = 0; r < roi_polygons_.size(); ++r) {
+      for (size_t r = 0; r < roi->polygons.size(); ++r) {
         if (roi_has_overlap[r]) {
           continue;
         }
         std::vector<cv::Point2f> intersectionPoly;
         const auto interaction_area = cv::intersectConvexConvex(
-            roi_polygons_[r],
+            roi->polygons[r],
             std::vector<cv::Point>{{x, y}, {x2, y}, {x2, y2}},
             intersectionPoly);
-        const auto min_area = std::min(roi_areas_[r], bbox_area);
+        const auto min_area = std::min(roi->areas[r], bbox_area);
         if (min_area > 0.0 && (interaction_area / min_area) > overlap_ratio_threshold_) {
           roi_has_overlap[r] = true;
         }
@@ -75,7 +76,7 @@ std::vector<cv::Rect> BunkOffAnalyzer::RetrieveDetection() const {
   // For each ROI with no overlapping bbox, emit its bbox.
   for (size_t r = 0; r < roi_has_overlap.size(); ++r) {
     if (!roi_has_overlap[r]) {
-      detection_results.push_back(roi_bboxes_[r]);
+      detection_results.push_back(roi->bboxes[r]);
     }
   }
 
@@ -83,22 +84,22 @@ std::vector<cv::Rect> BunkOffAnalyzer::RetrieveDetection() const {
 }
 
 void BunkOffAnalyzer::SetROIs(const std::vector<std::vector<cv::Point>>& polygons) {
-  roi_polygons_ = polygons;
+  auto state = std::make_shared<RoiState>();
+  state->polygons = polygons;
+  state->areas.reserve(polygons.size());
+  state->bboxes.reserve(polygons.size());
 
-  roi_areas_.clear();
-  roi_bboxes_.clear();
-  roi_areas_.reserve(roi_polygons_.size());
-  roi_bboxes_.reserve(roi_polygons_.size());
-
-  for (const auto& poly : roi_polygons_) {
+  for (const auto& poly : polygons) {
     if (poly.empty()) {
-      roi_areas_.push_back(0.0);
-      roi_bboxes_.push_back(cv::Rect{});
+      state->areas.push_back(0.0);
+      state->bboxes.push_back(cv::Rect{});
       continue;
     }
-    roi_areas_.push_back(cv::contourArea(poly));
-    roi_bboxes_.push_back(computeBoundingBox(poly));
+    state->areas.push_back(cv::contourArea(poly));
+    state->bboxes.push_back(computeBoundingBox(poly));
   }
+  const std::shared_ptr<const RoiState> snapshot = state;
+  std::atomic_store(&roi_, snapshot);
 }
 
 }  // namespace avs_analyzer

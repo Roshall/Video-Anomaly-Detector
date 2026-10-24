@@ -344,14 +344,13 @@ void StreamSession::RunDecodeLoop(const DecodeLoopHandlers& handlers) {
     return;
   }
 
-  int consecutive_errors = 0;
+  DecodeLoopPolicy policy;
   bool done = false;
 
   while (State() && !done) {
     StreamResourcesPtr frame_resources;
-    switch (GrabFrame(frame.get(), frame_resources)) {
-      case GrabResult::kOk: {
-        consecutive_errors = 0;
+    switch (policy.OnResult(GrabFrame(frame.get(), frame_resources))) {
+      case DecodeLoopPolicy::Action::kProcess: {
         if (metrics_) {
           metrics_->frames_decoded.fetch_add(1, std::memory_order_relaxed);
         }
@@ -412,30 +411,26 @@ void StreamSession::RunDecodeLoop(const DecodeLoopHandlers& handlers) {
         }
         break;
       }
-      case GrabResult::kAgain:
-      case GrabResult::kDecodeError: {
-        if (++consecutive_errors >= 50) {
-          LOGE("worker {} exceeded decode error budget, removing worker",
-               options_.video_code);
-          if (handlers.on_error_budget_exhausted) {
-            handlers.on_error_budget_exhausted();
-          }
-          done = true;
-          break;
-        }
-        const int delay_ms = std::min(500, 10 * consecutive_errors);
-        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+      case DecodeLoopPolicy::Action::kBackoff:
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(policy.backoff_ms()));
         break;
-      }
-      case GrabResult::kReconnecting:
+      case DecodeLoopPolicy::Action::kWaitReconnect:
         // A reconnect is in progress; wait briefly instead of spinning.
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(DecodeLoopPolicy::kReconnectWaitMs));
         break;
-      case GrabResult::kEof:
-        LOGI("worker {} reached end of stream", options_.video_code);
+      case DecodeLoopPolicy::Action::kRemoveWorker: {
+        LOGE("worker {} exceeded decode error budget, removing worker",
+             options_.video_code);
+        if (handlers.on_error_budget_exhausted) {
+          handlers.on_error_budget_exhausted();
+        }
         done = true;
         break;
-      case GrabResult::kFatal:
+      }
+      case DecodeLoopPolicy::Action::kStop:
+        LOGI("worker {} reached end of stream", options_.video_code);
         done = true;
         break;
     }

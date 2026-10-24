@@ -59,6 +59,15 @@ tracked in §5.
       to `MonitorRegistry`, and the shared per-frame event flow to
       `Core/event/event_runner.{h,cpp}` (`c1856d5`). `worker.cpp` is 393
       lines (from 830).
+- [x] **Pull-thread ROI races (found in the branch review).** `PrepareForStream`
+      ran on the pull thread and mutated `ctx->roi_entries` plus the analyzers`
+      ROI vectors while the detect thread read them. `MonitorContext::roi_entries`
+      and the analyzer ROI state (`GeneralAnalyzer`, `BunkOffAnalyzer`) are now
+      immutable snapshots published with `std::atomic` `shared_ptr` — swap on
+      (re)connect, load once on the detect thread.
+- [x] **Decode-loop state machine had no test seam.** The error budget, backoff
+      and reconnect waiting now live in `stream/decode_loop_policy.{h,cpp}`
+      with unit tests (`tests/decode_loop_policy_test.cpp`).
 - [x] **TaskLabels was O(n²)** — now an `unordered_set` scan in
       `Analyzer/Core/monitor/monitor_registry.cpp:78` (was a `std::find_if`
       per monitor in the removed `Worker::GetMonitorTasks`).

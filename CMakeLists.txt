@@ -291,6 +291,7 @@ set(analyzer_core_source
         Analyzer/Core/server_apis/api_storage.cpp
         Analyzer/Core/server_apis/api_system.cpp
         Analyzer/Core/server_apis/api_test.cpp
+        Analyzer/Core/stream/decode_loop_policy.cpp
         Analyzer/Core/stream/frame_timestamp.cpp
         Analyzer/Core/stream/stream_session.cpp
         Analyzer/Core/streamer.cpp
@@ -451,6 +452,7 @@ if(BUILD_TESTS)
     analyzer_add_test(event_submit_test tests/event_submit_test.cpp)
     analyzer_add_test(event_runner_test tests/event_runner_test.cpp)
     analyzer_add_test(frame_timestamp_test tests/frame_timestamp_test.cpp)
+    analyzer_add_test(decode_loop_policy_test tests/decode_loop_policy_test.cpp)
 
     # Requires an RTSP URL argument.
     analyzer_add_manual_test(write_test

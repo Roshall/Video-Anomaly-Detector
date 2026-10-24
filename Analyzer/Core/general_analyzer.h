@@ -3,6 +3,8 @@
 
 #include "analyzer.h"
 
+#include <memory>
+
 #include <opencv2/opencv.hpp>
 #include <vector>
 
@@ -17,9 +19,14 @@ class GeneralAnalyzer final : public Analyzer {
   void SetROIs(const std::vector<std::vector<cv::Point>>& polygons) override;
 
  private:
-  double roi_area_{};
-  cv::Rect roi_bbox_{};
-  std::vector<cv::Point> roi_points_{};
+  // Immutable ROI state; SetROIs swaps in a new snapshot (pull thread) while
+  // RetrieveDetection reads one (detect thread).
+  struct RoiState {
+    std::vector<cv::Point> points;
+    double area{};
+    cv::Rect bbox{};
+  };
+  std::shared_ptr<const RoiState> roi_;
   mutable std::atomic<bool> warned_no_roi_{false};
 };
 

@@ -18,6 +18,9 @@
 namespace avs_analyzer {
 namespace {
 
+// Fallback for contexts whose ROIs were never parsed (e.g. no geometry yet).
+const std::vector<DynamicAnnotator::ROIEntry> kNoRoiEntries;
+
 // Snapshot of one monitor's detector state for alarm handling. The context
 // pointer keeps the monitor alive until the frame is fully processed.
 struct MonitorEventSnapshot {
@@ -265,9 +268,11 @@ EventPipelineResult EventPipeline::ProcessFrame(
     if (ctx->detector->detections().empty()) {
       continue;
     }
+    const auto roi_entries = std::atomic_load(&ctx->roi_entries);
     detector_infos.emplace_back(
         ctx->monitor->code, ctx->monitor->task, state,
-        ctx->detector->detections(), ctx->roi_entries,
+        ctx->detector->detections(),
+        roi_entries ? *roi_entries : kNoRoiEntries,
         ctx->detector->event_start_timestamp(), ctx->detector->start_ts());
     snapshots.push_back(
         {ctx, ctx->monitor->code, state, ctx->detector->start_ts(),

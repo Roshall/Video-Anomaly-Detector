@@ -13,6 +13,8 @@
 #include "av_pull_stream.h"
 #include "av_push_stream.h"
 #include "frame.h"
+#include "stream/decode_loop_policy.h"
+#include "stream/grab_result.h"
 #include "frame_walk_time.h"
 #include "metrics.h"
 #include "video_processing/format_convertor.h"
@@ -25,16 +27,6 @@ extern "C" {
 
 namespace avs_analyzer {
 class Scheduler;
-
-// Result of one decode attempt from StreamSession::GrabFrame.
-enum class GrabResult {
-  kOk,
-  kAgain,         // Retryable decoder state; back off before the next attempt.
-  kReconnecting,  // Woken without data while a reconnect is in progress.
-  kEof,
-  kDecodeError,
-  kFatal,
-};
 
 // One decoded frame handed to the worker's per-frame handler. The frame is
 // borrowed: it is only valid for the duration of the callback.

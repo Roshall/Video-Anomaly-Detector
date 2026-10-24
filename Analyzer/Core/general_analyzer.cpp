@@ -20,7 +20,8 @@ std::vector<cv::Rect> GeneralAnalyzer::RetrieveDetection() const {
   }
 
   // If no ROI was configured, fall back to confidence-only filtering.
-  const bool has_roi = !roi_points_.empty();
+  const auto roi = std::atomic_load(&roi_);
+  const bool has_roi = roi && !roi->points.empty();
   if (!has_roi) {
     // Warn once per analyzer instance to avoid log spam
     bool expected = false;
@@ -43,7 +44,7 @@ std::vector<cv::Rect> GeneralAnalyzer::RetrieveDetection() const {
     const float m_y = static_cast<float>(y + h);
 
     const auto point_to_polygon =
-        cv::pointPolygonTest(roi_points_, {m_x, m_y}, false);
+        cv::pointPolygonTest(roi->points, {m_x, m_y}, false);
     if (point_to_polygon > 0) {
       detection_results.push_back(det.bbox[i]);
     }
@@ -55,15 +56,16 @@ std::vector<cv::Rect> GeneralAnalyzer::RetrieveDetection() const {
 void GeneralAnalyzer::SetROIs(const std::vector<std::vector<cv::Point>>& polygons) {
   // General analyzer expects a single ROI polygon; use the first when present.
   if (polygons.empty() || polygons.front().empty()) {
-    roi_points_.clear();
-    roi_area_ = 0.0;
-    roi_bbox_ = cv::Rect{};
+    std::atomic_store(&roi_, std::shared_ptr<const RoiState>());
     return;
   }
 
-  roi_points_ = polygons.front();
-  roi_area_ = cv::contourArea(roi_points_);
-  roi_bbox_ = cv::boundingRect(roi_points_);
+  auto state = std::make_shared<RoiState>();
+  state->points = polygons.front();
+  state->area = cv::contourArea(state->points);
+  state->bbox = cv::boundingRect(state->points);
+  const std::shared_ptr<const RoiState> snapshot = state;
+  std::atomic_store(&roi_, snapshot);
 }
 
 }  // namespace avs_analyzer

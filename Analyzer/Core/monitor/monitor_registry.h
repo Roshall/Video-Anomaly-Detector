@@ -25,12 +25,19 @@ class AnalyzerRegistration;
 // monitor is removed; `active` tells the detect loop to stop using it.
 // Analyzer/detector are shared_ptr so a snapshot can outlive the registry
 // entry without requiring their complete types in this header.
+// Immutable ROI entry list. Replaced (not mutated) whenever the stream
+// geometry changes, so the pull thread never writes a vector the detect
+// thread is reading.
+using RoiEntries = std::vector<DynamicAnnotator::ROIEntry>;
+
 struct MonitorContext {
   std::unique_ptr<Monitor> monitor;
   std::shared_ptr<Analyzer> analyzer;
   std::shared_ptr<EventDetector> detector;
   std::shared_ptr<AnalyzerRegistration> registration;
-  std::vector<DynamicAnnotator::ROIEntry> roi_entries;
+  // Published atomically: PrepareForStream swaps in a new list (pull
+  // thread), ProcessFrame loads a stable snapshot (detect thread).
+  std::shared_ptr<const RoiEntries> roi_entries;
   EventDetectorConfig event_cfg;
   std::atomic<int> current_highest_level{0};
   std::atomic<bool> active{true};
