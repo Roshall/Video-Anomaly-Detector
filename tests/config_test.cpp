@@ -95,3 +95,35 @@ TEST_F(ConfigTest, SharedResultWaitOutlastsTheDefaultResultTimeout) {
       std::chrono::milliseconds(config.inference_result_timeout_ms);
   EXPECT_GT(avs_analyzer::SharedResultWaitFor(timeout), timeout);
 }
+
+TEST_F(ConfigTest, MalformedPerformanceTypeIsRejectedAndReported) {
+  const auto path =
+      WriteConfig(R"({"performance":{"eventBufferBudgetMb":"large"}})");
+  avs_analyzer::Config config(path.c_str());
+
+  EXPECT_FALSE(config.valid);
+  ASSERT_FALSE(config.validation_errors.empty());
+  EXPECT_NE(config.validation_errors.front().find("eventBufferBudgetMb"),
+            std::string::npos);
+}
+
+TEST_F(ConfigTest, MalformedPreloadModelsTypeIsRejectedAndReported) {
+  const auto path =
+      WriteConfig(R"({"performance":{"preloadModels":"yolov8n.onnx"}})");
+  avs_analyzer::Config config(path.c_str());
+
+  EXPECT_FALSE(config.valid);
+  ASSERT_FALSE(config.validation_errors.empty());
+  EXPECT_NE(config.validation_errors.front().find("preloadModels"),
+            std::string::npos);
+}
+
+TEST_F(ConfigTest, ValidConfigurationReportsEffectiveState) {
+  const auto path =
+      WriteConfig(R"({"performance":{"eventBufferBudgetMb":128}})");
+  avs_analyzer::Config config(path.c_str());
+
+  EXPECT_TRUE(config.valid);
+  EXPECT_TRUE(config.validation_errors.empty());
+  EXPECT_EQ(config.event_buffer_budget_mb, 128);
+}

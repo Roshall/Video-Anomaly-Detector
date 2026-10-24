@@ -11,6 +11,8 @@ struct Config {
   explicit Config(const char* file);
 
   bool state = false;
+  bool valid = false;
+  std::vector<std::string> validation_errors;
   int thread_pool_size{3};
   // Dedicated pools: offline file analysis and alarm I/O.
   int offline_threads{2};

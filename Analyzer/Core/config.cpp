@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <sstream>
 
 #include "Utils/log.h"
 #include <format>
@@ -15,6 +16,36 @@ using namespace std::string_literals;
 
 namespace avs_analyzer {
 namespace {
+std::string json_path(std::initializer_list<const char*> path) {
+  std::string result;
+  for (const auto* key : path) {
+    if (!result.empty()) {
+      result += '.';
+    }
+    result += key;
+  }
+  return result;
+}
+
+void validate_type(const nlohmann::json& root,
+                   std::initializer_list<const char*> path,
+                   nlohmann::json::value_t type,
+                   std::vector<std::string>& errors) {
+  const nlohmann::json* current = &root;
+  for (const auto* key : path) {
+    if (!current->is_object() || !current->contains(key)) {
+      return;
+    }
+    current = &(*current)[key];
+  }
+  if (current->type() != type) {
+    errors.push_back(fmt::format("{} must be {}, got {}",
+                                 json_path(path),
+                                 nlohmann::json(type).dump(),
+                                 current->type_name()));
+  }
+}
+
 template <typename T>
 T json_get_or(const nlohmann::json& j, std::initializer_list<const char*> path,
               T def) {
@@ -27,7 +58,7 @@ T json_get_or(const nlohmann::json& j, std::initializer_list<const char*> path,
   }
   try {
     return cur->get<T>();
-  } catch (...) {
+  } catch (const nlohmann::json::exception&) {
     return def;
   }
 }
@@ -52,6 +83,48 @@ Config::Config(const char* file) {
   } catch (const std::exception& e) {
     LOGE("Json parse error:{}", e.what());
     return;
+  }
+
+  const auto validate_integer = [&](std::initializer_list<const char*> path) {
+    const nlohmann::json* current = &root;
+    for (const auto* key : path) {
+      if (!current->is_object() || !current->contains(key)) {
+        return;
+      }
+      current = &(*current)[key];
+    }
+    if (!current->is_number_integer() && !current->is_number_unsigned()) {
+      validation_errors.push_back(fmt::format(
+          "{} must be an integer, got {}", json_path(path),
+          current->type_name()));
+    }
+  };
+  validate_integer({"application", "threadPoolSize"});
+  validate_integer({"application", "offlineThreads"});
+  validate_integer({"application", "alarmThreads"});
+  validate_integer({"application", "maxPendingAlarmJobs"});
+  validate_integer({"application", "fileCacheTimeout"});
+  validate_integer({"application", "rtspProbeTimeoutMs"});
+  validate_integer({"application", "inferenceResultTimeoutMs"});
+  validate_integer({"performance", "inferenceWorkersPerModel"});
+  validate_integer({"performance", "inferenceWorkersPerModelAccelerated"});
+  validate_integer({"performance", "offlinePipelineDepth"});
+  validate_integer({"performance", "eventBufferBudgetMb"});
+  validate_integer({"performance", "eventBufferJpegQuality"});
+  validate_integer({"performance", "pushQueueMaxFrames"});
+  validate_integer({"performance", "streamReconnectMaxAttempts"});
+  validate_integer({"performance", "streamReconnectBackoffMs"});
+  validate_integer({"performance", "streamReconnectBackoffMaxMs"});
+  validate_integer({"hls_config", "segment_seconds"});
+  validate_integer({"hls_config", "playlist_size"});
+  validate_type(root, {"performance", "preloadModels"},
+                nlohmann::json::value_t::array, validation_errors);
+  validate_type(root, {"DLModel", "acceleratorInference"},
+                nlohmann::json::value_t::boolean, validation_errors);
+  validate_type(root, {"hls_config", "delete_segments"},
+                nlohmann::json::value_t::boolean, validation_errors);
+  for (const auto& error : validation_errors) {
+    LOGE("configuration validation error: {}", error);
   }
 
   try {
@@ -229,7 +302,8 @@ Config::Config(const char* file) {
         std::filesystem::create_directory(path);
       }
 
-      state = true;
+        state = validation_errors.empty();
+        valid = state;
     } catch (std::filesystem::filesystem_error& e) {
       LOGE("could not find upload dir: {}",e.what());
     }
