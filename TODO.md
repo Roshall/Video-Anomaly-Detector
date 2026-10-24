@@ -52,11 +52,11 @@ suite is clean. The items below are what is still open.
       convert limited→full on encode and full→limited on decode via
       `sws_setColorspaceDetails`, then verify with a synthetic limited-range
       gradient (MAE) and a visual check of alarm clips.
-- [ ] **Worker extraction incomplete** — `Analyzer/Core/worker.cpp` is 830 lines
-      vs the ~350 target. `DetectEvent` (`:431`), `AddTasks` (`:608`) and
-      `OfflineAnalyze` (`:286`) still own the decode-loop state machine
-      (error budget, generation tracking, geometry re-init); move them into
-      `StreamSession`/`EventPipeline`.
+- [x] **Worker extraction** — done in `refactor/worker-extraction`
+      (`c372ba5`): the decode loop moved to `StreamSession::RunDecodeLoop`,
+      frame admission/submission to `EventPipeline::SubmitFrame`, offline
+      analysis to `Core/offline/offline_pipeline`, and monitor lifecycle
+      helpers to `MonitorRegistry`. `worker.cpp` is 398 lines (from 830).
 - [ ] **DetectorPool shutdown vs in-flight loads** —
       `DetectorPool::StopAllDetectors` (`Analyzer/Core/detector/constant_yolo.cpp:250`)
       drains `runtimes_` but not `loading_`; a load that finishes after
