@@ -14,6 +14,7 @@
 #include "analyzer_registration.h"
 #include "config.h"
 #include "event/event_pipeline.h"
+#include "event/event_runner.h"
 #include "monitor.h"
 #include "offline/offline_pipeline.h"
 #include "scheduler.h"
@@ -253,9 +254,26 @@ void Worker::DetectEvent() {
   EnsureAnnotatorReady();
   RebuildEventManager();
 
+  EventRunner runner(
+      *events_, *alarms_, /*notify_transition=*/true,
+      EventRunner::Hooks{
+          .on_alarm =
+              [this](const AlarmRequest& request) {
+                if (auto* alarm = scheduler_->GetAlarmController()) {
+                  alarm->trigger();
+                  LOGD("Alarm sound triggered for monitor {}",
+                       request.monitor_code);
+                }
+              },
+          .on_annotated_frame =
+              [this](std::shared_ptr<const Frame> frame) {
+                stream_->PushFrame(std::move(frame));
+              },
+      });
+
   DecodeLoopHandlers handlers;
-  handlers.on_frame = [this](const DecodedFrame& decoded) {
-    return HandleFrame(decoded);
+  handlers.on_frame = [this, &runner](const DecodedFrame& decoded) {
+    return HandleFrame(runner, decoded);
   };
   handlers.on_new_generation = [this]() {
     // A reconnect may change the geometry; rebuild the annotator for the
@@ -278,7 +296,7 @@ void Worker::DetectEvent() {
       canceled_all_monitors_.load(std::memory_order_acquire));
 }
 
-bool Worker::HandleFrame(const DecodedFrame& decoded) {
+bool Worker::HandleFrame(EventRunner& runner, const DecodedFrame& decoded) {
   // One snapshot per frame: admission and event processing must see the same
   // monitor set.
   const auto snapshot = monitors_.Snapshot();
@@ -289,34 +307,11 @@ bool Worker::HandleFrame(const DecodedFrame& decoded) {
       metrics_->frames_skipped.fetch_add(1, std::memory_order_relaxed);
     }
   } else {
-    events_->SubmitFrame(decoded.frame, *convertor, decoded.timestamp_ms,
-                         snapshot);
+    runner.Submit(decoded.frame, *convertor, decoded.timestamp_ms, snapshot);
   }
 
-  auto result = events_->ProcessFrame(decoded.frame, decoded.timestamp_ms,
-                                      decoded.timestamp, snapshot);
-  alarms_->OnTransition(result.transition, result.event_id, decoded.timestamp);
-
-  for (const auto& request : result.alarms) {
-    if (auto* alarm = scheduler_->GetAlarmController()) {
-      alarm->trigger();
-      LOGD("Alarm sound triggered for monitor {}", request.monitor_code);
-    }
-    alarms_->EmitImage(request);
-  }
-
-  if (result.flushed_event) {
-    auto& event = result.flushed_event.value();
-    if (event) {
-      const int64_t start_pts = event->start_timestamp;
-      alarms_->SubmitEvent(std::move(event), result.event_id, start_pts);
-    }
-  }
-
-  // Route annotated frames to the output stream.
-  if (result.annotated_frame) {
-    stream_->PushFrame(result.annotated_frame);
-  }
+  runner.Process(decoded.frame, decoded.timestamp_ms, decoded.timestamp,
+                 snapshot);
   return State();
 }
 

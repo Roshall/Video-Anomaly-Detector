@@ -275,6 +275,7 @@ set(analyzer_core_source
         Analyzer/Core/detector/yolo_detector_onnx.h
         Analyzer/Core/event.cpp
         Analyzer/Core/event/event_pipeline.cpp
+        Analyzer/Core/event/event_runner.cpp
         Analyzer/Core/general_analyzer.cpp
         Analyzer/Core/imaging/opencv_image_processor.cpp
         Analyzer/Core/monitor/monitor_registry.cpp

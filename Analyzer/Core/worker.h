@@ -23,6 +23,7 @@ class Scheduler;
 class StreamSession;
 class EventPipeline;
 class AlarmPipeline;
+class EventRunner;
 struct DecodedFrame;
 
 // Composition root for one video stream. It owns the monitor registry and the
@@ -63,7 +64,7 @@ class Worker {
   void DetectEvent();
   // Per-frame handler called by StreamSession's decode loop. Returns false to
   // stop the loop.
-  bool HandleFrame(const DecodedFrame& decoded);
+  bool HandleFrame(EventRunner& runner, const DecodedFrame& decoded);
   void EnsureAnnotatorReady(bool force_rebuild = false);
   void RebuildEventManager();
   void SyncPushRequest();

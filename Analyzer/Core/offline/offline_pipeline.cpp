@@ -14,6 +14,7 @@
 #include "config.h"
 #include "event.h"
 #include "event/event_pipeline.h"
+#include "event/event_runner.h"
 #include "frame.h"
 #include "frame_walk_time.h"
 #include "helper.h"
@@ -116,13 +117,9 @@ void OfflinePipeline::Run(Context context) {
                                   context.monitors->TaskLabels(), true);
   context.alarms->Configure(width, height, 25, width, height);
 
-  auto submit_event = [&](std::unique_ptr<Event> event, int64_t alarm_id) {
-    if (!event) {
-      return;
-    }
-    const int64_t start_pts = event->start_timestamp;
-    context.alarms->SubmitEvent(std::move(event), alarm_id, start_pts);
-  };
+  // Offline analysis has no stream state, so transitions are not notified.
+  EventRunner runner(*context.events, *context.alarms,
+                     /*notify_transition=*/false);
 
   // Submit frames up to pipeline_depth ahead of the event-processing
   // cursor so inference and event handling overlap. The mailbox backlog per
@@ -151,8 +148,7 @@ void OfflinePipeline::Run(Context context) {
     holder->pict_type = AV_PICTURE_TYPE_NONE;
     const auto timestamp_ms =
         av_rescale_q(timestamp, in_time_base, AVRational{1, 1000});
-    context.events->SubmitFrame(holder.get(), *convertor, timestamp_ms,
-                                monitors);
+    runner.Submit(holder.get(), *convertor, timestamp_ms, monitors);
     pending.push_back({std::move(holder), timestamp_ms, timestamp});
     return true;
   };
@@ -171,21 +167,14 @@ void OfflinePipeline::Run(Context context) {
       enqueue_next();
     }
 
-    auto result = context.events->ProcessFrame(
-        current.frame.get(), current.timestamp_ms, current.timestamp,
-        monitors);
-    for (const auto& request : result.alarms) {
-      context.alarms->EmitImage(request);
-    }
-    if (result.flushed_event) {
-      submit_event(std::move(result.flushed_event.value()), result.event_id);
-    }
+    runner.Process(current.frame.get(), current.timestamp_ms,
+                   current.timestamp, monitors);
   }
 
   // Flush any remaining pending events at EOF.
   const int64_t tail_id = context.events->CurrentEventId();
   for (auto& event : context.events->FlushPending()) {
-    submit_event(std::move(event), tail_id);
+    runner.SubmitEvent(std::move(event), tail_id);
   }
 
   finish();
