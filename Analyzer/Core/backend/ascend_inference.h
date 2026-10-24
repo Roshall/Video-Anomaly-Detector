@@ -22,6 +22,20 @@ namespace avs_analyzer::backend {
 using io::DeviceTensor;
 using io::HostTensor;
 
+enum class AscendRunStatus {
+  kReady,
+  kUnavailable,
+  kInvalidInput,
+  kExecutionError,
+};
+
+const char* AscendRunStatusToString(AscendRunStatus status) noexcept;
+
+struct AscendRunResult {
+  AscendRunStatus status{AscendRunStatus::kUnavailable};
+  std::vector<DetectionResult> results;
+};
+
 class AscendInferenceBackend final : public IInferenceBackend {
  public:
   explicit AscendInferenceBackend(ascend::OmModelConfig model,
@@ -33,8 +47,9 @@ class AscendInferenceBackend final : public IInferenceBackend {
   }
 
   [[nodiscard]] std::vector<DetectionResult> Run(const ModelInput& input) override;
+  [[nodiscard]] AscendRunResult RunWithStatus(const ModelInput& input);
 
-  /// 模型是否加载成功。未就绪时 Run() 返回空结果而不是崩溃。
+  /// 模型是否加载成功。
   [[nodiscard]] bool ready() const noexcept { return ready_; }
   [[nodiscard]] ascend::AscendError last_error() const noexcept {
     return last_error_;

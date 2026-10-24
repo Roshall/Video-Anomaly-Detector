@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -59,11 +60,37 @@ TEST(AscendInference, ReportsNpuBackendAndEmptyResultsWhenUnready) {
   backend::AscendInferenceBackend b(cfg, 0);
 
   EXPECT_EQ(b.backend(), io::BackendKind::kNpu);
-  // 模型加载失败时 Run() 必须返回空结果，而不是崩溃/抛异常。
-  EXPECT_TRUE(b.Run(io::ModelInput{io::HostTensor{}}).empty());
+  // 模型加载失败时必须是明确的 unavailable，而不是成功的空检测。
+  io::HostTensor unavailable_input;
+  unavailable_input.dims = {1, 3, 640, 640};
+  unavailable_input.data.resize(3 * 640 * 640);
+  const auto result =
+      b.RunWithStatus(io::ModelInput{std::move(unavailable_input)});
+  EXPECT_EQ(result.status, backend::AscendRunStatus::kUnavailable);
+  EXPECT_TRUE(result.results.empty());
   if (!b.ready()) {
     EXPECT_NE(b.last_error(), ascend::AscendError::kSuccess);
   }
+}
+
+TEST(AscendInference, InvalidInputsAreTypedAndNeverLookLikeNoDetection) {
+  ascend::OmModelConfig cfg;
+  cfg.model_path = "does-not-exist.om";
+  backend::AscendInferenceBackend b(cfg, 0);
+
+  io::DeviceTensor empty_device;
+  const auto result = b.RunWithStatus(io::ModelInput{empty_device});
+  EXPECT_EQ(result.status, backend::AscendRunStatus::kInvalidInput);
+  EXPECT_TRUE(result.results.empty());
+}
+
+TEST(AscendInference, StatusStringIsStable) {
+  EXPECT_STREQ(backend::AscendRunStatusToString(
+                   backend::AscendRunStatus::kUnavailable),
+               "unavailable");
+  EXPECT_STREQ(backend::AscendRunStatusToString(
+                   backend::AscendRunStatus::kInvalidInput),
+               "invalid_input");
 }
 
 TEST(AscendInference, EmptyDeviceInputIsRejected) {
