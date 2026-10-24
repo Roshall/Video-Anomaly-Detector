@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <spdlog/fmt/fmt.h>
 
-#include "constant_pool.h"
 #include "detector/inference.h"
 #include "constant_yolo.h"
 using avs_analyzer::Task;

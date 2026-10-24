@@ -118,6 +118,8 @@ void AvPullStream::PublishResources(StreamResourcesPtr resources) {
   // Packets queued for the previous generation are useless once the new
   // decoder is live; drop them so the detect thread does not decode stale data.
   ClearPacketQueue();
+  // Rate-limit state is per generation: log the first drop after a reconnect.
+  dropped_packets_.store(0, std::memory_order_relaxed);
   std::atomic_store(&current_, std::move(resources));
 }
 
@@ -222,7 +224,12 @@ void AvPullStream::Read() {
     if (ret >= 0) {
       if (pkt->stream_index == resources->video_index) {
         if (video_pkt_queue_.size_approx() > 300) {
-          LOGW("too many packages to decode, dropping one.");
+          const uint64_t dropped =
+              dropped_packets_.fetch_add(1, std::memory_order_relaxed) + 1;
+          if (ShouldLogOverflow(dropped)) {
+            LOGW("decode queue overflow: dropped {} packet(s), queue ~{}",
+                 dropped, video_pkt_queue_.size_approx());
+          }
           av_packet_unref(pkt.get());
           continue;
         }

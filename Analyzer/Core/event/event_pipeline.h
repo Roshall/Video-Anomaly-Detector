@@ -1,6 +1,7 @@
 #ifndef ANALYZER_EVENT_PIPELINE_H
 #define ANALYZER_EVENT_PIPELINE_H
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -8,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include "combined_event_manager.h"
@@ -75,13 +77,18 @@ class EventPipeline {
 
  private:
   [[nodiscard]] size_t EventBufferBudgetBytes() const;
-  static int ComputeLevelIndex(
+  int ComputeLevelIndex(
       const std::pair<std::vector<int>, std::vector<std::string>>& levels,
       LevelMode level_mode, int64_t num_detection, int64_t event_duration,
       std::string_view monitor_code);
 
   Scheduler* scheduler_{nullptr};
   std::string video_code_;
+  // Monitors already warned about an invalid levels config. Owned by the
+  // detect thread; config refreshes re-arm it through this flag instead of
+  // touching the set from the control thread.
+  std::unordered_set<std::string> level_error_logged_;
+  std::atomic<bool> level_log_reset_{true};
   bool file_{false};
   std::shared_ptr<WorkerMetrics> metrics_;
 

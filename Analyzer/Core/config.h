@@ -25,6 +25,8 @@ struct Config {
   int offline_pipeline_depth{4};
   // Per-worker cap for buffered pre-roll / event frames.
   int event_buffer_budget_mb{256};
+  // MJPEG quality_q (2..31, lower = better) for buffered idle pre-roll.
+  int event_buffer_jpeg_quality{8};
   // Bounded per-stream push queue; newest frames are dropped when full.
   int push_queue_max_frames{50};
   // Reconnect policy for pull streams.

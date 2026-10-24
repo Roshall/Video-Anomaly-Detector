@@ -38,6 +38,11 @@ if(ANALYZER_SANITIZE)
     message(STATUS "Enabling sanitizer: ${ANALYZER_SANITIZE}")
     add_compile_options(-fsanitize=${ANALYZER_SANITIZE} -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=${ANALYZER_SANITIZE})
+    if(ANALYZER_SANITIZE STREQUAL "thread")
+        # ONNX Runtime is not TSan-instrumented; model-backed tests skip
+        # under TSan to avoid third-party false positives.
+        add_compile_definitions(ANALYZER_TSAN=1)
+    endif()
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
@@ -232,7 +237,6 @@ set(analyzer_core_source
         Analyzer/Core/combined_event_manager.cpp
         Analyzer/Core/config.cpp
         Analyzer/Core/detection_algorithm.cpp
-        Analyzer/Core/detector/constant_pool.h
         Analyzer/Core/detector/constant_yolo.cpp
         Analyzer/Core/detector/inference.cpp
         Analyzer/Core/detector/yolo_detector_onnx.cpp
@@ -386,6 +390,11 @@ if(BUILD_TESTS)
     endfunction()
 
     analyzer_add_test(yuv_test tests/yuv_test.cpp)
+
+    analyzer_add_test(config_test tests/config_test.cpp)
+    analyzer_add_test(detector_pool_test tests/detector_pool_test.cpp)
+    set_tests_properties(detector_pool_test PROPERTIES TIMEOUT 120)
+    analyzer_add_test(stream_log_test tests/stream_log_test.cpp)
 
     # Requires an RTSP URL argument.
     analyzer_add_manual_test(write_test

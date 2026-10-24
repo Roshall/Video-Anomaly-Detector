@@ -8,7 +8,6 @@
 #include <opencv2/opencv.hpp>
 
 #include "algorithm.h"
-#include "detector/constant_yolo.h"
 #include "tracker/ByteTrack/BYTETracker.h"
 
 namespace avs_analyzer {
@@ -21,7 +20,6 @@ class TrackAlgorithm: public Algorithm {
 
  private:
   byte_track::BYTETracker tracker_;
-  std::shared_ptr<const YOLODetector> detector_;
   uint64_t min_frame_duration_;
 };
 }  // namespace avs_analyzer

@@ -64,6 +64,12 @@ class AvPullStream {
 
   std::atomic<int> connect_count{0};
 
+  // Rate-limit predicate for the decode-queue overflow warning: log the
+  // first dropped packet of a generation and then every 100th.
+  [[nodiscard]] static bool ShouldLogOverflow(uint64_t dropped) {
+    return dropped != 0 && (dropped == 1 || dropped % 100 == 0);
+  }
+
   [[nodiscard]] StreamResourcesPtr Current() const {
     return std::atomic_load(&current_);
   }
@@ -91,6 +97,8 @@ class AvPullStream {
   ConcurrentQueue<StreamPacket> video_pkt_queue_;
   std::counting_semaphore<> pkt_cs_{0};
   std::atomic<bool> shutdown_{false};
+  // Rate-limit the decode-queue overflow warning (first + every 100 drops).
+  std::atomic<uint64_t> dropped_packets_{0};
   std::atomic<bool> eof_{false};
   uint64_t generation_{0};
   // File inputs are reopened as files, never with RTSP options.

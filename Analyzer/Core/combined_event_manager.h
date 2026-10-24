@@ -80,6 +80,8 @@ class CombinedEventManager {
   void UpdateConfig(const CombinedEventConfig& config);
   // Caps the bytes retained by the frame buffer. 0 disables the byte budget.
   void UpdateMemoryBudget(size_t bytes);
+  // MJPEG quality_q (2..31, lower = better) for buffered idle frames.
+  void UpdateBufferJpegQuality(int quality_q);
   void SetAnnotator(std::shared_ptr<DynamicAnnotator> annotator) noexcept;
 
   Result ProcessFrame(const AVFrame* source_frame, int64_t timestamp_ms,
@@ -147,11 +149,13 @@ class CombinedEventManager {
   size_t buffer_bytes_{0};
   // Written by the control thread, read by the detect thread. 0 = unlimited.
   std::atomic<size_t> memory_budget_bytes_{0};
+  std::atomic<int> buffer_jpeg_quality_{8};
   uint64_t buffer_evictions_{0};
   // Encodes idle frames and decodes them again at flush time. Owned by the
   // event manager, so only the detect thread touches it.
   std::unique_ptr<JPEGEncoder> buffer_codec_{};
   int buffer_codec_width_{0};
+  int buffer_codec_quality_{-1};
   int buffer_codec_height_{0};
   std::unordered_map<std::string, MonitorState> monitor_state_{};
   MaxDuration max_duration_state_{MaxDuration::kNotExceeded};

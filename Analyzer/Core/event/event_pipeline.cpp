@@ -51,6 +51,10 @@ size_t EventPipeline::EventBufferBudgetBytes() const {
 
 void EventPipeline::UpdateConfig(
     const std::vector<MonitorRegistry::Ptr>& monitors, bool offline_mode) {
+  // Monitor set/config changed: allow a fixed-then-broken monitor to warn
+  // again instead of staying silent for the pipeline's lifetime. The set
+  // itself belongs to the detect thread, so hand the reset over via a flag.
+  level_log_reset_.store(true, std::memory_order_relaxed);
   CombinedEventConfig cfg{};
   for (const auto& ctx : monitors) {
     if (!ctx) {
@@ -88,6 +92,10 @@ void EventPipeline::UpdateConfig(
   }
   manager->UpdateConfig(cfg);
   manager->UpdateMemoryBudget(EventBufferBudgetBytes());
+  if (scheduler_) {
+    manager->UpdateBufferJpegQuality(
+        scheduler_->GetConfig().event_buffer_jpeg_quality);
+  }
 }
 
 void EventPipeline::UpdateMemoryBudget(size_t bytes) {
@@ -269,7 +277,15 @@ int EventPipeline::ComputeLevelIndex(
     LevelMode level_mode, int64_t num_detection, int64_t event_duration,
     std::string_view monitor_code) {
   if (levels.first.empty() || levels.second.empty()) {
-    LOGE("monitor {} has invalid/empty levels configuration", monitor_code);
+    // Detect thread only: apply a pending reset before touching the set.
+    if (level_log_reset_.exchange(false, std::memory_order_relaxed)) {
+      level_error_logged_.clear();
+    }
+    // Warn once per monitor per config generation: this is evaluated per
+    // detected frame, and a bad levels config must not flood the log.
+    if (level_error_logged_.emplace(monitor_code).second) {
+      LOGE("monitor {} has invalid/empty levels configuration", monitor_code);
+    }
     return 0;  // Always return lowest level (0) to avoid missing alarms
   }
 

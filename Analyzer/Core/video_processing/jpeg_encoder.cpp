@@ -89,8 +89,8 @@ void avs_analyzer::JPEGEncoder::setQualityQ(int q /*2..31, lower is better*/) {
   if (current_width > 0) initCodec(current_width, current_height);
 }
 
-int avs_analyzer::JPEGEncoder::encodeFrameLocked(AVFrame* in,
-                                                 std::vector<uint8_t>& out) {
+int avs_analyzer::JPEGEncoder::encodeFrameLocked(
+    const AVFrame* in, std::vector<uint8_t>& out) {
   if (!in) return AVERROR(EINVAL);
   if (in->width <= 0 || in->height <= 0 || !in->data[0]) {
     return AVERROR(EINVAL);
@@ -102,7 +102,9 @@ int avs_analyzer::JPEGEncoder::encodeFrameLocked(AVFrame* in,
   }
 
   const int64_t pts = pts_++;
-  AVFrame* src = in;
+  const AVFrame* src = in;
+  // Mutable clone the encoder may annotate (never the caller's frame).
+  AVFrame* writable_src = nullptr;
   AVFramePtr cloned;
   if (in->format != AV_PIX_FMT_YUV420P) {
     // (Re)build the SWS context only when src fmt/size changed.
@@ -123,6 +125,7 @@ int avs_analyzer::JPEGEncoder::encodeFrameLocked(AVFrame* in,
     conv_frame->pts = pts;
     conv_frame->color_range = AVCOL_RANGE_JPEG;
     src = conv_frame.get();
+    writable_src = conv_frame.get();
   } else {
     // Shallow clone so metadata changes (pts/range) never leak into frames
     // that are also consumed by the HLS recorder or the push pipeline.
@@ -131,11 +134,12 @@ int avs_analyzer::JPEGEncoder::encodeFrameLocked(AVFrame* in,
     cloned->pts = pts;
     cloned->color_range = AVCOL_RANGE_JPEG;
     src = cloned.get();
+    writable_src = cloned.get();
   }
 
-  // If using global Q-scale, you can set per-frame quality too
-  if ((ctx->flags & AV_CODEC_FLAG_QSCALE) && quality_q >= 0) {
-    src->quality = quality_q * FF_QP2LAMBDA;
+  // If using global Q-scale, you can set per-frame quality too.
+  if (writable_src && (ctx->flags & AV_CODEC_FLAG_QSCALE) && quality_q >= 0) {
+    writable_src->quality = quality_q * FF_QP2LAMBDA;
   }
 
   int ret = avcodec_send_frame(ctx.get(), src);
@@ -177,7 +181,8 @@ std::pair<int, int> avs_analyzer::JPEGEncoder::saveFrame(
   return {0, static_cast<int>(encoded.size())};
 }
 
-std::vector<uint8_t> avs_analyzer::JPEGEncoder::EncodeToBuffer(AVFrame* in) {
+std::vector<uint8_t> avs_analyzer::JPEGEncoder::EncodeToBuffer(
+    const AVFrame* in) {
   std::vector<uint8_t> out;
   if (!in) return out;
   std::scoped_lock lock(mutex_);

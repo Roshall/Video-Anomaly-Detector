@@ -46,9 +46,13 @@ class YOLODetector {
   static constexpr unsigned long kStopSentinel =
       std::numeric_limits<unsigned long>::max();
 
-  explicit YOLODetector(const DL_INIT_PARAM& params = kDefaultParam);
-  explicit YOLODetector(std::string_view mode_path,
-                        bool use_accelerator = false, int target_id = 0);
+  explicit YOLODetector(
+      const DL_INIT_PARAM& params = kDefaultParam,
+      std::chrono::milliseconds shared_result_wait = std::chrono::seconds(6));
+  explicit YOLODetector(
+      std::string_view mode_path, bool use_accelerator = false,
+      int target_id = 0,
+      std::chrono::milliseconds shared_result_wait = std::chrono::seconds(6));
   ~YOLODetector();
 
   void AddTask(Task task);
@@ -69,6 +73,9 @@ class YOLODetector {
   DL_INIT_PARAM params_;
   std::unique_ptr<YOLOv8Detect> model_;
   std::atomic<bool> running_{false};
+  // Budget for reusing another session's shared inference result.
+  std::chrono::milliseconds shared_result_wait_{
+      std::chrono::seconds(6)};
   std::mutex lifecycle_mutex_;
 
   AnalyzerMailboxes mailboxes_;

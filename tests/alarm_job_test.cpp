@@ -63,6 +63,8 @@ TEST(AlarmJobTest, ConcurrentFinalizeIsIndependent) {
   // lazily inside the worker threads (a data race under TSan).
   spdlog::set_default_logger(
       avs_analyzer::LoggerSingleton::instance().get_logger());
+  ASSERT_EQ(spdlog::default_logger().get(),
+            avs_analyzer::LoggerSingleton::instance().get_logger().get());
 
   constexpr int kThreads = 8;
   constexpr int kIterations = 50;

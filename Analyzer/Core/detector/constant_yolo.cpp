@@ -48,8 +48,10 @@ int TargetIdForModelFile(const std::string& file) {
 }  // namespace
 
 ModelRuntime::ModelRuntime(std::string model_file, bool use_accelerator,
-                           int target_id, int session_count)
-    : model_file_(std::move(model_file)), target_id_(target_id) {
+                           int target_id, int session_count,
+                           std::chrono::milliseconds shared_result_wait)
+    : model_file_(std::move(model_file)), target_id_(target_id),
+      shared_result_wait_(shared_result_wait) {
   DL_INIT_PARAM params{};
   params.modelPath = model_file_;
   params.target_id = target_id_;
@@ -59,7 +61,8 @@ ModelRuntime::ModelRuntime(std::string model_file, bool use_accelerator,
   for (int i = 0; i < std::max(1, session_count); ++i) {
     const auto start = std::chrono::steady_clock::now();
     try {
-      sessions_.push_back(std::make_unique<YOLODetector>(params));
+      sessions_.push_back(
+          std::make_unique<YOLODetector>(params, shared_result_wait));
     } catch (const std::exception& e) {
       if (!params.cudaEnable) {
         throw;
@@ -67,7 +70,8 @@ ModelRuntime::ModelRuntime(std::string model_file, bool use_accelerator,
       LOGW("Model {}: CUDA session failed ({}); falling back to CPU",
            model_file_, e.what());
       params.cudaEnable = false;
-      sessions_.push_back(std::make_unique<YOLODetector>(params));
+      sessions_.push_back(
+          std::make_unique<YOLODetector>(params, shared_result_wait));
     }
     const auto elapsed_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -123,7 +127,9 @@ DetectorPool::DetectorPool(const Config& config)
       use_accelerator_(config.use_accelerator),
       workers_per_model_(config.inference_workers_per_model),
       workers_per_model_accelerated_(
-          config.inference_workers_per_model_accelerated) {
+          config.inference_workers_per_model_accelerated),
+      shared_result_wait_(SharedResultWaitFor(
+          std::chrono::milliseconds(config.inference_result_timeout_ms))) {
   const int sessions = use_accelerator_ ? workers_per_model_accelerated_
                                         : workers_per_model_;
   LOGI("DetectorPool: accelerator={} sessions/model={}", use_accelerator_,
@@ -146,24 +152,52 @@ std::string DetectorPool::RuntimeKey(const std::string& file, int target_id) {
 std::shared_ptr<ModelRuntime> DetectorPool::GetOrCreateRuntime(
     const std::string& file, int target_id) {
   const std::string key = RuntimeKey(file, target_id);
+  std::shared_ptr<std::promise<std::shared_ptr<ModelRuntime>>> loader;
+  std::shared_future<std::shared_ptr<ModelRuntime>> pending;
   {
     std::lock_guard lock(detector_mutex_);
-    auto it = runtimes_.find(key);
-    if (it != runtimes_.end()) {
+    if (auto it = runtimes_.find(key); it != runtimes_.end()) {
       return it->second;
     }
+    if (auto it = loading_.find(key); it != loading_.end()) {
+      // Another thread is already loading this model: wait for its result
+      // instead of loading (and briefly doubling GPU memory) twice.
+      pending = it->second;
+    } else {
+      loader = std::make_shared<std::promise<std::shared_ptr<ModelRuntime>>>();
+      pending = loader->get_future().share();
+      loading_.emplace(key, pending);
+    }
+  }
+  if (!loader) {
+    return pending.get();
   }
 
   // Load sessions without holding the pool lock.
-  const int session_count = use_accelerator_ ? workers_per_model_accelerated_
-                                             : workers_per_model_;
-  auto runtime = std::make_shared<ModelRuntime>(
-      (model_path_ / file).string(), use_accelerator_, target_id,
-      session_count);
+  std::shared_ptr<ModelRuntime> runtime;
+  try {
+    const int session_count = use_accelerator_
+                                  ? workers_per_model_accelerated_
+                                  : workers_per_model_;
+    runtime = std::make_shared<ModelRuntime>(
+        (model_path_ / file).string(), use_accelerator_, target_id,
+        session_count, shared_result_wait_);
+  } catch (...) {
+    {
+      std::lock_guard lock(detector_mutex_);
+      loading_.erase(key);
+    }
+    loader->set_exception(std::current_exception());
+    throw;
+  }
 
-  std::lock_guard lock(detector_mutex_);
-  auto [it, inserted] = runtimes_.emplace(key, std::move(runtime));
-  return it->second;
+  {
+    std::lock_guard lock(detector_mutex_);
+    runtimes_.emplace(key, runtime);
+    loading_.erase(key);
+  }
+  loader->set_value(runtime);
+  return runtime;
 }
 
 DetectorPool::AddTaskFunc DetectorPool::RegisterToDetector(
@@ -234,6 +268,7 @@ nlohmann::json DetectorPool::GetModelStatus() const {
     models.push_back({{"model", runtime->model_file()},
                       {"targetId", runtime->target_id()},
                       {"sessions", runtime->session_count()},
+                      {"sharedResultWaitMs", runtime->shared_result_wait().count()},
                       {"running", runtime->isRunning()}});
   }
   return models;

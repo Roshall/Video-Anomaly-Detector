@@ -48,7 +48,7 @@ class JPEGEncoder {
 
   // Encodes one frame into `out`. Returns 0 on success or a negative AVERROR.
   // Caller must hold mutex_.
-  int encodeFrameLocked(AVFrame* in, std::vector<uint8_t>& out);
+  int encodeFrameLocked(const AVFrame* in, std::vector<uint8_t>& out);
 
   // Opens the MJPEG decoder on first use. Caller must hold mutex_.
   bool ensureDecoderLocked();
@@ -64,7 +64,7 @@ class JPEGEncoder {
 
   // In-memory encoding used for idle pre-roll buffering. Returns an empty
   // vector on failure.
-  std::vector<uint8_t> EncodeToBuffer(AVFrame* in);
+  std::vector<uint8_t> EncodeToBuffer(const AVFrame* in);
 
   // Decodes a JPEG produced by EncodeToBuffer. The result is always converted
   // to AV_PIX_FMT_YUV420P so it can be fed to the HLS/MP4 recorders.

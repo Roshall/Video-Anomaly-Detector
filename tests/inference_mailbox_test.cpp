@@ -129,3 +129,58 @@ TEST(InferenceMailbox, AnalyzersAreIndependent) {
 }
 
 }  // namespace
+
+namespace {
+
+TEST(SharedInference, WaitBudgetOutlastsTheClaimersResultTimeout) {
+  // Regression: the wait budget used to be a hard-coded 4 s while the
+  // analyzer result timeout defaults to 5 s, so a slow claimer made every
+  // waiter time out and run the same inference again.
+  using namespace std::chrono_literals;
+  EXPECT_GT(avs_analyzer::SharedResultWaitFor(5000ms), 5000ms);
+  EXPECT_GT(avs_analyzer::SharedResultWaitFor(100ms), 100ms);
+  EXPECT_GE(avs_analyzer::SharedResultWaitFor(100ms), 4000ms);
+}
+
+TEST(SharedInference, WaitBudgetIsMonotonic) {
+  using namespace std::chrono_literals;
+  EXPECT_LE(avs_analyzer::SharedResultWaitFor(2000ms),
+            avs_analyzer::SharedResultWaitFor(5000ms));
+  EXPECT_LE(avs_analyzer::SharedResultWaitFor(5000ms),
+            avs_analyzer::SharedResultWaitFor(10000ms));
+}
+
+TEST(SharedInference, WaiterReceivesPublishedResult) {
+  using namespace std::chrono_literals;
+  avs_analyzer::SharedInference shared;
+  ASSERT_TRUE(shared.TryClaim());
+
+  DL_RESULT sentinel{};
+  sentinel.classId = 42;
+  sentinel.confidence = 0.75f;
+  sentinel.box = cv::Rect(1, 2, 3, 4);
+  std::thread publisher([&shared, sentinel] {
+    std::this_thread::sleep_for(20ms);
+    shared.Publish({sentinel});
+  });
+
+  std::vector<DL_RESULT> out;
+  ASSERT_TRUE(
+      shared.AwaitResult(out, avs_analyzer::SharedResultWaitFor(1000ms)));
+  publisher.join();
+  ASSERT_EQ(out.size(), 1u);
+  EXPECT_EQ(out[0].classId, 42);
+  EXPECT_FLOAT_EQ(out[0].confidence, 0.75f);
+  EXPECT_EQ(out[0].box, cv::Rect(1, 2, 3, 4));
+}
+
+TEST(SharedInference, WaiterTimesOutWithoutResult) {
+  using namespace std::chrono_literals;
+  avs_analyzer::SharedInference shared;
+  ASSERT_TRUE(shared.TryClaim());
+  std::vector<DL_RESULT> out;
+  EXPECT_FALSE(shared.AwaitResult(out, 20ms));
+  EXPECT_TRUE(out.empty());
+}
+
+}  // namespace

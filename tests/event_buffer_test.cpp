@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 
 extern "C" {
 #include <libavutil/frame.h>
@@ -69,6 +70,99 @@ CombinedEventManager::DetectorFrameInfo EndInfo() {
 }
 
 }  // namespace
+
+namespace {
+
+size_t EncodeBytesAtQuality(AVFrame* source, int quality) {
+  CombinedEventManager manager;
+  manager.UpdateConfig(MakeConfig());
+  manager.UpdateMemoryBudget(256ull * 1024 * 1024);
+  manager.UpdateBufferJpegQuality(quality);
+  for (int64_t ts = 0; ts < 2000; ts += kStepMs) {
+    source->pts = ts;
+    source->best_effort_timestamp = ts;
+    manager.ProcessFrame(source, ts, ts, {});
+  }
+  return manager.buffer_bytes();
+}
+
+}  // namespace
+
+TEST(EventBufferTest, BufferJpegQualityControlsEncodedSize) {
+  AVFramePtr source = MakeFrame(0);
+  ASSERT_TRUE(source);
+
+  // FFmpeg MJPEG quality_q: lower is better, so q=31 must compress harder.
+  const size_t coarse = EncodeBytesAtQuality(source.get(), 31);
+  const size_t fine = EncodeBytesAtQuality(source.get(), 2);
+  EXPECT_GT(coarse, 0u);
+  EXPECT_LT(coarse, fine);
+}
+
+TEST(EventBufferTest, BufferJpegQualityIsClampedByTheManager) {
+  AVFramePtr source = MakeFrame(0);
+  ASSERT_TRUE(source);
+
+  // JPEGEncoder's constructor does not validate quality_q, so the manager
+  // must clamp: 1 behaves like 2 and 99 like 31.
+  EXPECT_EQ(EncodeBytesAtQuality(source.get(), 1),
+            EncodeBytesAtQuality(source.get(), 2));
+  EXPECT_EQ(EncodeBytesAtQuality(source.get(), 99),
+            EncodeBytesAtQuality(source.get(), 31));
+}
+
+TEST(EventBufferTest, QualityChangeRebuildsTheIdleEncoder) {
+  CombinedEventManager manager;
+  manager.UpdateConfig(MakeConfig());
+  manager.UpdateMemoryBudget(256ull * 1024 * 1024);
+  AVFramePtr source = MakeFrame(0);
+  ASSERT_TRUE(source);
+
+  auto feed = [&](int64_t from_ms, int64_t to_ms) {
+    for (int64_t ts = from_ms; ts < to_ms; ts += kStepMs) {
+      source->pts = ts;
+      source->best_effort_timestamp = ts;
+      manager.ProcessFrame(source.get(), ts, ts, {});
+    }
+  };
+
+  feed(0, 1000);  // default quality (8)
+  const size_t bytes_fine = manager.buffer_bytes();
+  const size_t frames_fine = manager.buffer_frames();
+  ASSERT_GT(bytes_fine, 0u);
+  ASSERT_GT(frames_fine, 0u);
+
+  manager.UpdateBufferJpegQuality(31);  // coarse: the encoder must be rebuilt
+  feed(1000, 2000);
+  const size_t bytes_total = manager.buffer_bytes();
+  const size_t frames_total = manager.buffer_frames();
+
+  // Same frame count, but the second batch is encoded much smaller; if the
+  // quality change were ignored both batches would be the same size.
+  ASSERT_EQ(frames_total, frames_fine * 2);
+  EXPECT_LT(bytes_total - bytes_fine, bytes_fine);
+
+  // Frames encoded before the rebuild must still materialise (the JPEG
+  // decoder is independent of the encoder quality).
+  const int64_t event_start_ms = 1800;
+  std::unique_ptr<Event> slice;
+  for (int64_t ts = 2000; ts <= 5000; ts += kStepMs) {
+    source->pts = ts;
+    source->best_effort_timestamp = ts;
+    const auto info = ActiveInfo(event_start_ms, event_start_ms);
+    auto result = manager.ProcessFrame(source.get(), ts, ts, {info});
+    if (result.flushed_event) {
+      slice = std::move(result.flushed_event.value());
+      break;
+    }
+  }
+  ASSERT_TRUE(slice);
+  ASSERT_FALSE(slice->frames.empty());
+  for (const auto& frame : slice->frames) {
+    ASSERT_TRUE(frame);
+    EXPECT_TRUE(frame->data) << "encoded frame was not materialised";
+  }
+}
 
 TEST(EventBufferTest, IdleFramesAreStoredEncodedAndStayWithinBudget) {
   CombinedEventManager manager;

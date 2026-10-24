@@ -11,26 +11,29 @@
 namespace avs_analyzer {
 namespace {
 // How long a sink waits for another session to publish a shared result before
-// falling back to running the model itself. Kept below the default analyzer
-// result timeout (5s) so a waiting event detector is not starved.
-constexpr auto kSharedResultWait = std::chrono::seconds(4);
+// falling back to running the model itself. Derived from the analyzer result
+// timeout (SharedResultWaitFor) and interruptible by Stop(); see mailbox.h.
 
 std::string ModelKey(const DL_INIT_PARAM& params) {
   return params.modelPath + "#" + std::to_string(params.target_id);
 }
 }  // namespace
 
-YOLODetector::YOLODetector(const DL_INIT_PARAM& params)
+YOLODetector::YOLODetector(const DL_INIT_PARAM& params,
+                           std::chrono::milliseconds shared_result_wait)
     : params_(params),
       model_(std::make_unique<YOLOv8Detect>()),
+      shared_result_wait_(shared_result_wait),
       metrics_(MetricsRegistry::Instance().GetOrCreateModel(ModelKey(params_))) {
   model_->CreateSession(params_);
 }
 
 YOLODetector::YOLODetector(std::string_view mode_path, bool use_accelerator,
-                           int target_id)
+                           int target_id,
+                           std::chrono::milliseconds shared_result_wait)
     : params_(kDefaultParam),
-      model_(std::make_unique<YOLOv8Detect>()) {
+      model_(std::make_unique<YOLOv8Detect>()),
+      shared_result_wait_(shared_result_wait) {
   params_.modelPath = mode_path;
   params_.target_id = target_id;
   params_.cudaEnable = use_accelerator;
@@ -140,9 +143,18 @@ void YOLODetector::Run() {
         } else if (task.shared && !task.shared->TryClaim()) {
           // Another session is running this exact frame for the same task.
           // Reuse its result instead of duplicating the inference.
-          if (!task.shared->AwaitResult(filtered, kSharedResultWait)) {
-            LOGW("Shared inference result timed out; running inference locally");
-            filtered = RunInference(*task.image);
+          if (!task.shared->AwaitResult(filtered, shared_result_wait_,
+                                        &running_)) {
+            if (!running_.load(std::memory_order_acquire)) {
+              // Session is stopping: deliver an empty result instead of
+              // starting a fresh inference that shutdown would have to join.
+              filtered.clear();
+            } else {
+              LOGW(
+                  "Shared inference result timed out; running inference "
+                  "locally");
+              filtered = RunInference(*task.image);
+            }
           }
         } else {
           filtered = RunInference(*task.image);

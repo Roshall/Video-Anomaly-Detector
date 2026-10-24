@@ -2,6 +2,7 @@
 #define ANALYZER_DETECTOR_MAILBOX_H
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -16,6 +17,19 @@
 #include "inference_types.h"
 
 namespace avs_analyzer {
+
+// Wait budget for a session that is not the claimer of a shared inference.
+// It should outlast the analyzer's result timeout so a slow-but-completing
+// claimer is reused instead of duplicated, with one second of margin. The
+// wait is capped so a stuck claimer cannot stall this session for long.
+inline std::chrono::milliseconds SharedResultWaitFor(
+    std::chrono::milliseconds result_timeout) {
+  constexpr auto kMinWait = std::chrono::seconds(4);
+  constexpr auto kMaxWait = std::chrono::seconds(10);
+  const auto budget = result_timeout + std::chrono::seconds(1);
+  const auto floored = budget > kMinWait ? budget : kMinWait;
+  return floored < kMaxWait ? floored : kMaxWait;
+}
 
 // Deduplicates inference for monitors that share the same task and frame.
 //
@@ -44,12 +58,24 @@ class SharedInference {
     cv_.notify_all();
   }
 
-  // Returns false when no result was published within `timeout`.
+  // Returns false when no result was published within `timeout`, or when
+  // `stop` turns false while waiting (checked at least every 100 ms so a
+  // session shutdown does not wait for the full budget).
   bool AwaitResult(std::vector<DL_RESULT>& out,
-                   std::chrono::milliseconds timeout) {
+                   std::chrono::milliseconds timeout,
+                   const std::atomic<bool>* stop = nullptr) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     std::unique_lock lock(mutex_);
-    if (!cv_.wait_for(lock, timeout, [this] { return done_; })) {
-      return false;
+    constexpr auto kPoll = std::chrono::milliseconds(100);
+    while (!done_) {
+      if (stop && !stop->load(std::memory_order_acquire)) {
+        return false;
+      }
+      const auto remaining = deadline - std::chrono::steady_clock::now();
+      if (remaining <= std::chrono::milliseconds::zero()) {
+        return false;
+      }
+      cv_.wait_for(lock, remaining < kPoll ? remaining : kPoll);
     }
     out = results_;
     return true;

@@ -17,9 +17,6 @@ namespace avs_analyzer {
 
 namespace {
 constexpr int64_t kBufferSafetyMarginMs = 1000;
-// Buffered pre-roll frames are never displayed directly, so a moderately
-// aggressive quantiser keeps them small without hurting event detection.
-constexpr int kBufferJpegQuality = 8;
 
 size_t ApproxFrameBytes(const AVFrame* frame) {
   if (!frame || frame->width <= 0 || frame->height <= 0) return 0;
@@ -39,6 +36,13 @@ size_t FrameStorageBytes(const Frame& frame) {
 CombinedEventManager::CombinedEventManager() = default;
 
 CombinedEventManager::~CombinedEventManager() = default;
+
+void CombinedEventManager::UpdateBufferJpegQuality(int quality_q) {
+  // JPEGEncoder accepts [2, 31]; clamp defensively so a bad config cannot
+  // throw on the detect thread.
+  const int clamped = std::clamp(quality_q, 2, 31);
+  buffer_jpeg_quality_.store(clamped, std::memory_order_release);
+}
 
 void CombinedEventManager::UpdateMemoryBudget(size_t bytes) {
   memory_budget_bytes_.store(bytes, std::memory_order_release);
@@ -345,14 +349,17 @@ std::vector<uint8_t> CombinedEventManager::EncodeIdleFrame(
     return {};
   }
   try {
+    const int quality = buffer_jpeg_quality_.load(std::memory_order_acquire);
     if (!buffer_codec_ || buffer_codec_width_ != frame->width ||
-        buffer_codec_height_ != frame->height) {
+        buffer_codec_height_ != frame->height ||
+        buffer_codec_quality_ != quality) {
       buffer_codec_ = std::make_unique<JPEGEncoder>(
-          frame->width, frame->height, kBufferJpegQuality);
+          frame->width, frame->height, quality);
       buffer_codec_width_ = frame->width;
       buffer_codec_height_ = frame->height;
+      buffer_codec_quality_ = quality;
     }
-    return buffer_codec_->EncodeToBuffer(const_cast<AVFrame*>(frame));
+    return buffer_codec_->EncodeToBuffer(frame);
   } catch (const std::exception& e) {
     LOGE("Failed to initialise buffered JPEG encoder: {}", e.what());
     buffer_codec_.reset();

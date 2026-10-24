@@ -117,6 +117,9 @@ Config::Config(const char* file) {
         root, {"performance", "offlinePipelineDepth"}, offline_pipeline_depth);
     event_buffer_budget_mb = json_get_or<int>(
         root, {"performance", "eventBufferBudgetMb"}, event_buffer_budget_mb);
+    event_buffer_jpeg_quality = json_get_or<int>(
+        root, {"performance", "eventBufferJpegQuality"},
+        event_buffer_jpeg_quality);
     push_queue_max_frames = json_get_or<int>(
         root, {"performance", "pushQueueMaxFrames"}, push_queue_max_frames);
     stream_reconnect_max_attempts = json_get_or<int>(
@@ -137,9 +140,9 @@ Config::Config(const char* file) {
             models.push_back(entry.get<std::string>());
           }
         }
-        if (!models.empty()) {
-          preload_models = std::move(models);
-        }
+        // An explicit empty array disables preload; only a missing key keeps
+        // the built-in default list.
+        preload_models = std::move(models);
       }
     }
 
@@ -197,6 +200,8 @@ Config::Config(const char* file) {
     inference_result_timeout_ms = std::clamp(inference_result_timeout_ms, 100, 60000);
     offline_pipeline_depth = std::clamp(offline_pipeline_depth, 1, 16);
     event_buffer_budget_mb = std::clamp(event_buffer_budget_mb, 32, 4096);
+    // JPEGEncoder accepts quality_q in [2, 31] (lower = better).
+    event_buffer_jpeg_quality = std::clamp(event_buffer_jpeg_quality, 2, 31);
     push_queue_max_frames = std::clamp(push_queue_max_frames, 10, 300);
     stream_reconnect_max_attempts =
         std::clamp(stream_reconnect_max_attempts, 1, 1000);
@@ -251,6 +256,7 @@ void Config::Show() {
          "Inference Timeout  : %d ms\n"
          "Offline Depth      : %d\n"
          "Event Buffer Budget: %d MB\n"
+         "Buffer JPEG Quality: %d (2=best, 31=smallest)\n"
          "Push Queue Max     : %d\n"
          "Reconnect Attempts : %d\n"
          "Reconnect Backoff  : %d ms (max %d ms)\n"
@@ -274,8 +280,8 @@ void Config::Show() {
          media_http_host.c_str(),
          media_rtsp_host.c_str(),
          upload_dir.data(),
-         model_dir.data(),
          offline_video_dir.data(),
+         model_dir.data(),
          use_accelerator ? "true" : "false",
          log_level.c_str(),
          rtsp_probe_timeout_ms,
@@ -284,6 +290,7 @@ void Config::Show() {
          inference_result_timeout_ms,
          offline_pipeline_depth,
          event_buffer_budget_mb,
+         event_buffer_jpeg_quality,
          push_queue_max_frames,
          stream_reconnect_max_attempts,
          stream_reconnect_backoff_ms,
