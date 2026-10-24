@@ -81,22 +81,20 @@ size_t MonitorRegistry::Size() const {
 std::vector<std::pair<Task, std::u8string>> MonitorRegistry::TaskLabels() const {
   const auto snapshot = Snapshot();
   std::vector<std::pair<Task, std::u8string>> tasks;
+  std::unordered_set<Task> seen;
   tasks.reserve(snapshot.size());
   for (const auto& ctx : snapshot) {
     if (!ctx || !ctx->monitor) {
       continue;
     }
     const auto task = ctx->monitor->task;
-    const auto it = std::find_if(tasks.begin(), tasks.end(),
-                                 [task](const auto& entry) {
-                                   return entry.first == task;
-                                 });
-    if (it == tasks.end()) {
-      const auto label = ctx->monitor->behavior.empty()
-                             ? toChinese(task)
-                             : ctx->monitor->behavior;
-      tasks.emplace_back(task, label);
+    if (!seen.insert(task).second) {
+      continue;  // one label per distinct task
     }
+    const auto label = ctx->monitor->behavior.empty()
+                           ? toChinese(task)
+                           : ctx->monitor->behavior;
+    tasks.emplace_back(task, label);
   }
   return tasks;
 }

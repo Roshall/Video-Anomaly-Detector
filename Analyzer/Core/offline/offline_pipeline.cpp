@@ -69,6 +69,11 @@ void OfflinePipeline::Run(Context context) {
     MonitorRegistry::StopAnalyzers(monitors);
   };
 
+  if (!monitors.front() || !monitors.front()->monitor) {
+    LOGE("offline analyze skipped: first monitor context is incomplete");
+    finish();
+    return;
+  }
   const std::string stream_url = monitors.front()->monitor->stream_url;
 
   auto in{Streamer(stream_url)};
@@ -117,9 +122,7 @@ void OfflinePipeline::Run(Context context) {
                                   context.monitors->TaskLabels(), true);
   context.alarms->Configure(width, height, 25, width, height);
 
-  // Offline analysis has no stream state, so transitions are not notified.
-  EventRunner runner(*context.events, *context.alarms,
-                     /*notify_transition=*/false);
+  EventRunner runner(*context.events, *context.alarms);
 
   // Submit frames up to pipeline_depth ahead of the event-processing
   // cursor so inference and event handling overlap. The mailbox backlog per
@@ -140,6 +143,8 @@ void OfflinePipeline::Run(Context context) {
     }
     AVFramePtr holder = CloneFrame(raw);
     if (!holder) {
+      LOGW("offline analyze: failed to clone frame (pts {}); stopping",
+           raw->best_effort_timestamp);
       return false;
     }
     const auto timestamp = holder->best_effort_timestamp - start_timestamp;

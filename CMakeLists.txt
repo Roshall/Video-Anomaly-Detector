@@ -291,6 +291,7 @@ set(analyzer_core_source
         Analyzer/Core/server_apis/api_storage.cpp
         Analyzer/Core/server_apis/api_system.cpp
         Analyzer/Core/server_apis/api_test.cpp
+        Analyzer/Core/stream/frame_timestamp.cpp
         Analyzer/Core/stream/stream_session.cpp
         Analyzer/Core/streamer.cpp
         Analyzer/Core/task.cpp
@@ -447,6 +448,9 @@ if(BUILD_TESTS)
     analyzer_add_test(detector_pool_test tests/detector_pool_test.cpp)
     set_tests_properties(detector_pool_test PROPERTIES TIMEOUT 120)
     analyzer_add_test(stream_log_test tests/stream_log_test.cpp)
+    analyzer_add_test(event_submit_test tests/event_submit_test.cpp)
+    analyzer_add_test(event_runner_test tests/event_runner_test.cpp)
+    analyzer_add_test(frame_timestamp_test tests/frame_timestamp_test.cpp)
 
     # Requires an RTSP URL argument.
     analyzer_add_manual_test(write_test

@@ -1,3 +1,4 @@
+#include "stream/frame_timestamp.h"
 #include "stream/stream_session.h"
 
 #include <algorithm>
@@ -396,8 +397,9 @@ void StreamSession::RunDecodeLoop(const DecodeLoopHandlers& handlers) {
           out_width = PushWidth();
           out_height = PushHeight();
           if (handlers.on_geometry_changed) {
-            handlers.on_geometry_changed(width, height, fps, out_width,
-                                         out_height);
+            handlers.on_geometry_changed(
+                DecodeLoopHandlers::Geometry{width, height, fps, out_width,
+                                             out_height});
           }
         }
 
@@ -444,36 +446,15 @@ bool StreamSession::ResolveTimestamps(AVFrame* frame, AVRational time_base,
                                       AVRational fps_hint,
                                       int64_t& timestamp,
                                       int64_t& timestamp_ms) {
-  timestamp = frame->best_effort_timestamp;
-  if (timestamp == AV_NOPTS_VALUE) {
-    timestamp = frame->pts;
-  }
-  if (timestamp != AV_NOPTS_VALUE) {
-    timestamp_ms = av_rescale_q(timestamp, time_base, AVRational{1, 1000});
+  TimestampState state{last_frame_ts_ms_.load(std::memory_order_relaxed),
+                       nopts_logged_.load(std::memory_order_relaxed)};
+  if (ResolveFrameTimestamp(frame, time_base, fps_hint, timestamp, timestamp_ms,
+                            state, options_.video_code)) {
     last_frame_ts_ms_.store(timestamp_ms, std::memory_order_relaxed);
     return true;
   }
-
-  AVRational fps = fps_hint;
-  int64_t step_ms = 0;
-  if (fps.num > 0 && fps.den > 0) {
-    step_ms = std::llround(1000.0 * fps.den / fps.num);
-  }
-  if (step_ms <= 0) {
-    if (!nopts_logged_.exchange(true, std::memory_order_relaxed)) {
-      LOGW("worker {} cannot resolve frame timestamps (missing PTS and frame "
-           "rate); dropping frames",
-           options_.video_code);
-    }
-    return false;
-  }
-  const int64_t last = last_frame_ts_ms_.load(std::memory_order_relaxed);
-  timestamp_ms = last >= 0 ? last + step_ms : 0;
-  timestamp = av_rescale_q(timestamp_ms, AVRational{1, 1000}, time_base);
-  // Keep the detect loop aligned with the synthesised timestamp.
-  frame->best_effort_timestamp = timestamp;
-  last_frame_ts_ms_.store(timestamp_ms, std::memory_order_relaxed);
-  return true;
+  nopts_logged_.store(state.warned, std::memory_order_relaxed);
+  return false;
 }
 
 }  // namespace avs_analyzer

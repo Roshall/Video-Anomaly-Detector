@@ -244,7 +244,7 @@ void Worker::DetectEvent() {
   }
   const auto initial = stream_->Current();
   if (!initial) {
-    LOGW("decode video without open stream resources");
+    // RunDecodeLoop reports this; guard here only for the Configure() below.
     return;
   }
 
@@ -254,9 +254,7 @@ void Worker::DetectEvent() {
   EnsureAnnotatorReady();
   RebuildEventManager();
 
-  EventRunner runner(
-      *events_, *alarms_, /*notify_transition=*/true,
-      EventRunner::Hooks{
+  EventRunner runner(*events_, *alarms_, EventRunner::Hooks{
           .on_alarm =
               [this](const AlarmRequest& request) {
                 if (auto* alarm = scheduler_->GetAlarmController()) {
@@ -280,11 +278,13 @@ void Worker::DetectEvent() {
     // newly published video context before annotating this generation.
     EnsureAnnotatorReady(true);
   };
-  handlers.on_geometry_changed = [this](int width, int height, int fps,
-                                        int out_width, int out_height) {
-    alarms_->OnGeometryChanged(width, height, fps, out_width, out_height,
-                               events_->CurrentEventId());
-  };
+  handlers.on_geometry_changed =
+      [this](const DecodeLoopHandlers::Geometry& geometry) {
+        alarms_->OnGeometryChanged(
+            geometry.width, geometry.height, geometry.fps,
+            geometry.out_width, geometry.out_height,
+            events_->CurrentEventId());
+      };
   handlers.on_error_budget_exhausted = [this]() { Remove(); };
   stream_->RunDecodeLoop(handlers);
 

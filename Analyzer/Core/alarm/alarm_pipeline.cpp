@@ -77,6 +77,11 @@ void AlarmPipeline::StartHlsWriter() {
 void AlarmPipeline::OnTransition(
     CombinedEventManager::Result::Transition transition, int64_t event_id,
     int64_t pts) {
+  // File analysis has no live stream state: no admin stream events, no HLS.
+  // Callers may invoke this unconditionally.
+  if (file_) {
+    return;
+  }
   switch (transition) {
     case CombinedEventManager::Result::Transition::kBecameActive:
       if (!stream_active_.exchange(true, std::memory_order_acq_rel)) {

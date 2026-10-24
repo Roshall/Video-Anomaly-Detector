@@ -15,8 +15,12 @@ struct ConvertorState;
 // One session's per-frame event flow: submit a frame for inference, run the
 // detections through the event manager, and dispatch the resulting alarm
 // images and flushed events. Live and offline sessions share this; they
-// differ only in whether stream transitions are notified (live) and in the
-// optional hooks for the alarm sound and the push output (live).
+// differ only in the optional hooks for the alarm sound and the push output
+// (live). AlarmPipeline itself ignores stream transitions for file sessions.
+//
+// One instance belongs to one session run and is used from a single thread at
+// a time (live: the detect thread, offline: the media pool thread). It is not
+// internally synchronised.
 class EventRunner {
  public:
   struct Hooks {
@@ -26,8 +30,7 @@ class EventRunner {
     std::function<void(std::shared_ptr<const Frame>)> on_annotated_frame;
   };
 
-  EventRunner(EventPipeline& events, AlarmPipeline& alarms,
-              bool notify_transition, Hooks hooks = {});
+  EventRunner(EventPipeline& events, AlarmPipeline& alarms, Hooks hooks = {});
 
   // Submits one frame for inference (admission control + one convert/clone).
   void Submit(const AVFrame* frame, const ConvertorState& convertor,
@@ -36,6 +39,8 @@ class EventRunner {
 
   // Runs the event pipeline for one decoded frame and dispatches its result
   // (transition, alarm images, flushed events, annotated frame).
+  // `timestamp_ms` is the PTS in milliseconds; `timestamp` is the PTS in the
+  // stream time base and is only forwarded to transition/event handling.
   void Process(const AVFrame* frame, int64_t timestamp_ms, int64_t timestamp,
                const std::vector<MonitorRegistry::Ptr>& monitors);
 
@@ -46,7 +51,6 @@ class EventRunner {
  private:
   EventPipeline& events_;
   AlarmPipeline& alarms_;
-  bool notify_transition_;
   Hooks hooks_;
 };
 

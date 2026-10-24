@@ -53,9 +53,14 @@ struct DecodeLoopHandlers {
   // First frame of a new stream generation: decoder flushed, timer reset.
   std::function<void()> on_new_generation;
   // Decoded geometry changed (e.g. reconnect at another resolution).
-  std::function<void(int width, int height, int fps, int out_width,
-                     int out_height)>
-      on_geometry_changed;
+  struct Geometry {
+    int width{0};
+    int height{0};
+    int fps{0};
+    int out_width{0};
+    int out_height{0};
+  };
+  std::function<void(const Geometry&)> on_geometry_changed;
   // Decode errors exhausted the budget; the worker should remove itself.
   std::function<void()> on_error_budget_exhausted;
 };
@@ -102,8 +107,6 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
   void EnsurePush();
   void ClosePush(bool detach);
 
-  [[nodiscard]] GrabResult GrabFrame(AVFrame* frame,
-                                     StreamResourcesPtr& resources);
   // Runs the decode loop on the calling thread until stopped, EOF or a fatal
   // error. Resolves timestamps (synthesising missing PTS) and reports stream
   // generation/geometry changes through the handlers.
@@ -165,6 +168,10 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
   void OnPushStreamError() override;
 
  private:
+  // Decodes the next frame; only the decode loop calls this.
+  [[nodiscard]] GrabResult GrabFrame(AVFrame* frame,
+                                     StreamResourcesPtr& resources);
+
   [[nodiscard]] bool NeedPushStream() const {
     return push_requested_.load(std::memory_order_acquire);
   }
@@ -206,7 +213,8 @@ class StreamSession final : public PullStreamHost, public PushStreamHost {
   std::shared_ptr<const ConvertorState> convertor_state_;
   // Detect thread only: generation whose decoder buffers are current.
   uint64_t decoded_generation_{0};
-  // Detect thread only: last resolved timestamp, used to synthesise PTS.
+  // Detect-thread-only timestamp synthesis state (atomics are used only for
+  // cheap relaxed stores, not for cross-thread visibility).
   std::atomic<int64_t> last_frame_ts_ms_{-1};
   std::atomic<bool> nopts_logged_{false};
 };

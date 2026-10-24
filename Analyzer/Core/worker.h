@@ -26,9 +26,9 @@ class AlarmPipeline;
 class EventRunner;
 struct DecodedFrame;
 
-// Composition root for one video stream. It owns the monitor registry and the
-// three pipelines (stream, event, alarm) and wires them together; the pipelines
-// themselves know nothing about each other.
+// Composition root for one video stream. It owns the monitor registry, the
+// stream session (opened in start()), and the event/alarm pipelines, and wires
+// them together; the pipelines themselves know nothing about each other.
 class Worker {
  public:
   Worker(Scheduler* scheduler, std::unique_ptr<Monitor> monitor,
