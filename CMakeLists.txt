@@ -30,6 +30,38 @@ if(USE_CUDA)
     add_compile_definitions(USE_CUDA)
 endif()
 
+# Huawei Ascend (Atlas 300V Pro / Ascend 310P) hardware acceleration.
+#
+# Default OFF: without CANN the Ascend implementations compile as stubs that
+# report "unavailable" and the CPU path keeps working, so this option only has
+# to be flipped on the Kylin/aarch64 target that actually has the toolkit.
+#
+#   cmake -DUSE_ASCEND=ON -DASCEND_TOOLKIT_HOME=/usr/local/Ascend/ascend-toolkit/latest
+option(USE_ASCEND "Enable Huawei Ascend (Atlas 300V Pro) support" OFF)
+if(USE_ASCEND)
+    add_compile_definitions(ENABLE_ASCEND)
+
+    if(NOT DEFINED ASCEND_TOOLKIT_HOME)
+        set(ASCEND_TOOLKIT_HOME "/usr/local/Ascend/ascend-toolkit/latest")
+    endif()
+
+    if(EXISTS "${ASCEND_TOOLKIT_HOME}")
+        message(STATUS "Ascend toolkit found at: ${ASCEND_TOOLKIT_HOME}")
+        set(ASCEND_INCLUDE_DIR "${ASCEND_TOOLKIT_HOME}/include")
+        set(ASCEND_LIB_DIR "${ASCEND_TOOLKIT_HOME}/lib64")
+
+        find_library(ACL_LIBRARY NAMES ascendcl PATHS ${ASCEND_LIB_DIR} NO_DEFAULT_PATH)
+        find_library(ACL_RUNTIME_LIBRARY NAMES runtime PATHS ${ASCEND_LIB_DIR} NO_DEFAULT_PATH)
+        if(ACL_LIBRARY)
+            message(STATUS "Ascend ACL library found: ${ACL_LIBRARY}")
+        else()
+            message(WARNING "Ascend ACL library (libascendcl) not found in ${ASCEND_LIB_DIR}")
+        endif()
+    else()
+        message(WARNING "Ascend toolkit not found at ${ASCEND_TOOLKIT_HOME}; set ASCEND_TOOLKIT_HOME")
+    endif()
+endif()
+
 option(BUILD_TESTS "Build unit tests" ON)
 
 # Optional sanitizer build. Example: -DANALYZER_SANITIZE=thread
@@ -293,6 +325,13 @@ set(analyzer_core_source
         Analyzer/Core/video_processing/painter_text.cpp
         Analyzer/Core/video_processing/painter_text.h
         Analyzer/Core/video_processing/painter_types.h
+        # --- 双后端抽象层：推理引擎 / 图像处理引擎解耦 + Ascend 适配 ---
+        Analyzer/Core/ascend/acl_runtime.cpp
+        Analyzer/Core/backend/ascend_inference.cpp
+        Analyzer/Core/imaging/dvpp_image_processor.cpp
+        Analyzer/Core/pipeline/ascend_decoder.cpp
+        Analyzer/Core/pipeline/ffmpeg_decoder.cpp
+        Analyzer/Core/pipeline/pipeline_factories.cpp
         Analyzer/Core/worker.cpp
 )
 
@@ -330,6 +369,17 @@ target_include_directories(analyzer_core PUBLIC
         Analyzer/Core/video_processing
         Analyzer/Core/tracker
 )
+
+# Ascend: ACL headers + libraries, only when the toolkit was actually found.
+if(USE_ASCEND AND ASCEND_INCLUDE_DIR)
+    target_include_directories(analyzer_core PUBLIC ${ASCEND_INCLUDE_DIR})
+endif()
+if(USE_ASCEND AND ACL_LIBRARY)
+    target_link_libraries(analyzer_core PUBLIC ${ACL_LIBRARY})
+endif()
+if(USE_ASCEND AND ACL_RUNTIME_LIBRARY)
+    target_link_libraries(analyzer_core PUBLIC ${ACL_RUNTIME_LIBRARY})
+endif()
 
 add_executable(Analyzer Analyzer/main.cpp)
 target_link_libraries(Analyzer PRIVATE analyzer_core)
@@ -458,14 +508,26 @@ add_executable(abstraction_test
         tests/backend/inference_backend_test.cpp
         tests/pipeline/pipeline_factory_test.cpp
         tests/architecture/layering_test.cpp
-        Analyzer/Core/imaging/opencv_image_processor.cpp)
+        tests/ascend/ascend_skeleton_test.cpp
+        Analyzer/Core/imaging/opencv_image_processor.cpp
+        Analyzer/Core/imaging/dvpp_image_processor.cpp
+        Analyzer/Core/ascend/acl_runtime.cpp
+        Analyzer/Core/backend/ascend_inference.cpp
+        Analyzer/Core/pipeline/ascend_decoder.cpp
+        Analyzer/Core/pipeline/ffmpeg_decoder.cpp
+        Analyzer/Core/pipeline/pipeline_factories.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
 target_link_libraries(abstraction_test PRIVATE
         GTest::gtest_main
         opencv_core
         opencv_imgproc
-        Threads::Threads)
+        Threads::Threads
+        spdlog::spdlog
+        PkgConfig::FFMPEG)
 target_include_directories(abstraction_test PRIVATE
         ${OpenCV_INCLUDE_DIRS}
+        ${FFMPEG_INCLUDE_DIRS}
         ${CMAKE_SOURCE_DIR}/Analyzer/Core)
 target_compile_definitions(abstraction_test PRIVATE
         ANALYZER_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
