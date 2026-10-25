@@ -61,6 +61,29 @@ TEST(BenchSmoke, QueuedModeShortRun) {
   EXPECT_GT(r.mailbox_depth_peak, 0u) << "queued 模式应该观察到队列深度";
 }
 
+// 多路并发：验证 N 路流能同时跑起来，且投递量 = 每路帧数 × 流数。
+TEST(BenchSmoke, MultiStreamShortRun) {
+  auto o = SmallOptions(MockMode::kQueued);
+  o.streams = 2;
+  o.frames = 120;
+  o.warmup_frames = 20;
+  o.mock.cost_ns = 200'000;  // 0.2ms，避免冒烟用例太慢
+  o.mock.mailbox_depth = 4;
+  o.realtime_pacing = false;
+
+  const auto r = RunBench(o);
+
+  ASSERT_TRUE(r.completed) << r.error;
+  EXPECT_EQ(r.streams, 2u);
+  // --frames 是"每路"的帧数，总投递应为 2 倍。
+  EXPECT_EQ(r.frames_offered, 240u);
+  EXPECT_GT(r.frames_submitted, 0u);
+  // 丢帧率分子永远不应超过分母（接纳数）。
+  EXPECT_LE(r.stale_dropped + r.frames_lost, r.frames_submitted);
+  EXPECT_GE(r.drop_rate, 0.0);
+  EXPECT_LE(r.drop_rate, 1.0);
+}
+
 // 纯函数单测：分位数计算与时序无关，可以在任何环境下钉死。
 TEST(BenchSmoke, LatencyStatsPercentiles) {
   LatencyStats st;
