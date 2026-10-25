@@ -542,6 +542,88 @@ target_compile_definitions(abstraction_test PRIVATE
         ANALYZER_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 add_test(NAME abstraction_test COMMAND $<TARGET_FILE:abstraction_test>)
 
+# ---- 端到端内存/延迟压测（mock YOLO 推理；不接解码/Worker/Scheduler）--------
+#
+# 目的：在没有 NPU/ONNX 的机器上也能量化"管线本身的内存与延迟"，
+# 用模拟推理替换模型计算，其余链路（Analyzer → mailbox → ByteTrack →
+# EventDetector）全部是真实代码。
+#
+# 注意：默认构建类型是 DEBUG（见文件顶部），跑压测必须显式
+#   cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+# 否则 -O0 下的延迟数据没有参考价值（bench 自身也会打印 NDEBUG 警告）。
+add_library(analyzer_bench_common INTERFACE)
+target_include_directories(analyzer_bench_common INTERFACE
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core/video_processing
+        ${CMAKE_SOURCE_DIR}/Analyzer/Core/tracker
+        ${THIRDPARTY_DIR}/include
+        ${THIRDPARTY_DIR}/include/readerwriterqueue
+        ${OpenCV_INCLUDE_DIRS}
+        ${FFMPEG_INCLUDE_DIRS}
+        ${FREETYPE_INCLUDE_DIRS}
+        ${EIGEN_INCLUDE_DIR}
+        # analyzer.h 经 detector/constant_yolo.h 传递包含 onnxruntime_cxx_api.h。
+        # 这里只取头文件目录：被测目标不编译 yolo_detector_onnx.cpp /
+        # inference.cpp，因此不需要链接 libonnxruntime。
+        ${ONNXRUNTIME_INCLUDE_DIR}
+)
+target_link_libraries(analyzer_bench_common INTERFACE
+        Threads::Threads
+        spdlog::spdlog
+        nlohmann_json::nlohmann_json
+        opencv_core
+        opencv_imgproc
+        atomic
+)
+
+# 压测核心 + 被测真实链路，编译一次，被 bench 可执行文件与冒烟用例共用。
+add_library(analyzer_bench_lib OBJECT
+        tests/bench/mock_inference.cpp
+        tests/bench/rss_sampler.cpp
+        tests/bench/latency_stats.cpp
+        tests/bench/bench_harness.cpp
+        Analyzer/Core/analyzer.cpp
+        Analyzer/Core/analyzer_registration.cpp
+        Analyzer/Core/algorithm.cpp
+        Analyzer/Core/detection_algorithm.cpp
+        Analyzer/Core/track_algorithm.cpp
+        Analyzer/Core/bunkoff_analyzer.cpp
+        Analyzer/Core/general_analyzer.cpp
+        Analyzer/Core/event.cpp
+        Analyzer/Core/admission.cpp
+        Analyzer/Core/task.cpp
+        Analyzer/Core/config.cpp
+        Analyzer/Core/tracker/ByteTrack/BYTETracker.cpp
+        Analyzer/Core/tracker/ByteTrack/KalmanFilter.cpp
+        Analyzer/Core/tracker/ByteTrack/Object.cpp
+        Analyzer/Core/tracker/ByteTrack/Rect.cpp
+        Analyzer/Core/tracker/ByteTrack/STrack.cpp
+        Analyzer/Core/tracker/ByteTrack/lapjv.cpp
+        Analyzer/Core/Utils/log.cpp
+        Analyzer/Core/Utils/log_formatter.cpp)
+target_link_libraries(analyzer_bench_lib PUBLIC analyzer_bench_common)
+
+# (A) 自带 main 的独立 bench：不链接 gtest，可脱离 ctest 单独跑，
+#     便于用 /usr/bin/time -v 或读 /proc/self/statm 采集 RSS。
+add_executable(analyzer_pipeline_bench
+        tests/bench/bench_main.cpp
+        $<TARGET_OBJECTS:analyzer_bench_lib>)
+target_link_libraries(analyzer_pipeline_bench PRIVATE analyzer_bench_common)
+
+# (B) 短跑版冒烟用例，进 ctest 防回归（阈值故意放宽）。
+add_executable(analyzer_bench_smoke_test
+        tests/bench/bench_smoke_test.cpp
+        $<TARGET_OBJECTS:analyzer_bench_lib>)
+target_link_libraries(analyzer_bench_smoke_test PRIVATE
+        analyzer_bench_common
+        GTest::gtest_main)
+add_test(NAME analyzer_bench_smoke_test COMMAND $<TARGET_FILE:analyzer_bench_smoke_test>)
+set_tests_properties(analyzer_bench_smoke_test PROPERTIES
+        TIMEOUT 180
+        RUN_SERIAL TRUE        # 压测对 CPU 敏感，禁止与其它用例并发
+        PROCESSORS 2
+        LABELS "bench;perf")
+
 endif()
 
 
