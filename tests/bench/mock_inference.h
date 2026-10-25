@@ -96,6 +96,12 @@ class MockInference {
   [[nodiscard]] std::uint64_t submitted() const { return submitted_.load(); }
   [[nodiscard]] std::uint64_t inferred() const { return inferred_.load(); }
   [[nodiscard]] std::uint64_t stale_dropped() const { return stale_dropped_.load(); }
+  /// 被 mailbox "最新者胜" 覆盖掉、从未产出的帧数。
+  ///
+  /// 这是容量不足最直接的信号：生产者投得比消费者快，旧任务在还没被
+  /// 推理前就被新任务顶掉了。它**不会**体现在 stale 或 inferred 里，
+  /// 属于"静默丢失"，必须单独统计，否则丢帧率会被严重低估。
+  [[nodiscard]] std::uint64_t dropped() const { return dropped_.load(); }
   [[nodiscard]] std::uint64_t queue_depth_peak() const { return depth_peak_.load(); }
   /// 最近一次实测的模拟耗时，用于自检注入精度。
   [[nodiscard]] std::uint64_t last_cost_ns() const { return last_cost_ns_.load(); }
@@ -131,6 +137,7 @@ class MockInference {
   std::atomic<std::uint64_t> submitted_{0};
   std::atomic<std::uint64_t> inferred_{0};
   std::atomic<std::uint64_t> stale_dropped_{0};
+  std::atomic<std::uint64_t> dropped_{0};
   std::atomic<std::uint64_t> depth_peak_{0};
   std::atomic<std::uint64_t> last_cost_ns_{0};
   mutable std::atomic<std::uint64_t> rng_state_;

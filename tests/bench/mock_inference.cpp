@@ -85,6 +85,12 @@ void MockInference::AddTask(unsigned long id1, unsigned long id2,
     if (outcome.result == avs_analyzer::AnalyzerMailboxes::PushResult::kRejected) {
       return;
     }
+    // 判据：kQueued 且 buffered_delta == 0 表示"有任务被顶掉而不是新增"。
+    // mailbox 是 latest-wins 语义，这种丢失不会体现在 stale/inferred 里。
+    if (outcome.result == avs_analyzer::AnalyzerMailboxes::PushResult::kQueued &&
+        outcome.buffered_delta == 0) {
+      dropped_.fetch_add(1, std::memory_order_relaxed);
+    }
     if (metrics_ && outcome.buffered_delta > 0) {
       metrics_->queue_depth.fetch_add(
           static_cast<std::uint64_t>(outcome.buffered_delta),

@@ -1,10 +1,12 @@
 #include "bench_harness.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <memory>
 #include <thread>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -40,6 +42,12 @@ std::string FormatNs(std::int64_t ns) {
   return buf;
 }
 
+std::string FormatPercent(double ratio) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.2f%%", ratio * 100.0);
+  return buf;
+}
+
 /// 只实现最小 Analyzer，用来测"管线本身"（analyzer_timeout_test 的同类手法）。
 class ProbeAnalyzer : public avs_analyzer::Analyzer {
  public:
@@ -59,6 +67,16 @@ cv::Mat MakeSyntheticFrame(int w, int h) {
   cv::randu(img, cv::Scalar(0, 0, 0), cv::Scalar(255, 255, 255));
   return img;
 }
+
+/// 一路流的全部状态。多路时每路跑在自己的线程上。
+struct StreamCtx {
+  std::shared_ptr<avs_analyzer::Analyzer> analyzer;
+  std::unique_ptr<avs_analyzer::EventDetector> detector;
+  LatencyBuckets latency;
+  std::uint64_t admitted{0};
+  std::uint64_t event_starts{0};
+  std::int64_t max_lag_ms{0};
+};
 
 }  // namespace
 
@@ -81,6 +99,7 @@ BenchReport RunBench(const BenchOptions& opt) {
   spdlog::set_level(spdlog::level::off);
 
   const auto t_start = Clock::now();
+  double expected_ms = 0.0;  // 理想墙钟：按时序"应该"花多久
   auto wall_ms_now = [&t_start]() -> std::int64_t {
     return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() -
                                                                 t_start)
@@ -89,165 +108,212 @@ BenchReport RunBench(const BenchOptions& opt) {
 
   try {
     // 1) Config：传入不存在的文件 -> 只 LOGE 并保留头文件缺省值。
-    //    注意 clamp 仅在文件成功打开时才执行，所以这里可以设任意超时。
     avs_analyzer::Config cfg("bench_no_such_config.json");
     cfg.inference_result_timeout_ms = opt.inference_result_timeout_ms;
 
-    // 2) Monitor：levels.first 必须非空（kWandering 读 [0]）。
-    avs_analyzer::Monitor monitor;
-    monitor.task = opt.task;
-    monitor.conf_threshold = 0.5f;
-    monitor.levels.first = {0};
-    monitor.levels.second = {"low"};
-
-    // 3) Analyzer 必须由 shared_ptr 持有：detector_callback() 内部用
-    //    weak_from_this()，unique_ptr 会让回调静默失效。
-    std::shared_ptr<avs_analyzer::Analyzer> analyzer;
-    if (opt.analyzer_kind == AnalyzerKind::kProbe) {
-      analyzer = std::make_shared<ProbeAnalyzer>(&monitor, cfg);
-    } else {
-      analyzer = avs_analyzer::CreateAnalyzer(&monitor, cfg);
-    }
-    if (!analyzer) {
-      report.error = "analyzer 创建失败";
-      spdlog::set_level(prev_level);
-      return report;
-    }
-    if (opt.analyzer_kind != AnalyzerKind::kProbe) {
-      std::vector<cv::Point> full{{0, 0},
-                                  {opt.width, 0},
-                                  {opt.width, opt.height},
-                                  {0, opt.height}};
-      analyzer->SetROIs({full});
-    }
+    const std::uint32_t streams = opt.streams ? opt.streams : 1u;
+    const std::uint64_t per_stream = opt.frames;
+    const std::uint64_t offered = per_stream * streams;
 
     auto worker_metrics = std::make_shared<avs_analyzer::WorkerMetrics>();
-    analyzer->SetMetrics(worker_metrics);
+    auto model_metrics = std::make_shared<avs_analyzer::ModelMetrics>();
 
-    // 4) 注入 mock 推理（不改任何生产代码）。
-    //
-    // 上游重构后 Analyzer 不再直接持有 AddTask 回调，而是持有
-    // AnalyzerRegistration（RAII：析构时自动注销）。所以注入点变成
-    // 自己构造一个 registration，把 MockInference 的 AddTaskFunc 塞进去。
+    // 2) mock 必须先于 analyzers 声明：Analyzer 持有 AnalyzerRegistration，
+    //    其析构回调会调 mock.Deregister()，所以 mock 必须比它们活得久。
     MockInferenceConfig mock_cfg = opt.mock;
     mock_cfg.frame_size = cv::Size(opt.width, opt.height);
-    auto model_metrics = std::make_shared<avs_analyzer::ModelMetrics>();
     MockInference mock(mock_cfg, model_metrics);
 
-    const auto analyzer_id = analyzer->id();
-    auto registration = std::make_shared<avs_analyzer::AnalyzerRegistration>(
-        analyzer_id,
-        mock.Register(analyzer_id, analyzer->detector_callback(),
-                      mock_cfg.mailbox_depth),
-        [&mock, analyzer_id]() { mock.Deregister(analyzer_id); });
-    analyzer->SetRegistration(registration);
-    mock.Start();
+    // 3) 每路流一套 Monitor / Analyzer / Registration / EventDetector。
+    std::vector<avs_analyzer::Monitor> monitors(streams);
+    std::vector<StreamCtx> ctxs(streams);
 
-    std::unique_ptr<avs_analyzer::EventDetector> detector;
-    if (opt.use_event_detector) {
-      detector =
-          std::make_unique<avs_analyzer::EventDetector>(opt.event_cfg, *analyzer);
+    for (std::uint32_t s = 0; s < streams; ++s) {
+      auto& monitor = monitors[s];
+      monitor.task = opt.task;
+      monitor.conf_threshold = 0.5f;
+      monitor.levels.first = {0};  // kWandering 读 [0]，空则 UB
+      monitor.levels.second = {"low"};
+
+      std::shared_ptr<avs_analyzer::Analyzer> analyzer;
+      if (opt.analyzer_kind == AnalyzerKind::kProbe) {
+        analyzer = std::make_shared<ProbeAnalyzer>(&monitor, cfg);
+      } else {
+        analyzer = avs_analyzer::CreateAnalyzer(&monitor, cfg);
+      }
+      if (!analyzer) {
+        report.error = "analyzer 创建失败";
+        spdlog::set_level(prev_level);
+        return report;
+      }
+      if (opt.analyzer_kind != AnalyzerKind::kProbe) {
+        std::vector<cv::Point> full{{0, 0},
+                                    {opt.width, 0},
+                                    {opt.width, opt.height},
+                                    {0, opt.height}};
+        analyzer->SetROIs({full});
+      }
+      analyzer->SetMetrics(worker_metrics);
+
+      // 注入点：自己构造 registration，把 mock 的 AddTaskFunc 塞进去。
+      const auto analyzer_id = analyzer->id();
+      auto registration = std::make_shared<avs_analyzer::AnalyzerRegistration>(
+          analyzer_id,
+          mock.Register(analyzer_id, analyzer->detector_callback(),
+                        mock_cfg.mailbox_depth),
+          [&mock, analyzer_id]() { mock.Deregister(analyzer_id); });
+      analyzer->SetRegistration(registration);
+
+      ctxs[s].analyzer = std::move(analyzer);
+      if (opt.use_event_detector) {
+        ctxs[s].detector = std::make_unique<avs_analyzer::EventDetector>(
+            opt.event_cfg, *ctxs[s].analyzer);
+      }
+      ctxs[s].latency.ReserveAll(static_cast<std::size_t>(
+          per_stream > opt.warmup_frames ? per_stream - opt.warmup_frames + 1
+                                         : 1));
     }
+
+    mock.Start();
 
     const auto shared_image =
         std::make_shared<const cv::Mat>(MakeSyntheticFrame(opt.width, opt.height));
 
-    // 5) 采样器与统计桶：全部预分配，测量期间零分配。
+    // 4) 采样器：单独线程按墙钟采样（多路时主线程只负责等待）。
     const std::uint64_t every = opt.rss_every ? opt.rss_every : 1;
-    RssSampler sampler(static_cast<std::size_t>(opt.frames / every + 16));
-    const std::uint64_t measured_count =
-        opt.frames > opt.warmup_frames ? opt.frames - opt.warmup_frames : 0;
-    report.latency.ReserveAll(static_cast<std::size_t>(measured_count + 1));
+    RssSampler sampler(static_cast<std::size_t>(offered / every + 4096));
+    report.latency.ReserveAll(static_cast<std::size_t>(offered + 1));
 
-    // 阶段边界：warmup 末 + 各稳态段末（最后一段的末点就是循环结束）。
-    const std::uint64_t steady = measured_count;
+    const std::uint64_t steady =
+        per_stream > opt.warmup_frames
+            ? (per_stream - opt.warmup_frames) * streams
+            : 0;
     const std::uint64_t phases = opt.phases ? opt.phases : 1;
-    std::vector<std::uint64_t> boundaries{opt.warmup_frames};
+    const std::uint64_t warmup_total = opt.warmup_frames * streams;
+    std::vector<std::uint64_t> boundaries{warmup_total};
     for (std::uint64_t k = 1; k < phases; ++k) {
-      boundaries.push_back(opt.warmup_frames + steady * k / phases);
+      boundaries.push_back(warmup_total + steady * k / phases);
     }
     std::size_t next_boundary = 0;
     std::vector<std::uint64_t> boundary_rss;
 
+    std::atomic<std::uint64_t> progress{0};
+    std::atomic<bool> stop_sampling{false};
+    std::atomic<bool> abort{false};
+
+    std::jthread sampler_thread([&] {
+      while (!stop_sampling.load(std::memory_order_acquire)) {
+        const auto p = progress.load(std::memory_order_relaxed);
+        while (next_boundary < boundaries.size() &&
+               p >= boundaries[next_boundary]) {
+          RssSampler::TrimHeap();
+          sampler.Sample(p, wall_ms_now());
+          boundary_rss.push_back(sampler.points().back().rss_bytes);
+          ++next_boundary;
+        }
+        if ((p % every) == 0) sampler.Sample(p, wall_ms_now());
+        if (opt.max_wall_ms &&
+            wall_ms_now() > static_cast<std::int64_t>(opt.max_wall_ms)) {
+          report.error = "看门狗触发：运行时间超过 max_wall_ms";
+          abort.store(true, std::memory_order_release);
+          return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    });
+
+    // 5) 每路流一个线程，各自按 fps 节奏送帧。
     const double step_ms = opt.fps > 0.0 ? (1000.0 / opt.fps) : 40.0;
-    auto next_deadline = Clock::now();
+    expected_ms = static_cast<double>(per_stream) * step_ms;
+    std::vector<std::jthread> stream_threads;
+    for (std::uint32_t s = 0; s < streams; ++s) {
+      stream_threads.emplace_back([&, s] {
+        auto& c = ctxs[s];
+        auto deadline = Clock::now();
+        for (std::uint64_t tick = 0; tick < per_stream; ++tick) {
+          if (abort.load(std::memory_order_acquire)) break;
 
-    // 6) 帧循环
-    for (std::uint64_t i = 0; i < opt.frames; ++i) {
-      const auto ts_ms = static_cast<std::int64_t>(static_cast<double>(i) * step_ms);
-      const bool measured = i >= opt.warmup_frames;
+          const auto ts_ms =
+              static_cast<std::int64_t>(static_cast<double>(tick) * step_ms);
+          const bool measured = tick >= opt.warmup_frames;
+          progress.fetch_add(1, std::memory_order_relaxed);
 
-      std::shared_ptr<avs_analyzer::SharedInference> shared;
-      bool admitted = true;
-      if (opt.use_admission) {
-        std::vector<avs_analyzer::AdmissionEntry> entries{
-            {analyzer->id(), monitor.task, analyzer->WantsFrame()}};
-        const auto adm =
-            avs_analyzer::AdmitFrame(entries, static_cast<std::uint64_t>(ts_ms));
-        if (adm.groups.empty()) {
-          admitted = false;
-        } else {
-          shared = adm.groups.front().shared;
+          bool admitted = true;
+          if (opt.use_admission) {
+            // 与 AdmitFrame 同样的判定，但按流独立执行（多路线程下不便做
+            // 跨流分组）。代价：**不建模**同任务流的 SharedInference 去重，
+            // 因此这是容量上的保守（悲观）估计。
+            const auto wanted = c.analyzer->WantsFrame();
+            admitted = static_cast<std::uint64_t>(ts_ms) >= wanted;
+            // 记录滞后。wanted 可能是"停止哨兵"极大值，需排除。
+            if (wanted < (1ULL << 62)) {
+              const auto lag = static_cast<std::int64_t>(wanted) - ts_ms;
+              if (lag > c.max_lag_ms) c.max_lag_ms = lag;
+            }
+          }
+
+          std::shared_ptr<const cv::Mat> image =
+              opt.reuse_image
+                  ? shared_image
+                  : std::make_shared<const cv::Mat>(
+                        MakeSyntheticFrame(opt.width, opt.height));
+
+          const auto t0 = Clock::now();
+          if (admitted) {
+            ++c.admitted;
+            c.analyzer->AddVideoFrame(static_cast<std::uint64_t>(s) + 1,
+                                      static_cast<std::uint64_t>(ts_ms), image,
+                                      nullptr);
+          }
+          const auto t1 = Clock::now();
+          if (c.detector) {
+            const auto state = c.detector->ProcessFrame(ts_ms, ts_ms);
+            if (state == avs_analyzer::EventDetector::kEventStart) {
+              ++c.event_starts;
+            }
+          } else if (admitted) {
+            (void)c.analyzer->RetrieveDetection();
+          }
+          const auto t2 = Clock::now();
+
+          if (measured && admitted) {
+            c.latency.e2e_ns.Add(ToNs(t2 - t0));
+            c.latency.submit_ns.Add(ToNs(t1 - t0));
+            c.latency.wait_ns.Add(ToNs(t2 - t1));
+            c.latency.mock_ns.Add(
+                static_cast<std::int64_t>(mock.last_cost_ns()));
+          }
+
+          if (opt.realtime_pacing) {
+            deadline += std::chrono::duration_cast<Clock::duration>(
+                std::chrono::duration<double, std::milli>(step_ms));
+            std::this_thread::sleep_until(deadline);
+          }
         }
-        report.frames_skipped += adm.skipped;
-      }
-      if (admitted) ++report.frames_submitted;
-
-      std::shared_ptr<const cv::Mat> image =
-          opt.reuse_image
-              ? shared_image
-              : std::make_shared<const cv::Mat>(
-                    MakeSyntheticFrame(opt.width, opt.height));
-
-      const auto t0 = Clock::now();
-      if (admitted) {
-        analyzer->AddVideoFrame(1, static_cast<std::uint64_t>(ts_ms), image,
-                                shared);
-      }
-      const auto t1 = Clock::now();
-      if (detector) {
-        const auto state = detector->ProcessFrame(ts_ms, ts_ms);
-        if (state == avs_analyzer::EventDetector::kEventStart) {
-          ++report.event_starts;
-        }
-      } else if (admitted) {
-        (void)analyzer->RetrieveDetection();
-      }
-      const auto t2 = Clock::now();
-
-      if (measured && admitted) {
-        report.latency.e2e_ns.Add(ToNs(t2 - t0));
-        report.latency.submit_ns.Add(ToNs(t1 - t0));
-        report.latency.wait_ns.Add(ToNs(t2 - t1));
-        report.latency.mock_ns.Add(
-            static_cast<std::int64_t>(mock.last_cost_ns()));
-      }
-
-      // 阶段边界：先 trim 再采样，让"真泄漏"从分配器水位里浮出来。
-      while (next_boundary < boundaries.size() && i >= boundaries[next_boundary]) {
-        RssSampler::TrimHeap();
-        sampler.Sample(i, wall_ms_now());
-        boundary_rss.push_back(sampler.points().back().rss_bytes);
-        ++next_boundary;
-      }
-      if ((i % every) == 0) sampler.Sample(i, wall_ms_now());
-
-      if (opt.realtime_pacing) {
-        next_deadline += std::chrono::duration_cast<Clock::duration>(
-            std::chrono::duration<double, std::milli>(step_ms));
-        std::this_thread::sleep_until(next_deadline);
-      }
-
-      if (opt.max_wall_ms &&
-          wall_ms_now() > static_cast<std::int64_t>(opt.max_wall_ms)) {
-        report.error = "看门狗触发：运行时间超过 max_wall_ms";
-        break;
-      }
+      });
     }
 
-    // 7) 收尾：trim 后取终值
+    for (auto& t : stream_threads) t.join();
+    stop_sampling.store(true, std::memory_order_release);
+    sampler_thread.join();
+
+    // 6) 汇总
+    for (auto& c : ctxs) {
+      for (const auto v : c.latency.e2e_ns.samples())
+        report.latency.e2e_ns.Add(v);
+      for (const auto v : c.latency.submit_ns.samples())
+        report.latency.submit_ns.Add(v);
+      for (const auto v : c.latency.wait_ns.samples())
+        report.latency.wait_ns.Add(v);
+      for (const auto v : c.latency.mock_ns.samples())
+        report.latency.mock_ns.Add(v);
+      report.frames_submitted += c.admitted;
+      report.event_starts += c.event_starts;
+      if (c.max_lag_ms > report.max_lag_ms) report.max_lag_ms = c.max_lag_ms;
+    }
+
     RssSampler::TrimHeap();
-    sampler.Sample(opt.frames, wall_ms_now());
+    sampler.Sample(progress.load(std::memory_order_relaxed), wall_ms_now());
 
     const auto& points = sampler.points();
     report.rss_final_bytes = points.back().rss_bytes;
@@ -264,18 +330,36 @@ BenchReport RunBench(const BenchOptions& opt) {
     report.phase2_growth = static_cast<std::int64_t>(report.rss_final_bytes) -
                            static_cast<std::int64_t>(report.rss_phase1_end_bytes);
     report.slope_bytes_per_frame =
-        sampler.SlopeBytesPerFrame(opt.warmup_frames, opt.frames);
+        sampler.SlopeBytesPerFrame(warmup_total, warmup_total + steady);
 
+    report.streams = streams;
+    report.frames_offered = offered;
+    report.frames_total = offered;
+    report.frames_skipped = offered - report.frames_submitted;
     report.inferences = mock.inferred();
     report.stale_dropped = mock.stale_dropped();
+    report.frames_lost = mock.dropped();
     report.mailbox_depth_peak = mock.queue_depth_peak();
     report.detect_wait_timeout =
         worker_metrics->detect_wait_timeout.load(std::memory_order_relaxed);
-    report.frames_total = opt.frames;
 
-    // 收尾顺序：先停 mock，再停 analyzer（Stop 会 PushResult 唤醒等待方）。
+    if (report.frames_submitted > 0) {
+      report.drop_rate =
+          static_cast<double>(report.stale_dropped + report.frames_lost) /
+          static_cast<double>(report.frames_submitted);
+    }
+    if (report.frames_offered > 0) {
+      report.admission_skip_rate =
+          static_cast<double>(report.frames_offered - report.frames_submitted) /
+          static_cast<double>(report.frames_offered);
+    }
+    report.target_fps = opt.fps * static_cast<double>(streams);
+
+    // 收尾顺序：先停 mock，再停各 analyzer。
     mock.Stop();
-    analyzer->Stop();
+    for (auto& c : ctxs) {
+      if (c.analyzer) c.analyzer->Stop();
+    }
 
     if (report.error.empty()) report.completed = true;
   } catch (const std::exception& e) {
@@ -288,7 +372,18 @@ BenchReport RunBench(const BenchOptions& opt) {
           .count();
   report.achieved_fps =
       report.wall_ms > 0.0
-          ? static_cast<double>(opt.frames) / report.wall_ms * 1000.0
+          ? static_cast<double>(report.frames_total) / report.wall_ms * 1000.0
+          : 0.0;
+  report.effective_infer_fps =
+      report.wall_ms > 0.0
+          ? static_cast<double>(report.inferences) / report.wall_ms * 1000.0
+          : 0.0;
+  report.wall_expected_ms = expected_ms;
+  report.behind_factor =
+      expected_ms > 0.0 ? report.wall_ms / expected_ms : 1.0;
+  report.demand_fps =
+      report.wall_ms > 0.0
+          ? static_cast<double>(report.frames_submitted) / report.wall_ms * 1000.0
           : 0.0;
   spdlog::set_level(prev_level);
   return report;
@@ -331,6 +426,10 @@ BenchVerdict Evaluate(const BenchReport& r, const BenchThresholds& t) {
     v.failures.push_back("发生 " + std::to_string(r.detect_wait_timeout) +
                          " 次空等超时（EventDetector 与送帧节奏不同步）");
   }
+  if (t.max_drop_rate > 0.0 && r.drop_rate > t.max_drop_rate) {
+    v.failures.push_back("丢帧率 " + FormatPercent(r.drop_rate) + " 超过阈值 " +
+                         FormatPercent(t.max_drop_rate));
+  }
   v.pass = v.failures.empty();
   return v;
 }
@@ -343,14 +442,24 @@ nlohmann::json BenchReport::ToJson() const {
   return {
       {"completed", completed},
       {"error", error},
-      {"framesTotal", frames_total},
+      {"streams", streams},
+      {"framesOffered", frames_offered},
       {"framesSubmitted", frames_submitted},
       {"framesSkipped", frames_skipped},
       {"inferences", inferences},
       {"staleDropped", stale_dropped},
+      {"framesLost", frames_lost},
       {"mailboxDepthPeak", mailbox_depth_peak},
       {"detectWaitTimeout", detect_wait_timeout},
       {"eventStarts", event_starts},
+      {"dropRate", drop_rate},
+      {"admissionSkipRate", admission_skip_rate},
+      {"targetFps", target_fps},
+      {"effectiveInferFps", effective_infer_fps},
+      {"behindFactor", behind_factor},
+      {"demandFps", demand_fps},
+      {"wallExpectedMs", wall_expected_ms},
+      {"maxLagMs", max_lag_ms},
       {"latencyMs",
        {{"e2eP50", e2e.p50_ns / 1e6},
         {"e2eP95", e2e.p95_ns / 1e6},
@@ -383,24 +492,42 @@ std::string BenchReport::ToText() const {
   out += "完成: " + std::string(completed ? "是" : "否");
   if (!error.empty()) out += "  错误: " + error;
   out += "\n";
-  out += "帧数        : 总 " + std::to_string(frames_total) + " / 提交 " +
-         std::to_string(frames_submitted) + " / 跳过 " +
-         std::to_string(frames_skipped) + "\n";
-  out += "推理次数    : " + std::to_string(inferences) + "   stale 丢弃 " +
-         std::to_string(stale_dropped) + "\n";
+  out += "并发流数    : " + std::to_string(streams) + "\n";
+  out += "墙钟        : " + std::to_string(wall_ms) + " ms\n";
+
+  out += "\n--- 容量与丢帧（重点）---\n";
+  out += "投递帧数    : " + std::to_string(frames_offered) + "\n";
+  out += "  接纳      : " + std::to_string(frames_submitted) + "   （跳过 " +
+         std::to_string(frames_skipped) + "，" +
+         FormatPercent(admission_skip_rate) + " 属低采样设计，非容量问题）\n";
+  out += "  已推理    : " + std::to_string(inferences) + "\n";
+  out += "  stale 过期: " + std::to_string(stale_dropped) + "\n";
+  out += "  队列覆盖丢: " + std::to_string(frames_lost) +
+         "   （mailbox latest-wins，静默丢失）\n";
+  out += ">>> 丢帧率  : " + FormatPercent(drop_rate) +
+         "   = (stale + 覆盖) / 接纳\n";
+  out += "速率对比    : 入流 " + std::to_string(target_fps) + " fps -> 需求 " +
+         std::to_string(demand_fps) + " fps -> 实际推理 " +
+         std::to_string(effective_infer_fps) + " fps\n";
+  out += "             （需求才是容量基准：入流被低采样大幅削减）\n";
+  out += "跑慢倍数    : " + std::to_string(behind_factor) +
+         "x   （实际墙钟 " + std::to_string(wall_ms) + " ms / 理想 " +
+         std::to_string(wall_expected_ms) + " ms）\n";
+  out += "最大滞后    : " + std::to_string(max_lag_ms) +
+         " ms（>> 一个 stride 即说明饱和，而非低采样设计）\n";
   out += "队列峰值    : " + std::to_string(mailbox_depth_peak) +
          "   空等超时 " + std::to_string(detect_wait_timeout) +
          "   事件起始 " + std::to_string(event_starts) + "\n";
-  out += "墙钟        : " + std::to_string(wall_ms) + " ms   吞吐 " +
-         std::to_string(achieved_fps) + " fps\n";
 
   out += "\n--- 内存 ---\n";
   out += "warmup 末   : " + FormatBytes(rss_warmup_end_bytes) + "\n";
   out += "phase1 末   : " + FormatBytes(rss_phase1_end_bytes) + "  (增长 " +
-         FormatBytes(static_cast<std::uint64_t>(std::max<std::int64_t>(0, phase1_growth))) +
+         FormatBytes(static_cast<std::uint64_t>(
+             std::max<std::int64_t>(0, phase1_growth))) +
          ")\n";
   out += "终值        : " + FormatBytes(rss_final_bytes) + "  (增长 " +
-         FormatBytes(static_cast<std::uint64_t>(std::max<std::int64_t>(0, phase2_growth))) +
+         FormatBytes(static_cast<std::uint64_t>(
+             std::max<std::int64_t>(0, phase2_growth))) +
          ")\n";
   out += "峰值        : " + FormatBytes(rss_peak_bytes) + "\n";
   out += "稳态斜率    : " + std::to_string(slope_bytes_per_frame) +
@@ -412,7 +539,8 @@ std::string BenchReport::ToText() const {
          FormatNs(e2e.max_ns) + "\n";
   out += "  提交段    : p50 " + FormatNs(submit.p50_ns) + "\n";
   out += "  等待段    : p50 " + FormatNs(wait.p50_ns) + "\n";
-  out += "mock 自检   : mean " + FormatNs(static_cast<std::int64_t>(mock_s.mean_ns)) +
+  out += "mock 自检   : mean " +
+         FormatNs(static_cast<std::int64_t>(mock_s.mean_ns)) +
          "（应接近配置的模拟耗时）\n";
   return out;
 }

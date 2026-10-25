@@ -21,7 +21,8 @@ void PrintUsage(const char* argv0) {
       "用法: %s [选项]\n"
       "\n"
       "帧与节奏:\n"
-      "  --frames N              总帧数（含 warmup，默认 20000）\n"
+      "  --frames N              每路流的帧数（总投递 = N × --streams，默认 20000）\n"
+      "  --streams N             并发流数，做容量测试时调大（默认 1）\n"
       "  --warmup N              预热帧数，不计入统计（默认 2000）\n"
       "  --phases N              稳态分段数，用于区分缓存增长与真泄漏（默认 2）\n"
       "  --fps F                 帧时间戳步长（默认 25）\n"
@@ -47,7 +48,12 @@ void PrintUsage(const char* argv0) {
       "  --task breakin|wander|bunkoff|sleep|phone|climb  默认 breakin\n"
       "  --timeout-ms N          inference_result_timeout_ms（默认 300，别用 5000）\n"
       "  --event 0|1             是否挂 EventDetector（默认 1）\n"
-      "  --admission 0|1         是否走 AdmitFrame 背压（默认 1）\n"
+      "  --admission 0|1         是否走背压判定（默认 1；0=每帧都投，用来压满系统）\n"
+      "  --major-stride-ms N     事件机主检查间隔（默认 2000）\n"
+      "  --minor-stride-ms N     事件机次检查间隔（默认 250）\n"
+      "  --window N --min-vote N 投票窗口与门槛（默认 5 / 3）\n"
+      "  提示：把两个 stride 调到约 1000/fps（如 30fps -> 33）可让系统\n"
+      "        尝试分析每一帧，是做容量摸底的正确姿势。\n"
       "\n"
       "输出:\n"
       "  --rss-every N           每 N 帧采一次 RSS（默认 100）\n"
@@ -91,6 +97,7 @@ int main(int argc, char** argv) {
 
   static option long_opts[] = {
       {"frames", required_argument, nullptr, 'f'},
+      {"streams", required_argument, nullptr, 'N'},
       {"warmup", required_argument, nullptr, 'w'},
       {"phases", required_argument, nullptr, 'P'},
       {"width", required_argument, nullptr, 'W'},
@@ -116,16 +123,21 @@ int main(int argc, char** argv) {
       {"format", required_argument, nullptr, 'o'},
       {"dump-samples", required_argument, nullptr, 'D'},
       {"max-wall-ms", required_argument, nullptr, 'x'},
+      {"major-stride-ms", required_argument, nullptr, '0'},
+      {"minor-stride-ms", required_argument, nullptr, '1'},
+      {"window", required_argument, nullptr, '2'},
+      {"min-vote", required_argument, nullptr, '3'},
       {"strict", no_argument, nullptr, 'S'},
       {"help", no_argument, nullptr, 'h'},
       {nullptr, 0, nullptr, 0},
   };
 
   int c = 0;
-  while ((c = getopt_long(argc, argv, "hf:w:P:W:H:R:F:p:m:d:t:c:j:M:e:a:T:A:k:b:g:s:r:o:D:x:Sh",
+  while ((c = getopt_long(argc, argv, "hf:N:w:P:W:H:R:F:p:m:d:t:c:j:M:e:a:T:A:k:b:g:s:r:o:D:x:0:1:2:3:Sh",
                           long_opts, nullptr)) != -1) {
     switch (c) {
       case 'f': opt.frames = std::strtoull(optarg, nullptr, 10); break;
+      case 'N': opt.streams = static_cast<std::uint32_t>(std::atoi(optarg)); break;
       case 'w': opt.warmup_frames = std::strtoull(optarg, nullptr, 10); break;
       case 'P': opt.phases = std::strtoull(optarg, nullptr, 10); break;
       case 'W': opt.width = std::atoi(optarg); break;
@@ -151,6 +163,10 @@ int main(int argc, char** argv) {
       case 'o': format = optarg; break;
       case 'D': dump = true; dump_path = optarg; break;
       case 'x': opt.max_wall_ms = std::strtoull(optarg, nullptr, 10); break;
+      case '0': opt.event_cfg.major_stride_ms = std::atoi(optarg); break;
+      case '1': opt.event_cfg.minor_stride_ms = std::atoi(optarg); break;
+      case '2': opt.event_cfg.window_size = std::atoi(optarg); break;
+      case '3': opt.event_cfg.min_vote = std::atoi(optarg); break;
       case 'S': strict = true; break;
       case 'h': PrintUsage(argv[0]); return 0;
       default: PrintUsage(argv[0]); return 2;
