@@ -43,6 +43,12 @@ void PrintUsage(const char* argv0) {
       "  --move-boxes 0|1        框是否随帧平移（默认 1；0=恒定框，ByteTrack 对照）\n"
       "  --seed S                确定性 PRNG 种子（默认 12345）\n"
       "\n"
+      "接入的真实组件（默认关）:\n"
+      "  --convert 0|1           真实 FormatConvertor 做 YUV->BGR（每帧）\n"
+      "  --preprocess 0|1        真实 OpenCvImageProcessor 做 letterbox+NCHW+/255\n"
+      "                          （只在帧被接纳时做，属推理的一部分）\n"
+      "  开启后报告会多出「分阶段耗时」一节，用于定位瓶颈。\n"
+      "\n"
       "被测链路:\n"
       "  --analyzer probe|general|bunkoff   默认 probe\n"
       "  --task breakin|wander|bunkoff|sleep|phone|climb  默认 breakin\n"
@@ -123,6 +129,8 @@ int main(int argc, char** argv) {
       {"format", required_argument, nullptr, 'o'},
       {"dump-samples", required_argument, nullptr, 'D'},
       {"max-wall-ms", required_argument, nullptr, 'x'},
+      {"convert", required_argument, nullptr, 'C'},
+      {"preprocess", required_argument, nullptr, 'G'},
       {"major-stride-ms", required_argument, nullptr, '0'},
       {"minor-stride-ms", required_argument, nullptr, '1'},
       {"window", required_argument, nullptr, '2'},
@@ -133,7 +141,7 @@ int main(int argc, char** argv) {
   };
 
   int c = 0;
-  while ((c = getopt_long(argc, argv, "hf:N:w:P:W:H:R:F:p:m:d:t:c:j:M:e:a:T:A:k:b:g:s:r:o:D:x:0:1:2:3:Sh",
+  while ((c = getopt_long(argc, argv, "hf:N:w:P:W:H:R:F:p:m:d:t:c:j:M:e:a:T:A:k:b:g:s:r:o:D:x:C:G:0:1:2:3:Sh",
                           long_opts, nullptr)) != -1) {
     switch (c) {
       case 'f': opt.frames = std::strtoull(optarg, nullptr, 10); break;
@@ -167,6 +175,8 @@ int main(int argc, char** argv) {
       case '1': opt.event_cfg.minor_stride_ms = std::atoi(optarg); break;
       case '2': opt.event_cfg.window_size = std::atoi(optarg); break;
       case '3': opt.event_cfg.min_vote = std::atoi(optarg); break;
+      case 'C': opt.use_convert = std::atoi(optarg) != 0; break;
+      case 'G': opt.use_preprocess = std::atoi(optarg) != 0; break;
       case 'S': strict = true; break;
       case 'h': PrintUsage(argv[0]); return 0;
       default: PrintUsage(argv[0]); return 2;
