@@ -13,6 +13,7 @@
 #include "analyzer_registration.h"
 #include "config.h"
 #include "metrics.h"
+#include "pipeline_stages.h"
 
 namespace avsbench {
 
@@ -76,6 +77,8 @@ struct StreamCtx {
   std::uint64_t admitted{0};
   std::uint64_t event_starts{0};
   std::int64_t max_lag_ms{0};
+  std::unique_ptr<ConvertStage> convert;
+  std::unique_ptr<PreprocessStage> preprocess;
 };
 
 }  // namespace
@@ -172,6 +175,14 @@ BenchReport RunBench(const BenchOptions& opt) {
       ctxs[s].latency.ReserveAll(static_cast<std::size_t>(
           per_stream > opt.warmup_frames ? per_stream - opt.warmup_frames + 1
                                          : 1));
+
+      if (opt.use_convert) {
+        ctxs[s].convert = std::make_unique<ConvertStage>(opt.width, opt.height,
+                                                        opt.width, opt.height);
+      }
+      if (opt.use_preprocess) {
+        ctxs[s].preprocess = std::make_unique<PreprocessStage>(opt.preprocess_spec);
+      }
     }
 
     mock.Start();
@@ -252,20 +263,42 @@ BenchReport RunBench(const BenchOptions& opt) {
             }
           }
 
+          // 阶段 1：YUV -> BGR（每帧都做，与真实解码后行为一致）
+          const auto t0 = Clock::now();
+          cv::Mat bgr;
+          if (c.convert) {
+            const auto yuv = MakeYuvFrame(opt.width, opt.height, tick);
+            bgr = c.convert->Run(yuv);
+            if (measured) c.latency.convert_ns.Add(ToNs(Clock::now() - t0));
+          }
+
+          // 阶段 2：BGR -> 模型张量。只在帧被接纳时做——它属于推理的一部分，
+          // 真实系统里被跳过的帧不会产生预处理开销。
+          if (c.preprocess && admitted) {
+            if (bgr.empty()) bgr = MakeSyntheticFrame(opt.width, opt.height);
+            const auto tp0 = Clock::now();
+            (void)c.preprocess->Run(bgr);
+            const auto tp1 = Clock::now();
+            if (measured) c.latency.preprocess_ns.Add(ToNs(tp1 - tp0));
+          }
+
           std::shared_ptr<const cv::Mat> image =
               opt.reuse_image
                   ? shared_image
                   : std::make_shared<const cv::Mat>(
                         MakeSyntheticFrame(opt.width, opt.height));
+          if (c.convert && !bgr.empty()) {
+            image = std::make_shared<const cv::Mat>(bgr);
+          }
 
-          const auto t0 = Clock::now();
+          const auto ts0 = Clock::now();
           if (admitted) {
             ++c.admitted;
             c.analyzer->AddVideoFrame(static_cast<std::uint64_t>(s) + 1,
                                       static_cast<std::uint64_t>(ts_ms), image,
                                       nullptr);
           }
-          const auto t1 = Clock::now();
+          const auto ts1 = Clock::now();
           if (c.detector) {
             const auto state = c.detector->ProcessFrame(ts_ms, ts_ms);
             if (state == avs_analyzer::EventDetector::kEventStart) {
@@ -278,8 +311,8 @@ BenchReport RunBench(const BenchOptions& opt) {
 
           if (measured && admitted) {
             c.latency.e2e_ns.Add(ToNs(t2 - t0));
-            c.latency.submit_ns.Add(ToNs(t1 - t0));
-            c.latency.wait_ns.Add(ToNs(t2 - t1));
+            c.latency.submit_ns.Add(ToNs(ts1 - ts0));
+            c.latency.wait_ns.Add(ToNs(t2 - ts1));
             c.latency.mock_ns.Add(
                 static_cast<std::int64_t>(mock.last_cost_ns()));
           }
@@ -299,6 +332,10 @@ BenchReport RunBench(const BenchOptions& opt) {
 
     // 6) 汇总
     for (auto& c : ctxs) {
+      for (const auto v : c.latency.convert_ns.samples())
+        report.latency.convert_ns.Add(v);
+      for (const auto v : c.latency.preprocess_ns.samples())
+        report.latency.preprocess_ns.Add(v);
       for (const auto v : c.latency.e2e_ns.samples())
         report.latency.e2e_ns.Add(v);
       for (const auto v : c.latency.submit_ns.samples())
@@ -439,6 +476,8 @@ nlohmann::json BenchReport::ToJson() const {
   const auto submit = latency.submit_ns.Summarize();
   const auto wait = latency.wait_ns.Summarize();
   const auto mock_s = latency.mock_ns.Summarize();
+  const auto convert_s = latency.convert_ns.Summarize();
+  const auto preprocess_s = latency.preprocess_ns.Summarize();
   return {
       {"completed", completed},
       {"error", error},
@@ -467,6 +506,8 @@ nlohmann::json BenchReport::ToJson() const {
         {"e2eMax", e2e.max_ns / 1e6},
         {"submitP50", submit.p50_ns / 1e6},
         {"waitP50", wait.p50_ns / 1e6},
+        {"convertP50", convert_s.p50_ns / 1e6},
+        {"preprocessP50", preprocess_s.p50_ns / 1e6},
         {"mockMean", mock_s.mean_ns / 1e6}}},
       {"rssMiB",
        {{"warmupEnd", rss_warmup_end_bytes / (1024.0 * 1024.0)},
@@ -532,6 +573,29 @@ std::string BenchReport::ToText() const {
   out += "峰值        : " + FormatBytes(rss_peak_bytes) + "\n";
   out += "稳态斜率    : " + std::to_string(slope_bytes_per_frame) +
          " bytes/frame\n";
+
+  // 分阶段归因：直接回答"瓶颈在哪"。占比以端到端 p50 为分母。
+  out += "\n--- 分阶段耗时（p50 / 占端到端比例）---\n";
+  const auto stage_line = [&](const char* name, const LatencyStats& bucket) {
+    const auto s = bucket.Summarize();
+    if (s.count == 0) {
+      out += std::string(name) + " : （未启用）\n";
+      return;
+    }
+    const double pct = e2e.p50_ns > 0
+                           ? static_cast<double>(s.p50_ns) /
+                                 static_cast<double>(e2e.p50_ns) * 100.0
+                           : 0.0;
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "%-12s: %10s  %5.1f%%   (p99 %s)\n", name,
+                  FormatNs(s.p50_ns).c_str(), pct,
+                  FormatNs(s.p99_ns).c_str());
+    out += buf;
+  };
+  stage_line("YUV->BGR", latency.convert_ns);
+  stage_line("预处理", latency.preprocess_ns);
+  stage_line("提交", latency.submit_ns);
+  stage_line("等待/推理", latency.wait_ns);
 
   out += "\n--- 延迟（仅统计 warmup 之后）---\n";
   out += "端到端      : p50 " + FormatNs(e2e.p50_ns) + "  p95 " +

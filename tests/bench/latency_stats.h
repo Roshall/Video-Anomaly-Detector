@@ -46,13 +46,17 @@ class LatencyStats {
 
 /// 分阶段埋点：端到端是主指标，其余用于定位瓶颈落在哪一段。
 struct LatencyBuckets {
-  LatencyStats submit_ns;  // AddVideoFrame（入队 / sync 模式下含模拟耗时）
-  LatencyStats wait_ns;    // ProcessFrame 内等结果 + 算法后处理
-  LatencyStats e2e_ns;     // 主指标 = submit + wait
-  LatencyStats mock_ns;    // mock 内部实测耗时，自检注入精度
-  LatencyStats event_ns;   // 发生了 stride check 的帧
+  LatencyStats convert_ns;     // YUV -> BGR（真实 FormatConvertor）
+  LatencyStats preprocess_ns;  // BGR -> 模型张量（真实 OpenCvImageProcessor）
+  LatencyStats submit_ns;      // AddVideoFrame（入队）
+  LatencyStats wait_ns;        // ProcessFrame 内等结果 + 算法后处理
+  LatencyStats e2e_ns;         // 主指标 = convert + preprocess + submit + wait
+  LatencyStats mock_ns;        // mock 内部实测耗时，自检注入精度
+  LatencyStats event_ns;       // 发生了 stride check 的帧
 
   void ReserveAll(std::size_t n) {
+    convert_ns.Reserve(n);
+    preprocess_ns.Reserve(n);
     submit_ns.Reserve(n);
     wait_ns.Reserve(n);
     e2e_ns.Reserve(n);

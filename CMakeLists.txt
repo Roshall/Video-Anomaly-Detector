@@ -582,6 +582,11 @@ add_library(analyzer_bench_lib OBJECT
         tests/bench/rss_sampler.cpp
         tests/bench/latency_stats.cpp
         tests/bench/bench_harness.cpp
+        # 分阶段组件：YUV->BGR 与 BGR->模型张量（后者是生产代码
+        # OpenCvImageProcessor），用于分阶段定位瓶颈。
+        # 注：未接入生产 FormatConvertor，它依赖 libav 的 AVFrame。
+        tests/bench/pipeline_stages.cpp
+        Analyzer/Core/imaging/opencv_image_processor.cpp
         Analyzer/Core/analyzer.cpp
         Analyzer/Core/analyzer_registration.cpp
         Analyzer/Core/algorithm.cpp
@@ -613,6 +618,7 @@ target_link_libraries(analyzer_pipeline_bench PRIVATE analyzer_bench_common)
 # (B) 短跑版冒烟用例，进 ctest 防回归（阈值故意放宽）。
 add_executable(analyzer_bench_smoke_test
         tests/bench/bench_smoke_test.cpp
+        tests/bench/pipeline_stages_test.cpp
         $<TARGET_OBJECTS:analyzer_bench_lib>)
 target_link_libraries(analyzer_bench_smoke_test PRIVATE
         analyzer_bench_common

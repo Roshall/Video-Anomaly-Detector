@@ -20,10 +20,15 @@
 #include "admission.h"
 #include "analyzer.h"
 #include "event.h"
+#include "io/tensor.h"
 #include "monitor.h"
 #include "task.h"
 
 namespace avsbench {
+
+// 中性契约层的命名空间在 avs_analyzer 下，这里做别名便于 bench 代码书写。
+namespace io = avs_analyzer::io;
+using io::ModelSpec;
 
 /// kProbe 是 analyzer_timeout_test 里的手法：只实现最小 Analyzer，
 /// 用来测"管线本身"；另两个走生产路径的 General/BunkOff。
@@ -67,6 +72,15 @@ struct BenchOptions {
 
   // 背压
   bool use_admission{true};
+
+  /// 接入真实组件（默认关：保持"纯管线"基线可复现）。
+  /// use_convert    : 真实 FormatConvertor 做 YUV->BGR（每帧都做）
+  /// use_preprocess : 真实 OpenCvImageProcessor 做 letterbox+NCHW+/255
+  ///                  （只在帧被接纳时做，因为它属于推理的一部分）
+  bool use_convert{false};
+  bool use_preprocess{false};
+  /// 预处理的目标输入尺寸（默认与 YOLO 一致：640x640）。
+  ModelSpec preprocess_spec{};
 
   // 采样
   std::uint64_t rss_every{100};
