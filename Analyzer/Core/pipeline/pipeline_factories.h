@@ -19,7 +19,10 @@
 
 namespace avs_analyzer::pipeline {
 
-/// CPU 预设：FFmpeg 软解 + OpenCV 预处理 + （ONNX 推理待接入）+ 空编码器。
+/// CPU 预设：FFmpeg 软解 + OpenCV 预处理 + ONNX 推理 + 空编码器。
+///
+/// 注意预处理与推理是**两个独立组件**：前者按 ModelSpec 产出 io::HostTensor，
+/// 后者只消费张量。想把预处理换到 NPU 上时，只需换这一件，推理不动。
 class CpuPipelineFactory final : public IPipelineFactory {
  public:
   [[nodiscard]] BackendKind backend() const noexcept override {

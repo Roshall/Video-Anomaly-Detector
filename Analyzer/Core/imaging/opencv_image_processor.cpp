@@ -119,16 +119,24 @@ cv::Mat OpenCvImageProcessor::ToBgr(const Frame& in) {
   }
 }
 
-cv::Mat OpenCvImageProcessor::Letterbox(const cv::Mat& bgr, Size dst, int pad) {
-  if (bgr.empty() || dst.w <= 0 || dst.h <= 0) {
-    throw std::invalid_argument("OpenCvImageProcessor::Letterbox: invalid input");
-  }
+io::LetterboxInfo OpenCvImageProcessor::LetterboxGeometry(const cv::Mat& bgr,
+                                                            Size dst) {
   const float r = std::min(static_cast<float>(dst.w) / bgr.cols,
                            static_cast<float>(dst.h) / bgr.rows);
   const int new_w = static_cast<int>(std::round(bgr.cols * r));
   const int new_h = static_cast<int>(std::round(bgr.rows * r));
-  const int pad_x = (dst.w - new_w) / 2;
-  const int pad_y = (dst.h - new_h) / 2;
+  return {r, (dst.w - new_w) / 2, (dst.h - new_h) / 2};
+}
+
+cv::Mat OpenCvImageProcessor::Letterbox(const cv::Mat& bgr, Size dst, int pad) {
+  if (bgr.empty() || dst.w <= 0 || dst.h <= 0) {
+    throw std::invalid_argument("OpenCvImageProcessor::Letterbox: invalid input");
+  }
+  const auto geom = LetterboxGeometry(bgr, dst);
+  const int new_w = static_cast<int>(std::round(bgr.cols * geom.scale));
+  const int new_h = static_cast<int>(std::round(bgr.rows * geom.scale));
+  const int pad_x = geom.pad_x;
+  const int pad_y = geom.pad_y;
 
   cv::Mat resized;
   cv::resize(bgr, resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
@@ -168,6 +176,7 @@ ModelInput OpenCvImageProcessor::PrepareModelInput(const Frame& in,
 
   HostTensor t;
   t.dims = {1, 3, h, w};
+  t.letterbox = LetterboxGeometry(bgr, spec.input_size);
   t.data.resize(3 * hw);
 
   constexpr float kInv255 = 1.0f / 255.0f;
