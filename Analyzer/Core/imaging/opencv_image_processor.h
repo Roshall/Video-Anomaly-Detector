@@ -40,6 +40,11 @@ class OpenCvImageProcessor final : public IImageProcessor {
   [[nodiscard]] static cv::Mat Letterbox(const cv::Mat& bgr, Size dst,
                                          int pad = 114);
 
+  /// letterbox 的几何参数。与 Letterbox() 共用同一套计算，保证张量里携带的
+  /// scale/pad 与画布一致——否则坐标还原会错。
+  [[nodiscard]] static io::LetterboxInfo LetterboxGeometry(const cv::Mat& bgr,
+                                                            Size dst);
+
  private:
   std::shared_ptr<const IFrameMigrator> migrator_;
 };

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "inference_types.h"
+#include "io/tensor.h"
 
 class YOLOv8Detect {
  public:
@@ -17,15 +18,30 @@ class YOLOv8Detect {
   // Linux only, detect-only
   const char* CreateSession(const DL_INIT_PARAM& p);
 
+  /// letterbox 的几何信息。见 io/tensor.h 中的同名类型：这里直接复用中性
+  /// 层的定义，避免"同一件事两个类型"。
+  using PreprocInfo = avs_analyzer::io::LetterboxInfo;
+
+  /// 旧路径：内部完成 letterbox + BGR→RGB + HWC→NCHW + /255，然后跑模型。
+  /// 保留它是为了回归对照——新路径必须逐像素等价于它。
   std::vector<DL_RESULT> RunSession(const cv::Mat& bgr);
 
- private:
-  struct PreprocInfo {
-    float scale = 1.f;
-    int pad_x = 0;
-    int pad_y = 0;
-  };
+  /// 独立的一步：只做预处理，产出带 letterbox 元信息的张量。
+  /// 不触碰 session，因此未加载模型也能调用。
+  [[nodiscard]] avs_analyzer::io::HostTensor Preprocess(const cv::Mat& bgr);
 
+  /// 新路径（解耦后）：只跑模型。张量由谁产出、跑在 CPU 还是 NPU 上做的
+  /// 预处理，本函数一概不关心。
+  std::vector<DL_RESULT> RunSession(const avs_analyzer::io::HostTensor& input,
+                                    const PreprocInfo& pp);
+
+  /// 把模型输出的框从 letterbox 画布坐标还原回原图坐标。
+  [[nodiscard]] static cv::Rect DeletterboxXYXY(float x1, float y1, float x2,
+                                                float y2, const PreprocInfo& pp);
+  [[nodiscard]] static cv::Rect DeletterboxXYWH(float cx, float cy, float w,
+                                                float h, const PreprocInfo& pp);
+
+ private:
   // centered letterbox BGR->RGB
   PreprocInfo letterbox_bgr_to_rgb_(const cv::Mat& src_bgr, int W, int H);
 

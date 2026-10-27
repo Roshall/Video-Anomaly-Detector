@@ -48,6 +48,15 @@ void YOLOv8Detect::hwc_to_nchw_norm_(const cv::Mat& rgb, float* out) {
     }
   }
 }
+cv::Rect YOLOv8Detect::DeletterboxXYXY(float x1, float y1, float x2, float y2,
+                                        const PreprocInfo& pp) {
+  return deletterbox_xyxy_(x1, y1, x2, y2, pp);
+}
+cv::Rect YOLOv8Detect::DeletterboxXYWH(float cx, float cy, float w, float h,
+                                        const PreprocInfo& pp) {
+  return deletterbox_xywh_(cx, cy, w, h, pp);
+}
+
 cv::Rect YOLOv8Detect::deletterbox_xyxy_(float x1, float y1, float x2, float y2,
                                          const YOLOv8Detect::PreprocInfo& pp) {
   const float nx1 = (x1 - pp.pad_x) / pp.scale;
@@ -71,25 +80,45 @@ void YOLOv8Detect::rebuild_name_ptrs_() {
   for (auto& s : input_names_s_)  input_names_.push_back(s.c_str());
   for (auto& s : output_names_s_) output_names_.push_back(s.c_str());
 }
-std::vector<DL_RESULT> YOLOv8Detect::RunSession(const cv::Mat& bgr) {
-  if (bgr.empty() || bgr.type() != CV_8UC3) return {};
+avs_analyzer::io::HostTensor YOLOv8Detect::Preprocess(const cv::Mat& bgr) {
+  avs_analyzer::io::HostTensor t;
+  if (bgr.empty() || bgr.type() != CV_8UC3) return t;
 
-  // preprocess (centered letterbox to target WxH, RGB, keep scale/pad)
+  // 与旧路径完全相同的三步：letterbox → BGR→RGB → HWC→NCHW + /255
   const auto pp = letterbox_bgr_to_rgb_(bgr, img_size_[0], img_size_[1]);
 
-  // NCHW FP32, normalized [0,1]
-  const int W = rgb_.cols, H = rgb_.rows;
-  const size_t HW = static_cast<size_t>(H) * W;
-  blob_.resize(3 * HW);
+  const int W = rgb_.cols;
+  const int H = rgb_.rows;
+  const auto hw = static_cast<std::size_t>(H) * W;
+  blob_.resize(3 * hw);
   hwc_to_nchw_norm_(rgb_, blob_.data());
 
-  input_dims_ = {1, 3, H, W};
-  Ort::Value input = Ort::Value::CreateTensor<float>(
-      CpuMemoryInfo(), blob_.data(), blob_.size(), input_dims_.data(),
-      input_dims_.size());
+  t.dims = {1, 3, H, W};
+  t.data = blob_;
+  t.letterbox = pp;
+  return t;
+}
 
-  auto outs = session_->Run(run_opts_, input_names_.data(), &input, 1,
+std::vector<DL_RESULT> YOLOv8Detect::RunSession(const cv::Mat& bgr) {
+  if (bgr.empty() || bgr.type() != CV_8UC3) return {};
+  avs_analyzer::io::HostTensor t = Preprocess(bgr);
+  if (t.data.empty()) return {};
+  return RunSession(t, t.letterbox);
+}
+
+std::vector<DL_RESULT> YOLOv8Detect::RunSession(
+    const avs_analyzer::io::HostTensor& input, const PreprocInfo& pp) {
+  if (!session_ || input.data.empty()) return {};
+
+  input_dims_ = input.dims;
+  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+      CpuMemoryInfo(), const_cast<float*>(input.data.data()),
+      input.data.size(), input_dims_.data(), input_dims_.size());
+
+  auto outs = session_->Run(run_opts_, input_names_.data(), &input_tensor, 1,
                             output_names_.data(), output_names_.size());
+
+  if (outs.empty()) return {};  // 空输出不应走到 outs.front()
 
   // assume 1 output (Ultralytics default)
   auto& outv = outs.front();

@@ -332,6 +332,7 @@ set(analyzer_core_source
         # --- 双后端抽象层：推理引擎 / 图像处理引擎解耦 + Ascend 适配 ---
         Analyzer/Core/ascend/acl_runtime.cpp
         Analyzer/Core/backend/ascend_inference.cpp
+        Analyzer/Core/backend/onnx_inference_backend.cpp
         Analyzer/Core/imaging/dvpp_image_processor.cpp
         Analyzer/Core/pipeline/ascend_decoder.cpp
         Analyzer/Core/pipeline/ffmpeg_decoder.cpp
@@ -509,7 +510,7 @@ if(BUILD_TESTS)
     analyzer_add_test(alarm_dispatcher_test tests/alarm_dispatcher_test.cpp)
     analyzer_add_test(api_async_test tests/api_async_test.cpp)
 
-# Ascend dual-backend abstraction tests (self-contained: gtest + opencv only).
+# Ascend dual-backend abstraction tests (self-contained: gtest + opencv + ORT).
 add_executable(abstraction_test
         tests/imaging/frame_test.cpp
         tests/imaging/image_processor_contract_test.cpp
@@ -522,6 +523,9 @@ add_executable(abstraction_test
         Analyzer/Core/imaging/dvpp_image_processor.cpp
         Analyzer/Core/ascend/acl_runtime.cpp
         Analyzer/Core/backend/ascend_inference.cpp
+        # CPU 工厂现在真的会产出 ONNX 后端，所以这两个编译单元必须一起链。
+        Analyzer/Core/backend/onnx_inference_backend.cpp
+        Analyzer/Core/detector/inference.cpp
         Analyzer/Core/pipeline/ascend_decoder.cpp
         Analyzer/Core/pipeline/ffmpeg_decoder.cpp
         Analyzer/Core/pipeline/pipeline_factories.cpp
@@ -531,6 +535,8 @@ target_link_libraries(abstraction_test PRIVATE
         GTest::gtest_main
         opencv_core
         opencv_imgproc
+        opencv_dnn
+        onnxruntime
         Threads::Threads
         spdlog::spdlog
         PkgConfig::FFMPEG)
@@ -541,6 +547,11 @@ target_include_directories(abstraction_test PRIVATE
 target_compile_definitions(abstraction_test PRIVATE
         ANALYZER_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 add_test(NAME abstraction_test COMMAND $<TARGET_FILE:abstraction_test>)
+
+# 预处理与推理解耦：钉死"图标引擎的产物与 YOLOv8Detect 内部预处理逐像素等价"，
+# 以及 CPU 后端只消费张量、不再触碰 cv::Mat。走 analyzer_core 以复用真实实现。
+analyzer_add_test(preprocess_decoupling_test
+        tests/inference/preprocess_decoupling_test.cpp)
 
 # ---- 端到端内存/延迟压测（mock YOLO 推理；不接解码/Worker/Scheduler）--------
 #

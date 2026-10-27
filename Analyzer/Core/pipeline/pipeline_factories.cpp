@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "Utils/log.h"
+#include "backend/onnx_inference_backend.h"
 
 namespace avs_analyzer::pipeline {
 
@@ -17,13 +18,13 @@ std::unique_ptr<IImageProcessor> CpuPipelineFactory::CreateImageProcessor() {
 }
 
 std::unique_ptr<backend::IInferenceBackend> CpuPipelineFactory::CreateInference(
-    const ModelSpec&, int) {
-  // 待办（不在此 PR 硬塞）：现有 YOLOv8Detect 把 letterbox + HWC→NCHW 预处理
-  // 做在 RunSession(const cv::Mat&) 内部，而 IInferenceBackend 的契约是
-  // "输入已经是预处理好的张量"。直接包一层会导致二次 letterbox，
-  // 必须先把它外置成张量输入（OpenCvImageProcessor 已具备该能力）再接入。
-  LOGW("CPU 推理后端（ONNX）待接入：需先外置 YOLOv8Detect 的预处理");
-  return nullptr;
+    const ModelSpec& spec, int) {
+  DL_INIT_PARAM params{};
+  params.imgSize = {spec.input_size.w, spec.input_size.h};
+  // 色域与归一化已由图像引擎按 ModelSpec 完成（OpenCvImageProcessor），
+  // 所以这里只负责加载模型与执行，不再触碰像素。
+  // modelPath 为空时后端保持未就绪，Run() 安全返回空。
+  return std::make_unique<backend::OnnxInferenceBackend>(params);
 }
 
 std::unique_ptr<IEncoder> CpuPipelineFactory::CreateEncoder(const EncodeDesc&) {
